@@ -33,7 +33,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 | comfyui    | proc      | 8188 | —                | `comfyui` distrobox venv (`python main.py --listen`) |
 | companion  | container | 7861 | kobold + comfyui | `~/Development/companion/run-podman.sh` |
 | story      | container | 7860 | kobold (+comfyui)| `~/ai_story_maker/run-podman.sh` |
-| iguana     | proc      | 7862 | comfyui          | `~/workspace/iguana_studio/comfyui-auto` venv (`PORT=7862 python server.py`) |
+| iguana     | container | 7862 | comfyui          | `~/workspace/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI via `host.containers.internal:8188`) |
 
 ## Topology
 
@@ -76,10 +76,10 @@ systemd `--user` context). Frontends stay manual — the switch only governs the
 
 - `koboldcpp/start.sh` now runs **detached** (`podman run -d --rm`) so the stack can start-and-forget it;
   it still loads the ChatML adapter (`chatml.json`). Model reload after a restart takes ~20–30 s.
-- `comfyui`/`iguana` are host/distrobox processes (not containers). They're visible in the host PID
-  namespace (they listen on host ports), so the stack stops them by **killing the PID on their port**
-  (`ss -tlnHp`) — robust, unlike `pkill -f` which self-matches the `distrobox enter` wrapper. Logs are
-  tailed from their log files, not `podman logs`.
+- **`comfyui` is the only non-container backend** — a distrobox process. It's visible in the host PID
+  namespace (listens on a host port), so the stack stops it by **killing the PID on its port**
+  (`ss -tlnHp`) — robust, unlike `pkill -f` which self-matches the `distrobox enter` wrapper. Its logs
+  are tailed from `~/ComfyUI/comfyui.log`, not `podman logs`. (companion/story/iguana are all containers.)
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
   removes symlinked units (which then breaks `stack on`).
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are

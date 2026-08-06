@@ -31,7 +31,7 @@ reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (K
 reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI/distrobox)" proc
 reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "AI Story Maker"                            container ai-story-maker
-reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 proc
+reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
@@ -47,7 +47,7 @@ start_app() {
     companion) "$HOME/Development/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$HOME/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
     comfyui)   distrobox enter comfyui -- bash -lc 'cd ~/ComfyUI && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >~/ComfyUI/comfyui.log 2>&1 &' >/dev/null 2>&1 ;;
-    iguana)    ( cd "$HOME/workspace/iguana_studio/comfyui-auto" && PORT=7862 COMFY_PORT=8188 nohup venv/bin/python server.py >server.log 2>&1 & ) ;;
+    iguana)    "$HOME/workspace/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
 
@@ -149,7 +149,6 @@ cmd_logs() {
   local a=${1:?usage: stack logs <app>}
   case "$a" in
     comfyui) tail -n 40 -f "$HOME/ComfyUI/comfyui.log" ;;
-    iguana)  tail -n 40 -f "$HOME/workspace/iguana_studio/comfyui-auto/server.log" ;;
     *)       podman logs -f "${CNAME[$a]:-$a}" ;;
   esac
 }
