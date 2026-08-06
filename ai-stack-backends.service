@@ -1,0 +1,15 @@
+[Unit]
+Description=AI stack backends (KoboldCPP + ComfyUI)
+Documentation=file:%h/ai-stack/CLAUDE.md
+After=default.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Reuses the stack's own start logic (koboldcpp/start.sh + comfyui distrobox).
+ExecStart=%h/ai-stack/stack up
+ExecStop=%h/ai-stack/stack down backends
+TimeoutStartSec=240
+
+[Install]
+WantedBy=default.target

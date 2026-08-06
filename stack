@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# ============================================================
+# ai-stack — one launcher for the local AI backends + frontends.
+#
+#   stack                 interactive: ensure backends, then pick a frontend
+#   stack up              start the backends (koboldcpp + comfyui)
+#   stack status          show what's up
+#   stack <app>           start one app        (companion|story|iguana|koboldcpp|comfyui)
+#   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
+#   stack restart <app>
+#   stack logs <app>
+#
+# Backends are shared; frontends run side-by-side on their own ports.
+# Add a new frontend = one row in the registry below.
+# ============================================================
+set -uo pipefail
+
+NET="ai-net"
+
+BACKENDS=(koboldcpp comfyui)
+FRONTENDS=(companion story iguana)
+
+declare -A PORT HEALTH DESC KIND CNAME
+#           port  health-url                              description                              kind       container-name
+reg() { local k=$1; PORT[$k]=$2; HEALTH[$k]=$3; DESC[$k]=$4; KIND[$k]=$5; CNAME[$k]=${6:-}; }
+reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp
+reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI/distrobox)" proc
+reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
+reg story     7860 "http://localhost:7860/"              "AI Story Maker"                            container ai-story-maker
+reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 proc
+
+C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
+
+ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating network $NET"; podman network create "$NET" >/dev/null; }; }
+
+is_up() { curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null; }
+
+wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && return 0; sleep 2; done; return 1; }
+
+start_app() {
+  case "$1" in
+    koboldcpp) "$HOME/koboldcpp/start.sh" >/dev/null 2>&1 ;;
+    companion) "$HOME/Development/companion/run-podman.sh" >/dev/null 2>&1 ;;
+    story)     "$HOME/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
+    comfyui)   distrobox enter comfyui -- bash -lc 'cd ~/ComfyUI && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >~/ComfyUI/comfyui.log 2>&1 &' >/dev/null 2>&1 ;;
+    iguana)    ( cd "$HOME/workspace/iguana_studio/comfyui-auto" && PORT=7862 COMFY_PORT=8188 nohup venv/bin/python server.py >server.log 2>&1 & ) ;;
+  esac
+}
+
+stop_app() {
+  case "${KIND[$1]}" in
+    container) podman stop "${CNAME[$1]}" >/dev/null 2>&1 ;;
+    proc)
+      case "$1" in
+        comfyui) distrobox enter comfyui -- pkill -f "main.py --listen" >/dev/null 2>&1 ;;
+        iguana)  pkill -f "iguana_studio/comfyui-auto/venv/bin/python" >/dev/null 2>&1 ;;
+      esac ;;
+  esac
+  return 0
+}
+
+dot() { is_up "$1" && printf "%bup  %b" "$C_GREEN" "$C_OFF" || printf "%bdown%b" "$C_RED" "$C_OFF"; }
+
+row() { printf "  %-11s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${PORT[$1]}" "$C_OFF" "$C_DIM" "${DESC[$1]}" "$C_OFF"; }
+
+cmd_status() {
+  echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
+  echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
+}
+
+start_one() {
+  local a=$1
+  if is_up "$a"; then echo "  $a already up (:${PORT[$a]})"; return 0; fi
+  echo "==> starting $a …"; start_app "$a"
+  if wait_up "$a" "$([[ $a == koboldcpp ]] && echo 60 || echo 30)"; then
+    echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}"
+  else
+    echo "  ${C_RED}✗${C_OFF} $a did not come up — check: stack logs $a"; return 1
+  fi
+}
+
+cmd_up() { ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done; }
+
+cmd_down() {
+  local t=${1:-all} list=()
+  case "$t" in
+    all)       list=("${FRONTENDS[@]}" "${BACKENDS[@]}") ;;
+    backends)  list=("${BACKENDS[@]}") ;;
+    frontends) list=("${FRONTENDS[@]}") ;;
+    *)         [[ -n "${KIND[$t]:-}" ]] && list=("$t") || { echo "unknown target: $t"; return 1; } ;;
+  esac
+  for a in "${list[@]}"; do echo "==> stopping $a"; stop_app "$a"; done
+}
+
+cmd_menu() {
+  echo "${C_B}ai-stack${C_OFF}"; echo
+  cmd_status; echo
+  # ensure backends
+  local need=()
+  for a in "${BACKENDS[@]}"; do is_up "$a" || need+=("$a"); done
+  if ((${#need[@]})); then
+    read -rp "Start backends (${need[*]})? [Y/n] " ans
+    [[ "${ans:-Y}" =~ ^[Nn] ]] || { ensure_net; for a in "${need[@]}"; do start_one "$a"; done; echo; }
+  fi
+  # pick a frontend
+  echo "Pick a frontend to launch:"
+  local i=1; for a in "${FRONTENDS[@]}"; do printf "  %d) %-10s %s\n" "$i" "$a" "${DESC[$a]}"; ((i++)); done
+  printf "  0) done\n"
+  read -rp "> " sel
+  [[ "$sel" =~ ^[0-9]+$ ]] || { echo "cancelled"; return; }
+  ((sel==0)) && return
+  local pick="${FRONTENDS[$((sel-1))]:-}"
+  [[ -n "$pick" ]] && start_one "$pick" || echo "invalid choice"
+}
+
+cmd_logs() {
+  local a=${1:?usage: stack logs <app>}
+  case "$a" in
+    comfyui) tail -n 40 -f "$HOME/ComfyUI/comfyui.log" ;;
+    iguana)  tail -n 40 -f "$HOME/workspace/iguana_studio/comfyui-auto/server.log" ;;
+    *)       podman logs -f "${CNAME[$a]:-$a}" ;;
+  esac
+}
+
+case "${1:-}" in
+  ""|menu)   cmd_menu ;;
+  up|backends) cmd_up ;;
+  status|st) cmd_status ;;
+  down)      cmd_down "${2:-all}" ;;
+  restart)   a=${2:?usage: stack restart <app>}; stop_app "$a"; sleep 1; ensure_net; start_one "$a" ;;
+  logs)      cmd_logs "${2:-}" ;;
+  -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)         a=$1; [[ -n "${KIND[$a]:-}" ]] || { echo "unknown app: $a (try: stack status)"; exit 1; }
+             [[ " ${FRONTENDS[*]} " == *" $a "* ]] && ensure_net
+             start_one "$a" ;;
+esac
