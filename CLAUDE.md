@@ -11,9 +11,12 @@ shared across every app; frontends run side-by-side on their own ports.
 ## Usage
 
 ```bash
+stack on / stack off  # SINGLE SWITCH for the AI backend (the one to remember):
+                      #   off = stop backends + won't restart at boot  → free the GPU to game
+                      #   on  = start backends now + re-arm boot auto-start
 stack              # interactive: show status, offer to start backends, then pick a frontend
-stack up           # start the backends (koboldcpp + comfyui) and wait for them
-stack status       # what's up (backends + frontends, with ports)
+stack up           # start backends now WITHOUT changing the boot toggle
+stack status       # what's up (+ shows the ON/OFF switch state)
 stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
@@ -47,32 +50,38 @@ Add one `reg <name> <port> <health-url> "<desc>" <container|proc> [container-nam
 `FRONTENDS=(…)` list, and add its start line to `start_app()` (a `run-podman.sh` for containers, or a
 backgrounded process for host/distrobox apps). Stop logic keys off `KIND`.
 
-## Boot auto-start (backends only)
+## The on/off switch (gaming ↔ AI) + boot auto-start
 
-`ai-stack-backends.service` — a **systemd user** unit (oneshot) that runs `stack up` at boot, so
-KoboldCPP + ComfyUI are ready and you just pick a frontend. Frontends stay manual.
+`ai-stack-backends.service` — a **systemd user** unit (oneshot, `stack up`/`stack down backends`) is the
+**single source of truth**. `stack on`/`stack off` drive it:
+- **`stack off`** → `systemctl --user disable --now` → stops KoboldCPP + ComfyUI **and** removes the boot
+  start. Nothing brings them back until you `stack on`, so the GPU stays free for gaming across reboots.
+- **`stack on`** → `systemctl --user enable --now` → starts them now and re-arms boot.
 
 ```bash
-# install (once): symlink the repo unit, enable, and allow boot-without-login
-ln -sf ~/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
+# install the unit (once). COPY it — do NOT symlink (systemctl disable deletes a symlinked unit).
+cp ~/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now ai-stack-backends.service
-loginctl enable-linger              # start at boot even before you log in
+loginctl enable-linger        # start at boot even before you log in
+stack on                      # arm it (enable + start)
 
-systemctl --user status ai-stack-backends     # check
-journalctl --user -u ai-stack-backends -f     # logs
-systemctl --user disable --now ai-stack-backends.service   # opt out
+systemctl --user status ai-stack-backends   # low-level check
+journalctl --user -u ai-stack-backends -f   # boot logs
 ```
 
-Reuses the stack's own start logic (so it stays DRY), including the distrobox ComfyUI start (verified
-to work under the systemd `--user` context). `ExecStop` runs `stack down backends`.
+Reuses the stack's own start logic (DRY), including the distrobox ComfyUI start (verified under the
+systemd `--user` context). Frontends stay manual — the switch only governs the shared backends.
 
 ## Notes / gotchas
 
 - `koboldcpp/start.sh` now runs **detached** (`podman run -d --rm`) so the stack can start-and-forget it;
   it still loads the ChatML adapter (`chatml.json`). Model reload after a restart takes ~20–30 s.
-- `comfyui`/`iguana` are host/distrobox processes (not containers) — stopped via `pkill` patterns, logs
-  are tailed from their log files, not `podman logs`.
+- `comfyui`/`iguana` are host/distrobox processes (not containers). They're visible in the host PID
+  namespace (they listen on host ports), so the stack stops them by **killing the PID on their port**
+  (`ss -tlnHp`) — robust, unlike `pkill -f` which self-matches the `distrobox enter` wrapper. Logs are
+  tailed from their log files, not `podman logs`.
+- The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
+  removes symlinked units (which then breaks `stack on`).
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are
   still associated with it; it clears once they're recreated on `ai-net`.
 - This dir isn't a git repo yet — `git init` if you want it versioned.

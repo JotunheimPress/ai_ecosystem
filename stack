@@ -3,7 +3,10 @@
 # ai-stack — one launcher for the local AI backends + frontends.
 #
 #   stack                 interactive: ensure backends, then pick a frontend
-#   stack up              start the backends (koboldcpp + comfyui)
+#   stack on / off        ENABLE / DISABLE the AI backend — the single switch.
+#                           off = stop backends + no boot restart (free the GPU to game)
+#                           on  = start backends now + at boot
+#   stack up              start the backends now (without touching the boot toggle)
 #   stack status          show what's up
 #   stack <app>           start one app        (companion|story|iguana|koboldcpp|comfyui)
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
@@ -16,6 +19,7 @@
 set -uo pipefail
 
 NET="ai-net"
+SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
 BACKENDS=(koboldcpp comfyui)
 FRONTENDS=(companion story iguana)
@@ -51,10 +55,11 @@ stop_app() {
   case "${KIND[$1]}" in
     container) podman stop "${CNAME[$1]}" >/dev/null 2>&1 ;;
     proc)
-      case "$1" in
-        comfyui) distrobox enter comfyui -- pkill -f "main.py --listen" >/dev/null 2>&1 ;;
-        iguana)  pkill -f "iguana_studio/comfyui-auto/venv/bin/python" >/dev/null 2>&1 ;;
-      esac ;;
+      # These processes are visible in the host PID namespace (they listen on host
+      # ports), so stop them by their listening port — robust, no pkill self-match.
+      local p
+      p=$(ss -tlnHp 2>/dev/null | grep -F ":${PORT[$1]}" | grep -oP 'pid=\K[0-9]+' | head -1)
+      [ -n "${p:-}" ] && kill "$p" 2>/dev/null ;;
   esac
   return 0
 }
@@ -64,6 +69,10 @@ dot() { is_up "$1" && printf "%bup  %b" "$C_GREEN" "$C_OFF" || printf "%bdown%b"
 row() { printf "  %-11s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${PORT[$1]}" "$C_OFF" "$C_DIM" "${DESC[$1]}" "$C_OFF"; }
 
 cmd_status() {
+  if have_svc; then
+    if svc_enabled; then echo "AI backend switch: ${C_GREEN}ON${C_OFF}  (auto-starts at boot)"
+    else                 echo "AI backend switch: ${C_RED}OFF${C_OFF} (gaming mode — won't start at boot)"; fi
+  fi
   echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
 }
@@ -90,6 +99,29 @@ cmd_down() {
     *)         [[ -n "${KIND[$t]:-}" ]] && list=("$t") || { echo "unknown target: $t"; return 1; } ;;
   esac
   for a in "${list[@]}"; do echo "==> stopping $a"; stop_app "$a"; done
+}
+
+have_svc()     { systemctl --user list-unit-files "$SVC" >/dev/null 2>&1; }
+svc_enabled()  { systemctl --user is-enabled "$SVC" 2>/dev/null | grep -qx enabled; }
+
+cmd_on() {
+  ensure_net
+  if have_svc; then
+    systemctl --user enable --now "$SVC" >/dev/null 2>&1
+    echo "${C_GREEN}AI backend ON${C_OFF} — running + will start at boot."
+  else
+    echo "(systemd unit not installed — starting backends without boot toggle)"; cmd_up
+  fi
+}
+
+cmd_off() {
+  if have_svc; then
+    # disable --now: stop the service (ExecStop = 'stack down backends') AND remove boot start.
+    systemctl --user disable --now "$SVC" >/dev/null 2>&1
+  fi
+  cmd_down backends >/dev/null 2>&1   # belt-and-suspenders: ensure they're really down
+  echo "${C_RED}AI backend OFF${C_OFF} — stopped and will NOT restart at boot. GPU free to game."
+  echo "  re-enable with: stack on"
 }
 
 cmd_menu() {
@@ -124,6 +156,8 @@ cmd_logs() {
 
 case "${1:-}" in
   ""|menu)   cmd_menu ;;
+  on|enable)  cmd_on ;;
+  off|disable|gaming) cmd_off ;;
   up|backends) cmd_up ;;
   status|st) cmd_status ;;
   down)      cmd_down "${2:-all}" ;;
