@@ -47,6 +47,26 @@ Add one `reg <name> <port> <health-url> "<desc>" <container|proc> [container-nam
 `FRONTENDS=(…)` list, and add its start line to `start_app()` (a `run-podman.sh` for containers, or a
 backgrounded process for host/distrobox apps). Stop logic keys off `KIND`.
 
+## Boot auto-start (backends only)
+
+`ai-stack-backends.service` — a **systemd user** unit (oneshot) that runs `stack up` at boot, so
+KoboldCPP + ComfyUI are ready and you just pick a frontend. Frontends stay manual.
+
+```bash
+# install (once): symlink the repo unit, enable, and allow boot-without-login
+ln -sf ~/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ai-stack-backends.service
+loginctl enable-linger              # start at boot even before you log in
+
+systemctl --user status ai-stack-backends     # check
+journalctl --user -u ai-stack-backends -f     # logs
+systemctl --user disable --now ai-stack-backends.service   # opt out
+```
+
+Reuses the stack's own start logic (so it stays DRY), including the distrobox ComfyUI start (verified
+to work under the systemd `--user` context). `ExecStop` runs `stack down backends`.
+
 ## Notes / gotchas
 
 - `koboldcpp/start.sh` now runs **detached** (`podman run -d --rm`) so the stack can start-and-forget it;
