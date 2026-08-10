@@ -12,6 +12,10 @@
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
+#   stack install [target]  one-time setup: build backend images, create the network,
+#                           install the systemd unit, link onto PATH. Idempotent.
+#                           all|backends|koboldcpp|comfyui|service|path  (default: all)
+#   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
 # Add a new frontend = one row in the registry below.
@@ -180,6 +184,137 @@ cmd_logs() {
   podman logs -f "${CNAME[$a]:-$a}"
 }
 
+# ---------- install ------------------------------------------------------------
+# Executable form of koboldcpp/INSTALL.md + comfyui/INSTALL.md, so the docs and the
+# real thing can't drift. Everything here is idempotent: re-running reports what is
+# already in place and does nothing. Model weights are never downloaded — they're
+# third-party and ~73 GB; install only tells you what's missing.
+
+IMG_KOBOLD="localhost/koboldcpp:latest"
+IMG_COMFY="localhost/comfyui:latest"
+
+WARNS=0
+ok()   { echo "  ${C_GREEN}✓${C_OFF} $*"; }
+warn() { WARNS=$((WARNS+1)); echo "  ${C_RED}!${C_OFF} $*"; }
+step() { echo "==> $*"; }
+
+check_prereqs() {
+  local bad=0
+  command -v podman >/dev/null 2>&1 && ok "podman $(podman --version | awk '{print $3}')" \
+    || { warn "podman not found — required"; bad=1; }
+  if nvidia-smi >/dev/null 2>&1; then
+    ok "nvidia driver: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
+  else
+    warn "nvidia-smi failed on the host — GPU passthrough will not work"; bad=1
+  fi
+  if nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
+    ok "CDI device nvidia.com/gpu=all present"
+  else
+    warn "no CDI spec — run: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"; bad=1
+  fi
+  return $bad
+}
+
+install_path() {
+  local target="$HOME/.local/bin/stack" src; src="$(readlink -f "${BASH_SOURCE[0]}")"
+  if [ -e "$target" ] && [ "$(readlink -f "$target")" = "$src" ]; then
+    ok "on PATH at $target"
+  else
+    step "linking $target -> $src"
+    mkdir -p "$HOME/.local/bin" && ln -sfn "$src" "$target" && ok "linked"
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) warn "$HOME/.local/bin is not on your PATH" ;; esac
+  fi
+}
+
+install_service() {
+  local dst="$HOME/.config/systemd/user/$SVC"
+  # COPY, never symlink: `systemctl disable` deletes a symlinked unit, which then
+  # breaks `stack on`.
+  if [ -f "$dst" ] && cmp -s "$SELF/$SVC" "$dst"; then
+    ok "systemd unit installed ($dst)"
+  else
+    step "installing systemd unit -> $dst"
+    mkdir -p "$(dirname "$dst")" && cp -f "$SELF/$SVC" "$dst" && systemctl --user daemon-reload && ok "installed"
+  fi
+  [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" = "yes" ] \
+    && ok "linger enabled (backends can start before login)" \
+    || warn "linger off — run: loginctl enable-linger"
+  svc_enabled && ok "boot auto-start armed (stack on)" || echo "  ${C_DIM}boot auto-start off — arm with: stack on${C_OFF}"
+}
+
+install_koboldcpp() {
+  step "koboldcpp"
+  if podman image exists "$IMG_KOBOLD"; then
+    ok "image $IMG_KOBOLD built"
+  else
+    echo "  building (pulls the CUDA base + KoboldCPP binary; a few minutes)…"
+    podman build -t "$IMG_KOBOLD" "$ECO/koboldcpp" || { warn "build failed"; return 1; }
+    ok "image built"
+  fi
+  local models="$ECO/koboldcpp/models" n=0
+  mkdir -p "$models"
+  n=$(find "$models" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)
+  ((n)) && ok "$n GGUF model(s) in $models" \
+        || warn "no *.gguf in $models — see ai-stack/koboldcpp/INSTALL.md §2"
+}
+
+install_comfyui() {
+  step "comfyui"
+  if podman image exists "$IMG_COMFY"; then
+    ok "image $IMG_COMFY built"
+  else
+    echo "  building (torch + CUDA wheels, ~6.9 GB; several minutes)…"
+    podman build -t "$IMG_COMFY" "$SELF/comfyui" || { warn "build failed"; return 1; }
+    ok "image built"
+  fi
+  # Code ships in the image; the host tree only holds state. Create the skeleton so a
+  # fresh install can start before any models are downloaded.
+  local state="${COMFYUI_STATE:-$ECO/ComfyUI}" d
+  for d in models/checkpoints input output user custom_nodes; do mkdir -p "$state/$d"; done
+  ok "state dirs ready under $state"
+  local n; n=$(find "$state/models/checkpoints" -maxdepth 1 -type f \
+                    \( -name '*.safetensors' -o -name '*.ckpt' \) 2>/dev/null | wc -l)
+  ((n)) && ok "$n checkpoint(s) in $state/models/checkpoints" \
+        || warn "no checkpoints — see ai-stack/comfyui/INSTALL.md §8 (start with absolutereality_v181)"
+}
+
+cmd_install() {
+  local t=${1:-all} rc=0
+  case "$t" in all|backends|koboldcpp|comfyui|service|path) ;;
+    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|service|path)"; return 1 ;;
+  esac
+  echo "${C_B}ai-stack install${C_OFF} — target: $t   ${C_DIM}(idempotent; weights are never downloaded)${C_OFF}"
+  echo "${C_B}Prerequisites${C_OFF}"; check_prereqs || rc=1
+  [[ "$t" == all || "$t" == path ]]    && { echo "${C_B}PATH${C_OFF}";    install_path; }
+  [[ "$t" == all || "$t" == service ]] && { echo "${C_B}systemd${C_OFF}"; install_service; }
+  if [[ "$t" == all || "$t" == backends || "$t" == koboldcpp || "$t" == comfyui ]]; then
+    echo "${C_B}Backends${C_OFF}"; ensure_net
+    [[ "$t" == comfyui   ]] || install_koboldcpp || rc=1
+    [[ "$t" == koboldcpp ]] || install_comfyui   || rc=1
+  fi
+  echo
+  # Missing weights are not an install failure — they're deliberately out of scope —
+  # but "complete" would be a lie when nothing can actually start. Say which it is.
+  if ((rc)); then
+    echo "${C_RED}install failed${C_OFF} — unmet prerequisites above"
+  elif ((WARNS)); then
+    echo "${C_RED}install done, $WARNS item(s) need you${C_OFF} — the stack won't start until they're resolved"
+  else
+    echo "${C_GREEN}install complete${C_OFF} — start with: stack on"
+  fi
+  ((rc)) && return 1 || return 0
+}
+
+cmd_doctor() {
+  echo "${C_B}Prerequisites${C_OFF}"; check_prereqs
+  echo "${C_B}Installed${C_OFF}"
+  podman image exists "$IMG_KOBOLD" && ok "$IMG_KOBOLD" || warn "$IMG_KOBOLD missing — stack install koboldcpp"
+  podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
+  podman network exists "$NET" 2>/dev/null && ok "network $NET" || warn "network $NET missing — stack install"
+  [ -f "$HOME/.config/systemd/user/$SVC" ] && ok "systemd unit $SVC" || warn "$SVC not installed — stack install service"
+  echo "${C_B}Runtime${C_OFF}"; cmd_status
+}
+
 case "${1:-}" in
   ""|menu)   cmd_menu ;;
   on|enable)  cmd_on ;;
@@ -189,7 +324,9 @@ case "${1:-}" in
   down)      cmd_down "${2:-all}" ;;
   restart)   a=${2:?usage: stack restart <app>}; stop_app "$a"; sleep 1; ensure_net; start_one "$a" ;;
   logs)      cmd_logs "${2:-}" ;;
-  -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+  install|setup) cmd_install "${2:-all}" ;;
+  doctor|check)  cmd_doctor ;;
+  -h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
   *)         a=$1; [[ -n "${KIND[$a]:-}" ]] || { echo "unknown app: $a (try: stack status)"; exit 1; }
              [[ " ${FRONTENDS[*]} " == *" $a "* ]] && ensure_net
              start_one "$a" ;;

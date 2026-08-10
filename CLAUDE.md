@@ -37,6 +37,11 @@ stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
+
+stack install      # one-time setup, idempotent: build backend images, create ai-net,
+                   #   install the systemd unit, link onto PATH.
+                   #   targets: all|backends|koboldcpp|comfyui|service|path
+stack doctor       # check prerequisites + what's installed; changes nothing
 ```
 
 Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack companion` directly.
@@ -65,6 +70,22 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 Add one `reg <name> <port> <health-url> "<desc>" <container|proc> [container-name]` row, add it to the
 `FRONTENDS=(…)` list, and add its start line to `start_app()` (a `run-podman.sh` for containers, or a
 backgrounded process for a host-side `proc` app). Stop logic keys off `KIND`.
+
+## Install (`stack install`)
+
+Executable form of `koboldcpp/INSTALL.md` + `comfyui/INSTALL.md`, so the docs and the real thing
+can't drift. Every step is idempotent — re-running reports what's already in place and does nothing.
+
+What it does: checks prerequisites (podman, host driver, CDI spec) → links `~/.local/bin/stack` →
+copies the systemd unit and `daemon-reload`s → creates `ai-net` → builds the two backend images →
+creates the ComfyUI state skeleton (`models/checkpoints`, `input`, `output`, `user`, `custom_nodes`).
+
+**It never downloads model weights** — they're third-party and ~73 GB. It reports what's missing and
+points at the relevant INSTALL.md section instead. Because of that, a fresh install ends with
+*"install done, N item(s) need you"* rather than "complete": the images are built but nothing can
+start until you supply a GGUF and a checkpoint.
+
+`stack doctor` is the read-only half — prerequisites, images, network, unit, plus `stack status`.
 
 ## The on/off switch (gaming ↔ AI) + boot auto-start
 
