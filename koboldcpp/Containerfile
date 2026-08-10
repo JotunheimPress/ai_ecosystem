@@ -1,0 +1,27 @@
+# KoboldCPP — CUDA build for NVIDIA GPUs
+# Change KOBOLDCPP_VERSION to match a tag from:
+# https://github.com/LostRuins/koboldcpp/releases
+ARG KOBOLDCPP_VERSION=1.111.2
+
+FROM docker.io/nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS base
+
+ARG KOBOLDCPP_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download the pre-built Linux binary (CUDA bundled since v1.x)
+RUN curl -fsSL \
+    "https://github.com/LostRuins/koboldcpp/releases/download/v${KOBOLDCPP_VERSION}/koboldcpp-linux-x64" \
+    -o /usr/local/bin/koboldcpp \
+    && chmod +x /usr/local/bin/koboldcpp
+
+VOLUME /models
+EXPOSE 5001
+
+ENTRYPOINT ["/usr/local/bin/koboldcpp"]
+# Pass extra flags after "--" when using start.sh, or override CMD entirely.
+# --usecublas enables CUDA; --gpulayers -1 offloads all layers to GPU.
+CMD ["--host", "127.0.0.1", "--port", "5001", "--usecublas", "--gpulayers", "-1"]

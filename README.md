@@ -58,10 +58,12 @@ Podman, distrobox, curl, and an NVIDIA GPU. Designed for an immutable Fedora/Baz
 `stack` is a **launcher, not an installer** — it assumes the backends already exist. To build one
 from scratch:
 
+- **KoboldCPP** — [`koboldcpp/INSTALL.md`](koboldcpp/INSTALL.md). The full recipe is in this repo
+  (`Containerfile`, `start.sh`, `chatml.json`); bring your own GGUF and run `./start.sh`.
 - **ComfyUI** — [`comfyui/INSTALL.md`](comfyui/INSTALL.md): distrobox creation, the CUDA-pinned
   torch install, pinned requirements, systemd unit, and the model shopping list.
-- **KoboldCPP** — not yet published; its `Containerfile` + `start.sh` currently live only outside
-  this repo.
+
+Model weights are never vendored — both guides list what's in use and where to get it.
 
 Note that `stack` resolves projects under `$HOME/Development/ai_ecosystem` and expects them as
 sibling directories, so it isn't turnkey on a different layout without editing that path.

@@ -8,6 +8,10 @@ shared across every app; frontends run side-by-side on their own ports.
 - `stack` — the launcher (bash). Registry of apps is a block of `reg` rows near the top; add a new
   frontend = one row. Symlinked onto PATH at `~/.local/bin/stack`.
 - `ai-stack-backends.service` — systemd user unit template (copy into `~/.config/systemd/user/`).
+- `koboldcpp/` — the **canonical** KoboldCPP recipe: `Containerfile`, `start.sh`, `chatml.json`,
+  `.containerignore`, plus `INSTALL.md` / `CLAUDE.md`. The working tree at
+  `~/Development/ai_ecosystem/koboldcpp/` symlinks back to these, so the running stack and the
+  published recipe can't drift; only `models/` (~15 GB) stays out there, uncommitted.
 - `comfyui/` — everything for the ComfyUI backend that isn't upstream's: `INSTALL.md` (distrobox +
   CUDA-pinned torch + model list), `CLAUDE.md` (notes), and two lock files —
   `requirements.lock.v0.31.1.txt` (current, install this) and `requirements.lock.pre-0.31.txt`

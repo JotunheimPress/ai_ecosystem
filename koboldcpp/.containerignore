@@ -1,0 +1,6 @@
+# start.sh builds with the project dir as context; without this, podman would
+# tar the entire models/ tree (~15 GB of GGUFs) on every build.
+models/
+*.gguf
+CLAUDE.md
+INSTALL.md
