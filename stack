@@ -18,7 +18,11 @@
 # ============================================================
 set -uo pipefail
 
-ECO="$HOME/Development/ai_ecosystem"   # all AI projects live here
+# Where the AI projects live. Override with AI_ECOSYSTEM; otherwise derive it from
+# this script's own location (readlink -f resolves the ~/.local/bin/stack symlink),
+# i.e. the directory holding the ai-stack checkout. Nothing is hardcoded, so the
+# stack works wherever the projects are cloned as siblings.
+ECO="${AI_ECOSYSTEM:-$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")}"
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
@@ -47,7 +51,7 @@ start_app() {
     koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null 2>&1 ;;
     companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
-    comfyui)   distrobox enter comfyui -- bash -lc 'cd ~/Development/ai_ecosystem/ComfyUI && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >~/Development/ai_ecosystem/ComfyUI/comfyui.log 2>&1 &' >/dev/null 2>&1 ;;
+    comfyui)   distrobox enter comfyui -- bash -lc "cd '$ECO/ComfyUI' && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >'$ECO/ComfyUI/comfyui.log' 2>&1 &" >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
