@@ -43,6 +43,13 @@ Installed today:
 |---|---|---|
 | `ComfyUI-PhotoMaker-Plus` (shiimizu, pinned `459f5c0`) | `insightface==1.0.1`, `onnxruntime==1.28.0` | iguana studio's Person mode |
 
+`stack install comfyui` clones these at their pins from the `CUSTOM_NODES=(…)` registry in `stack`
+and `stack doctor` reports drift, so the checkout half is reproducible on a fresh machine. **Weights
+still aren't** — PhotoMaker needs `models/photomaker/photomaker-v{1,2}.bin`, and V2 additionally
+needs InsightFace `buffalo_l` (5 `.onnx` files) at `models/insightface/models/buffalo_l/` — note the
+doubled path, which is how insightface resolves `<root>/models/<name>`. Install reports both as
+missing rather than downloading them.
+
 **Don't install a custom node's `requirements.txt` blindly.** PhotoMaker-Plus's pins `numpy<2`
 (for the old insightface 0.7.3 sdist), which would downgrade numpy under torch 2.11 and break the
 image; and it wants `onnxruntime-gpu`, which has no CUDA 13 build to match this image's torch. See

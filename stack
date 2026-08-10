@@ -193,6 +193,21 @@ cmd_logs() {
 IMG_KOBOLD="localhost/koboldcpp:latest"
 IMG_COMFY="localhost/comfyui:latest"
 
+# ComfyUI custom nodes the frontends depend on. Cloned into the bind-mounted
+# custom_nodes/ state dir, pinned to a commit so a rebuild can't silently pull in
+# upstream changes.
+#
+# IMPORTANT: a node's Python dependencies do NOT belong here. custom_nodes/ is
+# state, but the container is recreated on every start, so runtime pip installs
+# evaporate. Deps go in comfyui/Containerfile — adding a row here usually means
+# adding a line there too. Weights are never downloaded (see the note in
+# cmd_install); missing ones are reported, not fetched.
+#
+#            name|repo|pinned commit
+CUSTOM_NODES=(
+  "ComfyUI-PhotoMaker-Plus|https://github.com/shiimizu/ComfyUI-PhotoMaker-Plus.git|459f5c009e8bc3fe76bd63a7f302ddf3406c7062"
+)
+
 WARNS=0
 ok()   { echo "  ${C_GREEN}✓${C_OFF} $*"; }
 warn() { WARNS=$((WARNS+1)); echo "  ${C_RED}!${C_OFF} $*"; }
@@ -258,6 +273,44 @@ install_koboldcpp() {
         || warn "no *.gguf in $models — see ai-stack/koboldcpp/INSTALL.md §2"
 }
 
+install_custom_nodes() {
+  local state=$1 row name url pin dir have
+  ((${#CUSTOM_NODES[@]})) || return 0
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git not found — cannot install custom nodes"; return 0
+  fi
+  for row in "${CUSTOM_NODES[@]}"; do
+    IFS='|' read -r name url pin <<<"$row"
+    dir="$state/custom_nodes/$name"
+    if [ -d "$dir/.git" ]; then
+      have=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+      if [ "$have" = "$pin" ]; then
+        ok "custom node $name @ ${pin:0:7}"
+      else
+        step "custom node $name: ${have:0:7} -> ${pin:0:7}"
+        # Not --depth 1 anywhere in here: a shallow clone only carries the tip, so
+        # checking out an older pin would fail the moment upstream moves on.
+        git -C "$dir" fetch --quiet origin 2>/dev/null
+        if git -C "$dir" checkout --quiet "$pin" 2>/dev/null; then
+          ok "custom node $name @ ${pin:0:7}"
+        else
+          warn "custom node $name: commit $pin not found in $dir"
+        fi
+      fi
+    elif [ -e "$dir" ]; then
+      warn "custom node $name exists but isn't a git checkout — left alone ($dir)"
+    else
+      step "cloning custom node $name"
+      if git clone --quiet "$url" "$dir" 2>/dev/null \
+         && git -C "$dir" checkout --quiet "$pin" 2>/dev/null; then
+        ok "custom node $name @ ${pin:0:7}"
+      else
+        warn "custom node $name: clone failed — $url"
+      fi
+    fi
+  done
+}
+
 install_comfyui() {
   step "comfyui"
   if podman image exists "$IMG_COMFY"; then
@@ -276,6 +329,20 @@ install_comfyui() {
                     \( -name '*.safetensors' -o -name '*.ckpt' \) 2>/dev/null | wc -l)
   ((n)) && ok "$n checkpoint(s) in $state/models/checkpoints" \
         || warn "no checkpoints — see ai-stack/comfyui/INSTALL.md §8 (start with absolutereality_v181)"
+
+  install_custom_nodes "$state"
+
+  # PhotoMaker-Plus is inert without its weights, and weights are out of scope —
+  # so say what's missing rather than pretending the node is ready to use.
+  if [ -d "$state/custom_nodes/ComfyUI-PhotoMaker-Plus" ]; then
+    n=$(find "$state/models/photomaker" -maxdepth 1 -name '*.bin' 2>/dev/null | wc -l)
+    ((n)) && ok "$n PhotoMaker model(s) in $state/models/photomaker" \
+          || warn "no PhotoMaker weights — put photomaker-v{1,2}.bin in $state/models/photomaker"
+    # insightface resolves buffalo_l as <root>/models/<name>, hence the doubled path.
+    [ -f "$state/models/insightface/models/buffalo_l/det_10g.onnx" ] \
+      && ok "InsightFace buffalo_l present" \
+      || warn "no InsightFace buffalo_l — needs the 5 .onnx files in $state/models/insightface/models/buffalo_l/ (PhotoMaker V2 only)"
+  fi
 }
 
 cmd_install() {
@@ -312,6 +379,18 @@ cmd_doctor() {
   podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
   podman network exists "$NET" 2>/dev/null && ok "network $NET" || warn "network $NET missing — stack install"
   [ -f "$HOME/.config/systemd/user/$SVC" ] && ok "systemd unit $SVC" || warn "$SVC not installed — stack install service"
+  local state="${COMFYUI_STATE:-$ECO/ComfyUI}" row name pin dir
+  for row in "${CUSTOM_NODES[@]}"; do
+    IFS='|' read -r name _ pin <<<"$row"
+    dir="$state/custom_nodes/$name"
+    if [ ! -d "$dir/.git" ]; then
+      warn "custom node $name missing — stack install comfyui"
+    elif [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$pin" ]; then
+      ok "custom node $name @ ${pin:0:7}"
+    else
+      warn "custom node $name off its pin (${pin:0:7}) — stack install comfyui"
+    fi
+  done
   echo "${C_B}Runtime${C_OFF}"; cmd_status
 }
 

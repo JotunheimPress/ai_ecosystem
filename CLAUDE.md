@@ -78,7 +78,19 @@ can't drift. Every step is idempotent — re-running reports what's already in p
 
 What it does: checks prerequisites (podman, host driver, CDI spec) → links `~/.local/bin/stack` →
 copies the systemd unit and `daemon-reload`s → creates `ai-net` → builds the two backend images →
-creates the ComfyUI state skeleton (`models/checkpoints`, `input`, `output`, `user`, `custom_nodes`).
+creates the ComfyUI state skeleton (`models/checkpoints`, `input`, `output`, `user`, `custom_nodes`)
+→ clones the ComfyUI **custom nodes** at their pinned commits.
+
+Custom nodes come from the `CUSTOM_NODES=(…)` registry near the top of `stack` — one
+`name|repo|pinned-commit` row each, mirroring the app registry. The clone is idempotent and
+self-healing: on-pin is a no-op, off-pin is fetched and re-checked-out, and a directory that isn't a
+git checkout is reported and left untouched rather than clobbered. Clones are deliberately **not**
+shallow — `--depth 1` only carries the tip, so an older pin would stop resolving once upstream moved.
+`stack doctor` reports the same three states read-only.
+
+**A node's Python deps do not go in that registry.** `custom_nodes/` is bind-mounted state, but the
+container is recreated on every start, so a runtime `pip install` is gone by the next one — deps
+belong in `comfyui/Containerfile`. Adding a row here usually means adding a line there too.
 
 **It never downloads model weights** — they're third-party and ~73 GB. It reports what's missing and
 points at the relevant INSTALL.md section instead. Because of that, a fresh install ends with
