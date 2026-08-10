@@ -65,5 +65,25 @@ from scratch:
 
 Model weights are never vendored — both guides list what's in use and where to get it.
 
-Note that `stack` resolves projects under `$HOME/Development/ai_ecosystem` and expects them as
-sibling directories, so it isn't turnkey on a different layout without editing that path.
+## Layout
+
+`stack` expects the projects as **sibling directories** next to this checkout:
+
+```
+ai_ecosystem/
+├── ai-stack/       # this repo
+├── koboldcpp/      # backend
+├── ComfyUI/        # backend
+├── companion/      # frontend
+├── ai_story_maker/ # frontend
+└── iguana_studio/  # frontend
+```
+
+The root is found automatically from the script's own location, so cloning them side by side is all
+that's needed — nothing to configure. To keep them elsewhere, set `AI_ECOSYSTEM`:
+
+```bash
+export AI_ECOSYSTEM=/path/to/your/projects
+```
+
+You only need the frontends you actually use; `stack` starts each on demand.

@@ -7,6 +7,10 @@ shared across every app; frontends run side-by-side on their own ports.
 
 - `stack` — the launcher (bash). Registry of apps is a block of `reg` rows near the top; add a new
   frontend = one row. Symlinked onto PATH at `~/.local/bin/stack`.
+  **Path resolution:** `ECO` is `$AI_ECOSYSTEM` if set, else derived from the script's own location
+  (`readlink -f` resolves the PATH symlink; the ecosystem root is the checkout's parent). Projects
+  are expected as siblings. Don't reintroduce a hardcoded path — and note the ComfyUI start line
+  must stay double-quoted so `$ECO` interpolates before it's handed to the distrobox.
 - `ai-stack-backends.service` — systemd user unit template (copy into `~/.config/systemd/user/`).
 - `koboldcpp/` — the **canonical** KoboldCPP recipe: `Containerfile`, `start.sh`, `chatml.json`,
   `.containerignore`, plus `INSTALL.md` / `CLAUDE.md`. The working tree at
