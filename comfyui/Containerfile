@@ -1,0 +1,54 @@
+# ComfyUI — containerized backend for the ai-stack.
+#
+# Code lives in the image (cloned at a pinned tag); mutable state (models, input,
+# output, user, custom_nodes) is bind-mounted from the host checkout and pointed at
+# with --base-directory. Bump COMFYUI_VERSION and rebuild to upgrade.
+#
+# No CUDA base image needed: the cu130 torch wheels bundle the CUDA runtime, and the
+# driver is injected by CDI (--device nvidia.com/gpu=all), same as koboldcpp.
+ARG COMFYUI_VERSION=v0.31.1
+
+FROM docker.io/library/ubuntu:24.04 AS base
+
+ARG COMFYUI_VERSION
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# libgl1/libglib2.0-0t64 are pulled in by OpenCV via several ComfyUI deps; without
+# them you get an import error at startup rather than at install time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+        python3 \
+        python3-venv \
+        libgl1 \
+        libglib2.0-0t64 \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${COMFYUI_VERSION}" \
+        https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI
+
+WORKDIR /opt/ComfyUI
+
+# torch FIRST, from the CUDA 13.0 index — the default PyPI index serves a different
+# build that will not match this environment.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu130 \
+        torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+
+# Then the pinned environment. Captured from the reference install; torch is already
+# satisfied above (PEP 440: 2.11.0+cu130 matches ==2.11.0).
+COPY requirements.lock.v0.31.1.txt /tmp/requirements.lock.txt
+RUN pip install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cu130 \
+        -r /tmp/requirements.lock.txt \
+    && rm /tmp/requirements.lock.txt
+
+EXPOSE 8188
+
+ENTRYPOINT ["/opt/venv/bin/python3", "main.py"]
+CMD ["--listen", "0.0.0.0", "--port", "8188", "--base-directory", "/data"]

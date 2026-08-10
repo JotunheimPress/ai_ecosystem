@@ -22,7 +22,8 @@ set -uo pipefail
 # this script's own location (readlink -f resolves the ~/.local/bin/stack symlink),
 # i.e. the directory holding the ai-stack checkout. Nothing is hardcoded, so the
 # stack works wherever the projects are cloned as siblings.
-ECO="${AI_ECOSYSTEM:-$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")}"
+SELF="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"   # the ai-stack checkout itself
+ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
@@ -33,7 +34,7 @@ declare -A PORT HEALTH DESC KIND CNAME
 #           port  health-url                              description                              kind       container-name
 reg() { local k=$1; PORT[$k]=$2; HEALTH[$k]=$3; DESC[$k]=$4; KIND[$k]=$5; CNAME[$k]=${6:-}; }
 reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp
-reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI/distrobox)" proc
+reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI)"          container comfyui
 reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "AI Story Maker"                            container ai-story-maker
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
@@ -44,8 +45,9 @@ ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating 
 
 is_up() { curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null; }
 
-# PID currently listening on a host port ("" if free). `proc` apps live in the host
-# PID namespace even when launched inside a distrobox, so ss sees them from here.
+# PID currently listening on a host port ("" if free). Used by the `proc` kind — no
+# app uses it today (ComfyUI, the last one, is now a container), but the branch is
+# kept as the extension point for a future host-side app.
 port_pid() { ss -tlnHp 2>/dev/null | grep -F ":$1" | grep -oP 'pid=\K[0-9]+' | head -1; }
 
 wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && return 0; sleep 2; done; return 1; }
@@ -55,15 +57,10 @@ start_app() {
     koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null 2>&1 ;;
     companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
-    # Log is APPENDED (>>), never truncated: a start that loses a port race must not
-    # be able to wipe the running instance's log. Banner marks each run; rotate at 5 MB.
-    comfyui)   local log="$ECO/ComfyUI/comfyui.log"
-               [ -f "$log" ] && [ "$(stat -c%s "$log" 2>/dev/null || echo 0)" -gt 5242880 ] && mv -f "$log" "$log.1"
-               printf '\n=== start %s ===\n' "$(date -Is)" >>"$log"
-               # -T (no tty) + setsid + </dev/null fully detach the server from the exec
-               # session's stdio. Without this `distrobox enter` never returns: the
-               # backgrounded python keeps the pty open and blocks the caller forever.
-               distrobox enter -T comfyui -- bash -lc "cd '$ECO/ComfyUI' && source venv/bin/activate && setsid nohup python3 main.py --listen 0.0.0.0 --port 8188 </dev/null >>'$ECO/ComfyUI/comfyui.log' 2>&1 &" </dev/null >/dev/null 2>&1 ;;
+    # Canonical recipe lives in the ai-stack checkout, not in the upstream ComfyUI
+    # tree (our files would be untracked there). Code is in the image; the checkout
+    # supplies only mutable state via --base-directory.
+    comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
@@ -116,7 +113,7 @@ start_one() {
     echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}$note"
   else
     echo "  ${C_RED}✗${C_OFF} $a did not come up — check: stack logs $a"
-    [[ "$a" == comfyui ]] && tail -n 3 "$ECO/ComfyUI/comfyui.log" 2>/dev/null | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
+    [[ "${KIND[$a]}" == container ]] && podman logs --tail 3 "${CNAME[$a]}" 2>&1 | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
     return 1
   fi
 }
@@ -180,10 +177,7 @@ cmd_menu() {
 
 cmd_logs() {
   local a=${1:?usage: stack logs <app>}
-  case "$a" in
-    comfyui) tail -n 40 -f "$ECO/ComfyUI/comfyui.log" ;;
-    *)       podman logs -f "${CNAME[$a]:-$a}" ;;
-  esac
+  podman logs -f "${CNAME[$a]:-$a}"
 }
 
 case "${1:-}" in

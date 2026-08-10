@@ -1,137 +1,130 @@
 # Installing the ComfyUI backend
 
-How to reproduce the `comfyui` backend this stack expects: **stock ComfyUI, pinned at `v0.31.1`,
-running in a GPU-passthrough distrobox on its own venv**, listening on `:8188`.
+ComfyUI as a **plain Podman container** on `ai-net`, pinned at `v0.31.1`, listening on `:8188`.
+Same shape as the KoboldCPP backend: `Containerfile` + `start.sh`, image built on first run.
 
-This documents *our delta* — the distrobox, the CUDA-specific torch install, the systemd unit, the
-VRAM budget. For ComfyUI's own usage/UI docs see [upstream](https://github.com/comfyanonymous/ComfyUI);
-this file deliberately doesn't restate them.
-
-> **No custom nodes.** `custom_nodes/` holds only the two files ComfyUI ships with
-> (`example_node.py.example`, `websocket_image_save.py`). That's what makes this install
-> reproducible in a few minutes — there's no node-dependency tangle to untangle.
+> **This used to be a distrobox.** It isn't any more — nothing here needed distrobox, and the
+> container removes a whole class of problems (see [Why not distrobox](#why-not-distrobox)). The old
+> `comfyui` distrobox container was renamed `comfyui-distrobox-old` rather than deleted; remove it
+> with `podman rm comfyui-distrobox-old` once you're happy, and `distrobox rm` its leftovers.
 
 ## Reference environment
-
-What the lock files were captured from — the closer you match this, the fewer surprises:
 
 | | |
 |---|---|
 | Host | Bazzite DX (Fedora 44 / Kinoite), immutable |
 | GPU | NVIDIA RTX 4070, **12 GB VRAM**, driver 610.43.03 |
-| Container | `ubuntu:24.04` via distrobox (Podman) |
-| Python | 3.12.3 (distrobox system python) |
+| Base image | `ubuntu:24.04` (no CUDA base needed — see below) |
+| Python | 3.12 (venv at `/opt/venv` inside the image) |
 | torch | **2.11.0+cu130** (CUDA 13.0) |
-| ComfyUI | tag `v0.31.1` |
+| ComfyUI | tag `v0.31.1`, cloned into `/opt/ComfyUI` |
+| Image size | ~6.9 GB built |
+
+No CUDA base image: the cu130 torch wheels bundle the CUDA runtime, and the driver is injected by
+CDI (`--device nvidia.com/gpu=all`). KoboldCPP needs a CUDA base because it ships a compiled binary.
 
 ## Host prerequisites
 
-Podman, distrobox, and the NVIDIA container toolkit (`nvidia-ctk`) so the GPU passes into the
-container. On an immutable host **do not `dnf install`** — distrobox and Podman are already present
-on Bazzite DX; `nvidia-ctk` ships with the `-nvidia` image variant. Verify with `nvidia-smi` on the
-host before starting.
-
-## 1. Create the distrobox
+Podman and the NVIDIA container toolkit (`nvidia-ctk`) with a CDI spec at `/etc/cdi/nvidia.yaml`.
+Verify before starting:
 
 ```bash
-distrobox create --nvidia --name comfyui --image ubuntu:24.04
-distrobox enter comfyui
+nvidia-smi                # driver works on the host
+nvidia-ctk cdi list       # expect nvidia.com/gpu=all
 ```
 
-`--nvidia` is the part that matters — it wires the driver and container toolkit through. Everything
-below runs **inside** the box.
+On an immutable host **do not `dnf install`** — Podman is already present on Bazzite DX and
+`nvidia-ctk` ships with the `-nvidia` image variant.
 
-## 2. System dependencies
+## 1. Layout
+
+Code lives in the image. The host checkout at `~/Development/ai_ecosystem/ComfyUI/` supplies only
+**mutable state**, bind-mounted under `/data` and selected with `--base-directory /data`:
+
+| Host | Container | Size here |
+|---|---|---|
+| `ComfyUI/models` | `/data/models` | 58 G |
+| `ComfyUI/output` | `/data/output` | 594 M |
+| `ComfyUI/input` | `/data/input` | 7.2 M |
+| `ComfyUI/user` | `/data/user` | 312 K — settings, workflows, `comfyui.db` |
+| `ComfyUI/custom_nodes` | `/data/custom_nodes` | 16 K — stock only |
+
+That checkout's own `venv/` and Python source are no longer used by the stack. Keep it for the state
+dirs (and as a reference checkout), or thin it out — but don't delete `models/`, `user/`, `output/`.
+
+## 2. Build and run
 
 ```bash
-sudo apt update
-sudo apt install -y git python3-venv python3-pip build-essential \
-                    libgl1 libglib2.0-0t64 libgomp1
+~/Development/ai_ecosystem/ai-stack/comfyui/start.sh     # builds on first run, then starts detached
 ```
 
-`libgl1` / `libglib2.0-0t64` are needed by OpenCV, which several ComfyUI dependencies pull in; without
-them you get an import error at startup rather than at install time.
-
-## 3. Clone ComfyUI at the pinned tag
+Under the stack, prefer `stack comfyui` / `stack up`. Cold start is ~5 s; the first build takes
+several minutes (torch + CUDA wheels are most of the 6.9 GB).
 
 ```bash
-cd ~/Development/ai_ecosystem
-git clone https://github.com/comfyanonymous/ComfyUI.git
-cd ComfyUI
-git checkout v0.31.1        # detached HEAD — intentional, this is a pinned release
+podman logs -f comfyui                        # or: stack logs comfyui
+curl -s localhost:8188/system_stats | jq .devices   # confirm the GPU is seen
 ```
 
-## 4. Create the venv and install torch **first**
+## 3. Configuration
 
-This is the step that goes wrong most often. torch must come from the CUDA 13.0 index — the default
-PyPI index gives you a *different* build that will not match this environment:
+| Variable | Default | Description |
+|---|---|---|
+| `COMFYUI_STATE` | `$AI_ECOSYSTEM/ComfyUI` | host dir holding the state subdirs |
+| `COMFYUI_PORT` | `8188` | published host port |
+| `COMFYUI_NET` | `ai-net` | Podman network to join |
+| `COMFYUI_NAME` | `comfyui` | container name; override to run a second copy |
 
-```bash
-python3 -m venv venv
-./venv/bin/python3 -m pip install --upgrade pip
-./venv/bin/python3 -m pip install --index-url https://download.pytorch.org/whl/cu130 \
-    torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
-./venv/bin/python3 -m pip install -r requirements.txt
-```
+Extra flags pass straight to `main.py`: `./start.sh --lowvram`.
 
-To reproduce the full pinned environment exactly, use the lock **after** the torch step above:
+## 4. The two flags that matter
 
-```bash
-./venv/bin/python3 -m pip install -r ~/Development/ai_ecosystem/ai-stack/comfyui/requirements.lock.v0.31.1.txt
-```
+**`--security-opt label=disable`** — without it SELinux denies the container access to the
+CDI-injected `/dev/nvidia*` nodes. The failure is confusing rather than obvious: `nvidia-smi` inside
+the container reports `Failed to initialize NVML: Insufficient Permissions`, and ComfyUI dies later
+with `RuntimeError: No CUDA GPUs are available` while otherwise looking healthy. This is narrower
+than the `--privileged` KoboldCPP uses — capability confinement stays on.
 
-Lock files in this folder:
-
-- **`requirements.lock.v0.31.1.txt`** — the current working environment. Use this one.
-- **`requirements.lock.pre-0.31.txt`** — the state we rolled back *from*, kept as a rollback
-  artifact alongside the `pre-update-v0.18.1` branch. Not a target to install.
+**No `:z` on the volumes** — with SELinux labelling disabled for the container, relabeling is
+redundant, and `:z` would walk the entire 58 GB `models/` tree on every single start.
 
 ## 5. Verify the GPU is actually visible
 
 Don't skip this — an install that silently falls back to CPU looks fine until first generation:
 
 ```bash
-nvidia-smi                                    # inside the box
-./venv/bin/python3 -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# expected: 2.11.0+cu130 True
+curl -s localhost:8188/system_stats | jq '.devices[0]'
+# expect: "NVIDIA GeForce RTX 4070", type "cuda", vram_total ~12.5e9
 ```
 
-`False` means `--nvidia` didn't take; recreate the box rather than fighting it.
+## 6. Boot auto-start
 
-## 6. Run it
+Handled by the stack's single switch — `stack on` / `stack off` via `ai-stack-backends.service`.
+See [`../CLAUDE.md`](../CLAUDE.md).
+
+> **Do not re-enable the old standalone `comfyui.service`.** It's disabled on purpose: it competed
+> with the stack for `:8188` and undid `stack down` via `Restart=on-failure`. The stack is the sole
+> owner of ComfyUI.
+
+## 7. Updating ComfyUI
+
+Version is pinned in the `Containerfile`. Bump the ARG and rebuild:
 
 ```bash
-cd ~/Development/ai_ecosystem/ComfyUI
-./venv/bin/python3 main.py --listen 0.0.0.0 --port 8188
+# edit ARG COMFYUI_VERSION (tags: github.com/comfyanonymous/ComfyUI/releases)
+podman rmi localhost/comfyui:latest
+~/Development/ai_ecosystem/ai-stack/comfyui/start.sh     # rebuilds automatically
 ```
 
-UI/API at http://localhost:8188. Under the stack, prefer `stack comfyui` / `stack up`.
-
-> **Gotcha — run it from inside the distrobox.** The venv is Python **3.12** from Ubuntu, while a
-> Fedora host has its own (3.14) `/usr/bin/python3`. `venv/bin/python3` is a symlink to the *system*
-> python, so invoking it from the host silently picks up the wrong interpreter and fails with
-> `No module named pip` or missing packages. Test with
-> `podman exec --user oldmangan comfyui bash -lc '…'`, not on the host.
-
-## 7. Boot auto-start (optional)
-
-`comfyui.service` (systemd **user** unit) starts it after the distrobox is reachable. It waits for
-the container, then launches the venv python directly:
-
-```ini
-ExecStartPre=/bin/bash -c 'until podman exec comfyui true 2>/dev/null; do sleep 1; done'
-ExecStart=podman exec --user oldmangan comfyui \
-    /bin/bash -c 'cd /home/user/Development/ai_ecosystem/ComfyUI && ./venv/bin/python3 main.py --listen 0.0.0.0 --port 8188'
-```
-
-Install into `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now comfyui`.
-Run `loginctl enable-linger` if you want it up before you log in. Note the **absolute paths** — they
-must be updated if the project ever moves.
+`requirements.lock.v0.31.1.txt` is COPYed into the build and pins the environment. A version bump
+generally needs a matching lock — regenerate with `pip freeze` inside a built image.
+`requirements.lock.pre-0.31.txt` is the rollback artifact for the pre-v0.31 state; not a target.
 
 ## 8. Models — the part you have to bring yourself
 
-Model weights are third-party, licensed separately, and total ~54 GB here. They are not vendored and
-never should be. Download into `models/checkpoints/`.
+Model weights are third-party, licensed separately, and total ~58 GB here. They are not vendored and
+never should be. Download into `ComfyUI/models/checkpoints/` on the **host** — the bind mount picks
+them up without a rebuild.
 
 **You do not need all of these.** For the companion's sprite pipeline running *concurrently with
 KoboldCPP* on 12 GB VRAM, the practical minimum is a single SD 1.5 checkpoint — start with
@@ -162,10 +155,28 @@ the GPU entirely for gaming.
 
 ## Topology
 
-ComfyUI runs on **host networking**, not on `ai-net`:
+ComfyUI is a container on **`ai-net`**, published to the host:
 
 - from the host → `localhost:8188`
-- from containers on `ai-net` (companion, story, iguana) → `host.containers.internal:8188`
+- from containers on `ai-net` (companion, story, iguana) → **`http://comfyui:8188`** (by name)
 
-It's the one non-container backend in the stack, which is also why `stack` stops it by killing the
-PID on its port rather than via `podman stop`.
+This matches how KoboldCPP is reached (`http://koboldcpp:5001`). The old
+`host.containers.internal:8188` still works while the port is published, but the frontends now
+default to the by-name form.
+
+## Why not distrobox
+
+The original install ran in a `--nvidia` distrobox. Nothing required it — `custom_nodes/` is stock,
+and CDI passes the GPU into a plain container just as well. Moving to a container removed:
+
+- a `kind=proc` special case throughout `stack` (stop-by-port-PID, no `podman stop`)
+- a `distrobox enter` invocation that hung the caller unless detached with `-T` + `setsid`
+- hand-rolled log append/rotation, replaced by `podman logs`
+- a slow cold start (~30 s+) — now ~5 s
+- the venv-interpreter trap below
+
+> **The trap this fixed.** `ComfyUI/venv/bin/python3` on the host resolves to `/usr/bin/python3.14`
+> — the *Fedora host* interpreter, not the Ubuntu 3.12 the venv was built against — because the venv
+> lived in a host-visible checkout and symlinks the system python. Running it from the host silently
+> picked up the wrong interpreter (`No module named pip`, missing packages). Dependencies now live in
+> the image, so this can't happen.

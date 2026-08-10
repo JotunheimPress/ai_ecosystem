@@ -1,0 +1,5 @@
+# Build context is this folder. Only the lock file is COPYed in; keep the rest out
+# so docs/rollback artifacts don't invalidate the build cache.
+CLAUDE.md
+INSTALL.md
+requirements.lock.pre-0.31.txt
