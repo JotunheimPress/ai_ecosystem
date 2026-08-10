@@ -28,6 +28,27 @@ stack logs comfyui     # podman logs -f comfyui
 
 UI/API at http://localhost:8188. Cold start ~5 s.
 
+## Custom nodes
+
+Custom nodes themselves are **mutable state** — they live in
+`~/Development/ai_ecosystem/ComfyUI/custom_nodes/` and are bind-mounted to `/data/custom_nodes`.
+Their **Python dependencies are not**: `start.sh` recreates the container every start
+(`podman rm -f`), so anything `pip install`ed at runtime is gone on the next restart. Deps must go
+in the `Containerfile`, in the *Custom-node dependencies* layer at the end (placed last so it
+doesn't invalidate the expensive torch/lockfile layers).
+
+Installed today:
+
+| Node | Deps added to the image | Used by |
+|---|---|---|
+| `ComfyUI-PhotoMaker-Plus` (shiimizu, pinned `459f5c0`) | `insightface==1.0.1`, `onnxruntime==1.28.0` | iguana studio's Person mode |
+
+**Don't install a custom node's `requirements.txt` blindly.** PhotoMaker-Plus's pins `numpy<2`
+(for the old insightface 0.7.3 sdist), which would downgrade numpy under torch 2.11 and break the
+image; and it wants `onnxruntime-gpu`, which has no CUDA 13 build to match this image's torch. See
+the comment block in the `Containerfile` and `iguana_studio/comfyui-auto/CLAUDE.md` for the full
+reasoning.
+
 ## GPU
 
 `--device nvidia.com/gpu=all` (CDI) **plus `--security-opt label=disable`** — without the latter,

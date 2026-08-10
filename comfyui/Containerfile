@@ -48,6 +48,25 @@ RUN pip install --no-cache-dir \
         -r /tmp/requirements.lock.txt \
     && rm /tmp/requirements.lock.txt
 
+# ── Custom-node dependencies ─────────────────────────────────────────────────
+# Custom nodes are bind-mounted state (/data/custom_nodes) but their Python deps
+# have to live in the image, or they vanish every time the container is recreated.
+#
+# ComfyUI-PhotoMaker-Plus (shiimizu) — needs InsightFace for the PhotoMaker V2
+# face-embedding path. Deliberately NOT installed from that node's own
+# requirements.txt: it pins `numpy<2`, which was only ever needed for the old
+# insightface 0.7.3 sdist, and honouring it would downgrade numpy out from under
+# torch 2.11 / ComfyUI 0.31 and break the whole image.
+#   - insightface >=1.0 ships a pure-Python wheel — no compiler needed in this
+#     image (there is no gcc here) and it accepts numpy 2.x.
+#   - onnxruntime is the CPU build on purpose. Face detection runs once per job on
+#     the small buffalo_l model (~0.3 s), while onnxruntime-gpu has no build
+#     matching this image's CUDA 13 torch and would drag in a conflicting CUDA
+#     runtime. Pass provider="CPU" to PhotoMakerInsightFaceLoader to match.
+RUN pip install --no-cache-dir \
+        insightface==1.0.1 \
+        onnxruntime==1.28.0
+
 EXPOSE 8188
 
 ENTRYPOINT ["/opt/venv/bin/python3", "main.py"]
