@@ -92,8 +92,26 @@ systemd `--user` context). Frontends stay manual — the switch only governs the
   it still loads the ChatML adapter (`chatml.json`). Model reload after a restart takes ~20–30 s.
 - **`comfyui` is the only non-container backend** — a distrobox process. It's visible in the host PID
   namespace (listens on a host port), so the stack stops it by **killing the PID on its port**
-  (`ss -tlnHp`) — robust, unlike `pkill -f` which self-matches the `distrobox enter` wrapper. Its logs
-  are tailed from `~/Development/ai_ecosystem/ComfyUI/comfyui.log`, not `podman logs`. (companion/story/iguana are all containers.)
+  (`ss -tlnHp`, via `port_pid()`) — robust, unlike `pkill -f` which self-matches the `distrobox enter`
+  wrapper. Its logs are tailed from `~/Development/ai_ecosystem/ComfyUI/comfyui.log`, not `podman logs`.
+  (companion/story/iguana are all containers.)
+- **ai-stack is the sole owner of ComfyUI.** A standalone `~/.config/systemd/user/comfyui.service`
+  (`podman exec` into the same distrobox, `Restart=on-failure`, `WantedBy=default.target`) used to
+  compete with it — the unit file still exists but is **disabled**; don't re-enable it. Symptoms it
+  caused, for future reference: its `ExecStartPre` (`until podman exec comfyui true`) parks forever
+  while the container is stopped, then fires the instant *anything* starts the container — including
+  `stack up` — so it won the race to :8188 and the stack's own copy died with "Port 8188 is already in
+  use" while the health probe still reported `✓` (it was probing the *other* instance). It also undid
+  `stack down comfyui` five seconds later via `Restart=on-failure`; its restart counter had reached 65.
+- **The comfyui start line must stay `distrobox enter -T … setsid nohup … </dev/null`.** Without the
+  detach, the backgrounded server holds the exec session's pty and `distrobox enter` never returns,
+  hanging `stack up` (and the backends unit) indefinitely. This was masked for as long as
+  `comfyui.service` existed — the stack's python died on the port conflict, releasing the pty, so the
+  call appeared to return normally.
+- `comfyui.log` is **appended**, not truncated, with a `=== start <ts> ===` banner per run and rotation
+  to `.1` at 5 MB — a start that loses a port race must not be able to wipe the running instance's log.
+- `start_one` refuses to start a `proc` app whose port is already held but not answering health, and
+  names the holding PID instead of launching a doomed second copy.
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
   removes symlinked units (which then breaks `stack on`).
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are

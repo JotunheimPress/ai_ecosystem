@@ -44,6 +44,10 @@ ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating 
 
 is_up() { curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null; }
 
+# PID currently listening on a host port ("" if free). `proc` apps live in the host
+# PID namespace even when launched inside a distrobox, so ss sees them from here.
+port_pid() { ss -tlnHp 2>/dev/null | grep -F ":$1" | grep -oP 'pid=\K[0-9]+' | head -1; }
+
 wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && return 0; sleep 2; done; return 1; }
 
 start_app() {
@@ -51,7 +55,15 @@ start_app() {
     koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null 2>&1 ;;
     companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
-    comfyui)   distrobox enter comfyui -- bash -lc "cd '$ECO/ComfyUI' && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >'$ECO/ComfyUI/comfyui.log' 2>&1 &" >/dev/null 2>&1 ;;
+    # Log is APPENDED (>>), never truncated: a start that loses a port race must not
+    # be able to wipe the running instance's log. Banner marks each run; rotate at 5 MB.
+    comfyui)   local log="$ECO/ComfyUI/comfyui.log"
+               [ -f "$log" ] && [ "$(stat -c%s "$log" 2>/dev/null || echo 0)" -gt 5242880 ] && mv -f "$log" "$log.1"
+               printf '\n=== start %s ===\n' "$(date -Is)" >>"$log"
+               # -T (no tty) + setsid + </dev/null fully detach the server from the exec
+               # session's stdio. Without this `distrobox enter` never returns: the
+               # backgrounded python keeps the pty open and blocks the caller forever.
+               distrobox enter -T comfyui -- bash -lc "cd '$ECO/ComfyUI' && source venv/bin/activate && setsid nohup python3 main.py --listen 0.0.0.0 --port 8188 </dev/null >>'$ECO/ComfyUI/comfyui.log' 2>&1 &" </dev/null >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
@@ -62,8 +74,7 @@ stop_app() {
     proc)
       # These processes are visible in the host PID namespace (they listen on host
       # ports), so stop them by their listening port — robust, no pkill self-match.
-      local p
-      p=$(ss -tlnHp 2>/dev/null | grep -F ":${PORT[$1]}" | grep -oP 'pid=\K[0-9]+' | head -1)
+      local p; p=$(port_pid "${PORT[$1]}")
       [ -n "${p:-}" ] && kill "$p" 2>/dev/null ;;
   esac
   return 0
@@ -85,11 +96,28 @@ cmd_status() {
 start_one() {
   local a=$1
   if is_up "$a"; then echo "  $a already up (:${PORT[$a]})"; return 0; fi
+  # Health says down, but for a `proc` app the port may still be held — by an instance
+  # that's mid-startup, or wedged. Starting now would just lose the port race, and the
+  # loser's exit says nothing about the process actually serving the port. Report the
+  # holder instead of launching a doomed second copy.
+  if [[ "${KIND[$a]}" == proc ]]; then
+    local held; held=$(port_pid "${PORT[$a]}")
+    if [[ -n "$held" ]]; then
+      echo "  ${C_RED}✗${C_OFF} $a: pid $held already holds :${PORT[$a]} but isn't answering health yet."
+      echo "    ${C_DIM}still loading? re-run in a moment. wedged? stack down $a && stack $a${C_OFF}"
+      echo "    ${C_DIM}logs: stack logs $a${C_OFF}"
+      return 1
+    fi
+  fi
   echo "==> starting $a …"; start_app "$a"
   if wait_up "$a" "$([[ $a == koboldcpp ]] && echo 60 || echo 30)"; then
-    echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}"
+    local note=""
+    [[ "${KIND[$a]}" == proc ]] && note=" ${C_DIM}(pid $(port_pid "${PORT[$a]}"))${C_OFF}"
+    echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}$note"
   else
-    echo "  ${C_RED}✗${C_OFF} $a did not come up — check: stack logs $a"; return 1
+    echo "  ${C_RED}✗${C_OFF} $a did not come up — check: stack logs $a"
+    [[ "$a" == comfyui ]] && tail -n 3 "$ECO/ComfyUI/comfyui.log" 2>/dev/null | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
+    return 1
   fi
 }
 
