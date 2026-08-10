@@ -29,11 +29,11 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 
 | App        | Kind      | Port | Backend it needs | How it starts |
 |------------|-----------|------|------------------|---------------|
-| koboldcpp  | container | 5001 | —                | `~/koboldcpp/start.sh` (detached, on `ai-net`) |
+| koboldcpp  | container | 5001 | —                | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`) |
 | comfyui    | proc      | 8188 | —                | `comfyui` distrobox venv (`python main.py --listen`) |
-| companion  | container | 7861 | kobold + comfyui | `~/Development/companion/run-podman.sh` |
-| story      | container | 7860 | kobold (+comfyui)| `~/ai_story_maker/run-podman.sh` |
-| iguana     | container | 7862 | comfyui          | `~/workspace/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI via `host.containers.internal:8188`) |
+| companion  | container | 7861 | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` |
+| story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` |
+| iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI via `host.containers.internal:8188`) |
 
 ## Topology
 
@@ -60,7 +60,7 @@ backgrounded process for host/distrobox apps). Stop logic keys off `KIND`.
 
 ```bash
 # install the unit (once). COPY it — do NOT symlink (systemctl disable deletes a symlinked unit).
-cp ~/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
+cp ~/Development/ai_ecosystem/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 loginctl enable-linger        # start at boot even before you log in
 stack on                      # arm it (enable + start)
@@ -79,7 +79,7 @@ systemd `--user` context). Frontends stay manual — the switch only governs the
 - **`comfyui` is the only non-container backend** — a distrobox process. It's visible in the host PID
   namespace (listens on a host port), so the stack stops it by **killing the PID on its port**
   (`ss -tlnHp`) — robust, unlike `pkill -f` which self-matches the `distrobox enter` wrapper. Its logs
-  are tailed from `~/ComfyUI/comfyui.log`, not `podman logs`. (companion/story/iguana are all containers.)
+  are tailed from `~/Development/ai_ecosystem/ComfyUI/comfyui.log`, not `podman logs`. (companion/story/iguana are all containers.)
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
   removes symlinked units (which then breaks `stack on`).
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are

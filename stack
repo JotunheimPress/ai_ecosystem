@@ -18,6 +18,7 @@
 # ============================================================
 set -uo pipefail
 
+ECO="$HOME/Development/ai_ecosystem"   # all AI projects live here
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
@@ -43,11 +44,11 @@ wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && retur
 
 start_app() {
   case "$1" in
-    koboldcpp) "$HOME/koboldcpp/start.sh" >/dev/null 2>&1 ;;
-    companion) "$HOME/Development/companion/run-podman.sh" >/dev/null 2>&1 ;;
-    story)     "$HOME/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
-    comfyui)   distrobox enter comfyui -- bash -lc 'cd ~/ComfyUI && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >~/ComfyUI/comfyui.log 2>&1 &' >/dev/null 2>&1 ;;
-    iguana)    "$HOME/workspace/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
+    koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null 2>&1 ;;
+    companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
+    story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
+    comfyui)   distrobox enter comfyui -- bash -lc 'cd ~/Development/ai_ecosystem/ComfyUI && source venv/bin/activate && nohup python3 main.py --listen 0.0.0.0 --port 8188 >~/Development/ai_ecosystem/ComfyUI/comfyui.log 2>&1 &' >/dev/null 2>&1 ;;
+    iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
 
@@ -148,7 +149,7 @@ cmd_menu() {
 cmd_logs() {
   local a=${1:?usage: stack logs <app>}
   case "$a" in
-    comfyui) tail -n 40 -f "$HOME/ComfyUI/comfyui.log" ;;
+    comfyui) tail -n 40 -f "$ECO/ComfyUI/comfyui.log" ;;
     *)       podman logs -f "${CNAME[$a]:-$a}" ;;
   esac
 }
