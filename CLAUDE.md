@@ -8,9 +8,11 @@ shared across every app; frontends run side-by-side on their own ports.
 - `stack` — the launcher (bash). Registry of apps is a block of `reg` rows near the top; add a new
   frontend = one row. Symlinked onto PATH at `~/.local/bin/stack`.
 - `ai-stack-backends.service` — systemd user unit template (copy into `~/.config/systemd/user/`).
-- `comfyui/` — notes + pinned requirements for the ComfyUI backend. They live here rather than in
-  `~/Development/ai_ecosystem/ComfyUI/`, which is an upstream checkout where our files would be
-  untracked and lost on update.
+- `comfyui/` — everything for the ComfyUI backend that isn't upstream's: `INSTALL.md` (distrobox +
+  CUDA-pinned torch + model list), `CLAUDE.md` (notes), and two lock files —
+  `requirements.lock.v0.31.1.txt` (current, install this) and `requirements.lock.pre-0.31.txt`
+  (rollback artifact). They live here rather than in `~/Development/ai_ecosystem/ComfyUI/`, which is
+  an upstream checkout where our files would be untracked and lost on update.
 
 ## Usage
 

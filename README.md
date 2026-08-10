@@ -52,3 +52,16 @@ they're ready and you just pick a frontend. Install/enable details in [`CLAUDE.m
 ## Requirements
 
 Podman, distrobox, curl, and an NVIDIA GPU. Designed for an immutable Fedora/Bazzite workstation.
+
+## Installing the backends
+
+`stack` is a **launcher, not an installer** — it assumes the backends already exist. To build one
+from scratch:
+
+- **ComfyUI** — [`comfyui/INSTALL.md`](comfyui/INSTALL.md): distrobox creation, the CUDA-pinned
+  torch install, pinned requirements, systemd unit, and the model shopping list.
+- **KoboldCPP** — not yet published; its `Containerfile` + `start.sh` currently live only outside
+  this repo.
+
+Note that `stack` resolves projects under `$HOME/Development/ai_ecosystem` and expects them as
+sibling directories, so it isn't turnkey on a different layout without editing that path.
