@@ -67,6 +67,17 @@ RUN pip install --no-cache-dir \
         insightface==1.0.1 \
         onnxruntime==1.28.0
 
+# ComfyUI-GGUF (city96) — UnetLoaderGGUF, for running Flux.1 Kontext [dev] as a
+# quantized GGUF. The fp8 build needs ~20 GB VRAM; this card has 12, so GGUF is the
+# only local path and the node is not optional.
+#
+# Only `gguf` is installed. That node's requirements.txt also lists sentencepiece
+# and protobuf, but those are for its *GGUF text-encoder* path — we load clip_l and
+# t5xxl as safetensors via the stock DualCLIPLoader, so they're dead weight here.
+# Add them if a GGUF-quantized text encoder is ever used.
+RUN pip install --no-cache-dir \
+        gguf==0.19.0
+
 EXPOSE 8188
 
 ENTRYPOINT ["/opt/venv/bin/python3", "main.py"]

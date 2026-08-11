@@ -206,6 +206,7 @@ IMG_COMFY="localhost/comfyui:latest"
 #            name|repo|pinned commit
 CUSTOM_NODES=(
   "ComfyUI-PhotoMaker-Plus|https://github.com/shiimizu/ComfyUI-PhotoMaker-Plus.git|459f5c009e8bc3fe76bd63a7f302ddf3406c7062"
+  "ComfyUI-GGUF|https://github.com/city96/ComfyUI-GGUF.git|6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
 )
 
 WARNS=0

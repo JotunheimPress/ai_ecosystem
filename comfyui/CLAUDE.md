@@ -42,6 +42,12 @@ Installed today:
 | Node | Deps added to the image | Used by |
 |---|---|---|
 | `ComfyUI-PhotoMaker-Plus` (shiimizu, pinned `459f5c0`) | `insightface==1.0.1`, `onnxruntime==1.28.0` | iguana studio's Person mode |
+| `ComfyUI-GGUF` (city96, pinned `6ea2651`) | `gguf==0.19.0` | iguana studio's Edit mode (Flux Kontext) |
+
+`ComfyUI-GGUF` supplies `UnetLoaderGGUF`, which is **required, not an optimization**: the fp8 build
+of Flux Kontext needs ~20 GB VRAM against this card's 12, so the quantized GGUF is the only local
+path. Only `gguf` is installed from its requirements — `sentencepiece`/`protobuf` are for its GGUF
+*text-encoder* path, and we load clip_l/t5xxl as safetensors through the stock `DualCLIPLoader`.
 
 `stack install comfyui` clones these at their pins from the `CUSTOM_NODES=(…)` registry in `stack`
 and `stack doctor` reports drift, so the checkout half is reproducible on a fresh machine. **Weights
@@ -64,6 +70,16 @@ healthy-looking startup. Confirm with `curl -s localhost:8188/system_stats | jq 
 
 Only **12 GB VRAM** total, shared with KoboldCPP — running both large models at once will OOM.
 Prefer one heavy model at a time, or pair KoboldCPP with an SD 1.5 checkpoint.
+
+**ComfyUI holds VRAM after a job** and won't give it back on its own, which reads as a *different*
+service being broken: with a Flux Kontext model resident (~6.4 GB), KoboldCPP OOMs the instant it
+starts and its `--rm` container disappears before logging, so `stack up` reports "did not come up"
+and `podman logs koboldcpp` says no such container. Make ComfyUI release it — no restart needed:
+
+```bash
+curl -X POST http://localhost:8188/free -H 'Content-Type: application/json' \
+     -d '{"unload_models":true,"free_memory":true}'
+```
 
 ## Role in the companion
 
