@@ -21,8 +21,39 @@ if podman container exists "${CONTAINER_NAME}" 2>/dev/null; then
     podman rm -f "${CONTAINER_NAME}" >/dev/null
 fi
 
-MODEL="${KOBOLDCPP_MODEL:-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}"
-GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-33}"
+# Persisted model selection: models/model.env's sibling, written by tooling (and by
+# hand) so a chosen model survives `stack up`, a restart, and a reboot. Without it the
+# selection lived only in the caller's environment, which the systemd unit and `stack`
+# don't set — so the hardcoded default below was the *only* model the stack could boot.
+#
+# Parsed strictly, never sourced: this file gets written from model names that came off
+# the internet, and `.` would execute whatever ended up in it.
+MODEL_ENV="${SCRIPT_DIR}/model.env"
+FILE_MODEL=""; FILE_LAYERS=""
+if [ -f "${MODEL_ENV}" ]; then
+    while IFS='=' read -r k v; do
+        v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"      # tolerate quoting
+        case "$k" in
+            KOBOLDCPP_MODEL)      FILE_MODEL="$v" ;;
+            KOBOLDCPP_GPU_LAYERS) FILE_LAYERS="$v" ;;
+        esac
+    done < "${MODEL_ENV}"
+fi
+
+# Precedence: explicit env var > model.env > built-in default. A one-off
+# `KOBOLDCPP_MODEL=other.gguf ./start.sh` still wins, and doesn't rewrite the selection.
+MODEL="${KOBOLDCPP_MODEL:-${FILE_MODEL:-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}}"
+GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-${FILE_LAYERS:-33}}"
+
+# Fail here rather than inside the container: it runs --rm and detached, so a bad model
+# name otherwise vanishes with the container and `stack up` just reports "did not come up".
+if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
+    echo "Model not found: ${MODELS_DIR}/${MODEL}" >&2
+    echo "Available:" >&2
+    find "${MODELS_DIR}" -maxdepth 1 -name '*.gguf' -printf '  %f\n' 2>/dev/null | sort >&2 \
+        || echo "  (none — see ai-stack/koboldcpp/INSTALL.md §2)" >&2
+    exit 1
+fi
 
 echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, gpu layers: ${GPU_LAYERS})"
 podman run -d \

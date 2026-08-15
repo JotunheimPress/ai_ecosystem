@@ -24,18 +24,26 @@ Runs at http://localhost:5001. The container is started with `--rm`, so it disap
 
 ## Configuration
 
-Defaults set in `start.sh`:
+Resolved by `start.sh` as **env var → `model.env` → built-in default**:
 
 | Variable | Default | Description |
 |---|---|---|
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | Model file in `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | Number of layers to offload to GPU |
 
-Override with env vars:
-
 ```bash
+# one-off (doesn't persist)
 KOBOLDCPP_MODEL=other.gguf KOBOLDCPP_GPU_LAYERS=20 ~/Development/ai_ecosystem/koboldcpp/start.sh
+
+# persistent selection — survives stack up / reboot, which an env var does not
+printf 'KOBOLDCPP_MODEL=other.gguf\nKOBOLDCPP_GPU_LAYERS=28\n' > ~/Development/ai_ecosystem/koboldcpp/model.env
+stack restart koboldcpp
 ```
+
+`model.env` is **parsed, not sourced** (machine-written from internet-sourced model names), lives in
+the working tree next to `models/` as runtime state, and is the hook a control UI writes to when
+switching models. A model it names that isn't in `models/` fails the start with the available list
+instead of vanishing with the `--rm` container. Full rationale: [`INSTALL.md`](INSTALL.md) §4.
 
 ## Networking
 

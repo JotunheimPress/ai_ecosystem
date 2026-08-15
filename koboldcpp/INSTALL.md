@@ -80,7 +80,8 @@ The container runs with `--rm`, so it vanishes when stopped — just run the scr
 
 ## 4. Configuration
 
-Both knobs are environment variables read by `start.sh`:
+Two knobs, resolved by `start.sh` in this order — **environment variable → `model.env` →
+built-in default**:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -88,8 +89,33 @@ Both knobs are environment variables read by `start.sh`:
 | `KOBOLDCPP_GPU_LAYERS` | `33` | layers offloaded to GPU; lower it if you OOM |
 
 ```bash
-KOBOLDCPP_MODEL=other.gguf KOBOLDCPP_GPU_LAYERS=20 ./start.sh
+KOBOLDCPP_MODEL=other.gguf KOBOLDCPP_GPU_LAYERS=20 ./start.sh   # one-off, changes nothing
 ```
+
+**`model.env` is the persistent selection** — a `KEY=value` file next to `start.sh`, alongside
+`models/`:
+
+```bash
+cat > model.env <<'EOF'
+KOBOLDCPP_MODEL=GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-IQ2_M.gguf
+KOBOLDCPP_GPU_LAYERS=28
+EOF
+stack restart koboldcpp
+```
+
+This exists because `stack up` and the systemd unit invoke `start.sh` with no environment, so
+without the file the built-in default is the only model the stack can boot — an env var set in your
+shell doesn't survive a reboot, or even a `stack off`/`stack on`. Set `GPU_LAYERS` per model: the
+right value differs by quant, and a heavier one needs fewer layers to fit 12 GB.
+
+The file is parsed strictly (`KOBOLDCPP_MODEL` and `KOBOLDCPP_GPU_LAYERS` only, quotes and `#`
+comments tolerated), never `source`d — it's meant to be machine-written from model names fetched off
+the internet, and sourcing would execute whatever landed in it. It's runtime state, so it isn't
+committed.
+
+A model named here that isn't in `models/` **fails the start** with the list of what is there,
+rather than dying inside the container — it runs detached with `--rm`, so the container would
+otherwise disappear before logging and `stack up` would only say "did not come up".
 
 `--usecublas` is always passed. If a model won't fit, reduce `KOBOLDCPP_GPU_LAYERS` rather than
 switching off CUDA — partial offload is much faster than pure CPU.
