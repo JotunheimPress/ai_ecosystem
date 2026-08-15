@@ -33,6 +33,10 @@ SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off sw
 
 BACKENDS=(koboldcpp comfyui)
 FRONTENDS=(companion story iguana)
+# Control apps are shown and startable like the rest, but deliberately excluded from
+# `down all` / `down frontends`: stack-ui is the thing you're clicking in, and having a
+# button stop its own server is a bad afternoon. Stop it explicitly (`stack down stackui`).
+CONTROL=(stackui)
 
 declare -A PORT HEALTH DESC KIND CNAME
 #           port  health-url                              description                              kind       container-name
@@ -42,6 +46,9 @@ reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation
 reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "AI Story Maker"                            container ai-story-maker
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
+# The first kind=proc app — it runs on the host because it drives podman and
+# systemctl --user itself. Loopback-only by design (see stack-ui/CLAUDE.md).
+reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Stack control dashboard"                   proc
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
@@ -66,6 +73,9 @@ start_app() {
     # supplies only mutable state via --base-directory.
     comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
+    # Host-side process, not a container: detach with setsid so it outlives this shell,
+    # and keep its log on disk since `podman logs` doesn't apply to it.
+    stackui)   setsid "$ECO/stack-ui/run.sh" >>"$ECO/stack-ui/server.log" 2>&1 & ;;
   esac
 }
 
@@ -92,6 +102,7 @@ cmd_status() {
   fi
   echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
+  echo "${C_B}Control${C_OFF}";                 for a in "${CONTROL[@]}"; do row "$a"; done
 }
 
 start_one() {
