@@ -24,6 +24,17 @@ once, then pick whichever app you want.
 You only need the frontends you actually use; `stack` starts each on demand. The backends are
 useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
 
+**Control**
+
+| App | Port | Directory | Repo | What |
+|-----|------|-----------|------|------|
+| `stackui` | 7863 | `stack-ui/` | `El-Iguana/stack-ui` | dashboard for the stack itself |
+
+Unlike everything above it runs **on the host**, not in a container — it drives `podman` and
+`systemctl --user`, so containerizing it would break the on/off switch. It's bound to loopback and
+has no auth, so it is reachable only from this machine. `stack down all` deliberately leaves it
+running; stop it with `stack down stackui`.
+
 ## Requirements
 
 - **Podman** and an **NVIDIA GPU** with the container toolkit — `nvidia-smi` must work on the host
@@ -82,6 +93,17 @@ git clone https://github.com/El-Iguana/iquana_studio.git   iguana_studio
 Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
 configuration. They're separate private repos — ask for access.
 
+### Control UI
+
+Optional, and set up differently from the rest — it runs on the host, so it needs a venv rather than
+an image:
+
+```bash
+git clone https://github.com/El-Iguana/stack-ui.git   stack-ui
+stack-ui/install.sh    # venv + deps + systemd user unit (idempotent)
+stack stackui          # then open http://localhost:7863
+```
+
 ## Usage
 
 ```bash
@@ -91,7 +113,9 @@ stack             # interactive: show status, ensure backends, then pick a front
 stack up          # start the backends now (without touching the boot toggle)
 stack status      # what's running (+ the on/off switch state)
 stack companion   # launch a frontend  (companion | story | iguana)
+stack stackui     # launch the control dashboard on :7863
 stack down        # stop everything    (also: down backends | down frontends | down <app>)
+                  #   — leaves stackui alone; stop that with `down stackui`
 stack restart <app>
 stack logs <app>
 stack install [target]   # one-time setup, idempotent
@@ -141,7 +165,8 @@ ai_ecosystem/
 ├── ComfyUI/        # backend state — created by `stack install`; you add models/
 ├── companion/      # frontend — you clone
 ├── ai_story_maker/ # frontend — you clone
-└── iguana_studio/  # frontend — you clone
+├── iguana_studio/  # frontend — you clone
+└── stack-ui/       # control dashboard (optional) — you clone; runs on the host
 ```
 
 The two backend directories are made for you: `koboldcpp/` is a symlink farm back into this repo
