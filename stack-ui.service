@@ -1,0 +1,16 @@
+# Template — install it with `stack-ui/install.sh`, not `cp`.
+# @SELF@ is substituted with this checkout's path at install time (same pattern as
+# ai-stack-backends.service). systemd rejects the placeholder as-is, so a stray manual
+# copy fails loudly instead of pointing at a path that doesn't exist.
+[Unit]
+Description=stack-ui — control dashboard for the AI stack
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=@SELF@/run.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
