@@ -11,11 +11,17 @@ shared across every app; frontends run side-by-side on their own ports.
   (`readlink -f` resolves the PATH symlink; the ecosystem root is the checkout's parent). Projects
   are expected as siblings. Don't reintroduce a hardcoded path. `SELF` is the ai-stack checkout
   itself (resolved the same way), used to reach the in-repo `comfyui/start.sh` recipe.
-- `ai-stack-backends.service` — systemd user unit template (copy into `~/.config/systemd/user/`).
+- `ai-stack-backends.service` — systemd user unit **template** (`@SELF@` → the checkout path);
+  rendered into `~/.config/systemd/user/` by `stack install service`.
 - `koboldcpp/` — the **canonical** KoboldCPP recipe: `Containerfile`, `start.sh`, `chatml.json`,
   `.containerignore`, plus `INSTALL.md` / `CLAUDE.md`. The working tree at
   `~/Development/ai_ecosystem/koboldcpp/` symlinks back to these, so the running stack and the
   published recipe can't drift; only `models/` (~15 GB) stays out there, uncommitted.
+  `stack install koboldcpp` builds that symlink farm — it has to exist for the backend to run at
+  all (`start.sh` resolves `models/` next to itself), so leaving it hand-made meant a fresh clone
+  could never install. **One exception: `.containerignore` is a real copy, not a link** — podman
+  does not follow a symlinked ignore file (it behaves as if there were none), and the build would
+  then tar the whole `models/` tree. Install refreshes that copy so it can't drift either.
 - `comfyui/` — the **canonical** ComfyUI recipe, same shape as `koboldcpp/`: `Containerfile`
   (ubuntu:24.04 + cu130 torch + ComfyUI cloned at a pinned tag), `start.sh`, `.containerignore`,
   `INSTALL.md`, `CLAUDE.md`, and two lock files — `requirements.lock.v0.31.1.txt` (current, COPYed
@@ -52,7 +58,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 |------------|-----------|------|------------------|---------------|
 | koboldcpp  | container | 5001 | —                | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
-| companion  | container | 7861 | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` |
+| companion  | container | 7861 | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **La Cantina** |
 | story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` |
 | iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI by name at `comfyui:8188`) |
 
@@ -77,7 +83,8 @@ Executable form of `koboldcpp/INSTALL.md` + `comfyui/INSTALL.md`, so the docs an
 can't drift. Every step is idempotent — re-running reports what's already in place and does nothing.
 
 What it does: checks prerequisites (podman, host driver, CDI spec) → links `~/.local/bin/stack` →
-copies the systemd unit and `daemon-reload`s → creates `ai-net` → builds the two backend images →
+renders the systemd unit and `daemon-reload`s → creates `ai-net` → links the KoboldCPP recipe into
+`$ECO/koboldcpp` → builds the two backend images →
 creates the ComfyUI state skeleton (`models/checkpoints`, `input`, `output`, `user`, `custom_nodes`)
 → clones the ComfyUI **custom nodes** at their pinned commits.
 
@@ -107,10 +114,14 @@ start until you supply a GGUF and a checkpoint.
   start. Nothing brings them back until you `stack on`, so the GPU stays free for gaming across reboots.
 - **`stack on`** → `systemctl --user enable --now` → starts them now and re-arms boot.
 
+The shipped unit is a **template**: `@SELF@` is substituted with the checkout's own path at
+install time, so it works wherever ai-stack is cloned. Install it with `stack install service`, not
+`cp` — a raw copy has an unsubstituted placeholder and systemd rejects it (loudly, which is the
+point; the old hardcoded `~/Development/ai_ecosystem/...` path failed *silently* on any other layout).
+
 ```bash
-# install the unit (once). COPY it — do NOT symlink (systemctl disable deletes a symlinked unit).
-cp ~/Development/ai_ecosystem/ai-stack/ai-stack-backends.service ~/.config/systemd/user/
-systemctl --user daemon-reload
+stack install service         # render the unit + daemon-reload (COPY, never a symlink —
+                              #   systemctl disable deletes a symlinked unit, breaking `stack on`)
 loginctl enable-linger        # start at boot even before you log in
 stack on                      # arm it (enable + start)
 
@@ -147,7 +158,13 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
   `http://koboldcpp:5001`. `host.containers.internal:8188` still works while the port is published,
   but it's no longer the default anywhere.
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
-  removes symlinked units (which then breaks `stack on`).
+  removes symlinked units (which then breaks `stack on`). `install_service` renders it from the
+  `@SELF@` template; `stack doctor` warns if the installed unit's `ExecStart` points at a *different*
+  checkout, which otherwise enables cleanly and only fails at boot.
+- **`.containerignore` can never be a symlink.** Podman silently doesn't follow one — verified
+  against podman 5.8: a symlinked ignore file behaves exactly like no ignore file. The build still
+  succeeds, it just tars ~15 GB of GGUFs into the context first. Applies to `comfyui/` too if that
+  recipe is ever mirrored out the way `koboldcpp/` is.
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are
   still associated with it; it clears once they're recreated on `ai-net`.
 - This dir is a git repo, pushed to `github.com/El-Iguana/ai-stack`. Its default branch is

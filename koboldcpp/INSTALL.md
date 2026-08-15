@@ -34,12 +34,19 @@ koboldcpp/
 └── models/              # YOUR GGUF files (not vendored)
 ```
 
-Copy the four files out of this repo, then create `models/` alongside them.
+**`stack install koboldcpp` does this for you** — it symlinks the recipe files back to this repo
+(so your running copy can't drift from the published one) and creates `models/`. Doing it by hand
+works too: symlink or copy the files, then `mkdir models`.
 
-> **Don't drop the `.containerignore`.** `start.sh` builds with the project directory as its build
-> context, so without it Podman tars the entire `models/` tree — ~15 GB of GGUFs — on every image
-> build. The file excludes `models/` and `*.gguf`. This bites only on a fresh build, which is exactly
-> what a first-time install is.
+> **Don't drop the `.containerignore` — and don't symlink it.** `start.sh` builds with the project
+> directory as its build context, so without an *effective* ignore file Podman tars the entire
+> `models/` tree — ~15 GB of GGUFs — into the context. The file excludes `models/` and `*.gguf`.
+>
+> Podman does **not follow a symlinked ignore file**: it behaves exactly as if none existed, and the
+> build still succeeds, just slowly and after copying 15 GB. So this one file is a real copy even
+> though everything else in the directory is a link. `stack install koboldcpp` enforces that, and
+> `stack doctor` warns if it has become a symlink again. This bites on a fresh build — which is
+> exactly what a first-time install is.
 
 ## 2. Get a model
 

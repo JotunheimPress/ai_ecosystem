@@ -1,14 +1,18 @@
+# Template — install it with `stack install service`, not `cp`.
+# @SELF@ is substituted with the ai-stack checkout's own path at install time, so the
+# unit works wherever the stack is cloned. systemd rejects the placeholder as-is, so a
+# stray manual copy fails loudly instead of pointing at a path that doesn't exist.
 [Unit]
 Description=AI stack backends (KoboldCPP + ComfyUI)
-Documentation=file:%h/Development/ai_ecosystem/ai-stack/CLAUDE.md
+Documentation=file:@SELF@/CLAUDE.md
 After=default.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Reuses the stack's own start logic (koboldcpp/start.sh + comfyui distrobox).
-ExecStart=%h/Development/ai_ecosystem/ai-stack/stack up
-ExecStop=%h/Development/ai_ecosystem/ai-stack/stack down backends
+# Reuses the stack's own start logic (koboldcpp/start.sh + comfyui/start.sh).
+ExecStart=@SELF@/stack up
+ExecStop=@SELF@/stack down backends
 TimeoutStartSec=240
 
 [Install]

@@ -6,17 +6,81 @@ once, then pick whichever app you want.
 
 ## Components
 
-**Backends (shared)**
-- **KoboldCPP** — local LLM text generation · `:5001`
-- **ComfyUI** — image / video generation · `:8188` (runs in a distrobox)
+**Backends (shared)** — both are Podman containers on the `ai-net` network, GPU via CDI.
 
-**Frontends** (run side-by-side on their own ports)
+| Backend | Port | What |
+|---|---|---|
+| **KoboldCPP** | 5001 | local LLM text generation |
+| **ComfyUI** | 8188 | image / video generation |
 
-| App | Port | What |
-|-----|------|------|
-| `companion` | 7861 | character-card AI companion |
-| `story` | 7860 | AI Story Maker |
-| `iguana` | 7862 | ComfyUI web GUI |
+**Frontends** (run side-by-side on their own ports, each its own repo)
+
+| App | Port | Directory | Repo | What |
+|-----|------|-----------|------|------|
+| `companion` | 7861 | `companion/` | `El-Iguana/companion` | **La Cantina** — character-card AI companion |
+| `story` | 7860 | `ai_story_maker/` | `El-Iguana/ai-story-maker` | AI Story Maker |
+| `iguana` | 7862 | `iguana_studio/` | `El-Iguana/iquana_studio` | ComfyUI web GUI |
+
+You only need the frontends you actually use; `stack` starts each on demand. The backends are
+useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
+
+## Requirements
+
+- **Podman** and an **NVIDIA GPU** with the container toolkit — `nvidia-smi` must work on the host
+  and `nvidia-ctk cdi list` must show `nvidia.com/gpu=all`. `stack doctor` checks both.
+- **git** (used to fetch pinned ComfyUI custom nodes) and **curl** (health checks).
+- Optional: `jq`, for the GPU-verification commands in the install guides.
+
+Designed for an immutable Fedora/Bazzite workstation — nothing here needs `dnf install`, and
+distrobox is no longer used.
+
+## Install
+
+```bash
+git clone https://github.com/El-Iguana/ai-stack.git
+cd ai-stack
+./stack install          # idempotent — safe to re-run any time
+```
+
+`stack install` is the executable form of the two INSTALL guides, so they can't drift from the real
+thing. It checks prerequisites, links `stack` onto your PATH, renders the systemd unit for *this*
+checkout, creates the `ai-net` network, builds both backend images, lays out `koboldcpp/` and
+`ComfyUI/` next to the checkout, and clones the pinned ComfyUI custom nodes.
+
+Targets: `all` (default) · `backends` · `koboldcpp` · `comfyui` · `service` · `path`.
+
+**It never downloads model weights** — they're third-party and ~73 GB. A fresh install therefore
+ends with *"install done, N item(s) need you"*: the images are built, but nothing can start until
+you supply at least
+
+- a **GGUF** in `koboldcpp/models/` — see [`koboldcpp/INSTALL.md`](koboldcpp/INSTALL.md) §2
+- a **checkpoint** in `ComfyUI/models/checkpoints/` — see [`comfyui/INSTALL.md`](comfyui/INSTALL.md) §8
+  (start with `absolutereality_v181`, 2 GB)
+
+Install reports exactly what's missing and where it goes. Then:
+
+```bash
+stack doctor             # read-only: prerequisites + what's installed, changes nothing
+stack on                 # start the backends and arm boot auto-start
+```
+
+The two INSTALL guides cover the rest — reference hardware, version pins, the flags that matter,
+how to verify the GPU is actually visible, and the model shopping list.
+
+### Frontends
+
+Clone the ones you want as **siblings** of this checkout. Directory names differ from the repo
+names, so pass the target explicitly:
+
+```bash
+cd ..                                                              # the ecosystem root
+git clone https://github.com/El-Iguana/companion.git       companion
+git clone https://github.com/El-Iguana/ai-story-maker.git  ai_story_maker
+git clone https://github.com/El-Iguana/iquana_studio.git   iguana_studio
+```
+
+Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
+configuration. They're separate private repos — ask for access.
 
 ## Usage
 
@@ -24,12 +88,14 @@ once, then pick whichever app you want.
 stack on          # enable the AI backend — start now + at boot
 stack off         # disable it — stop everything + no boot restart (frees the GPU to game)
 stack             # interactive: show status, ensure backends, then pick a frontend
-stack up          # start the backends now
+stack up          # start the backends now (without touching the boot toggle)
 stack status      # what's running (+ the on/off switch state)
 stack companion   # launch a frontend  (companion | story | iguana)
 stack down        # stop everything    (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>
+stack install [target]   # one-time setup, idempotent
+stack doctor             # check prerequisites + what's installed
 ```
 
 ## The on/off switch (game ⇄ AI)
@@ -37,33 +103,32 @@ stack logs <app>
 `stack off` stops KoboldCPP + ComfyUI **and** disables the boot service — freeing all GPU VRAM
 for gaming, with nothing restarting until you `stack on`. It's the single point of control.
 
+Both backends share **12 GB of VRAM** on the reference machine: a ~9B LLM at Q4 plus an SD 1.5
+checkpoint fits, an LLM plus SDXL does not. ComfyUI also holds VRAM after a job — see the
+`/free` call in [`comfyui/CLAUDE.md`](comfyui/CLAUDE.md).
+
 ## Boot auto-start
 
 A systemd **user** service (`ai-stack-backends.service`) brings the backends up at login/boot so
-they're ready and you just pick a frontend. Install/enable details in [`CLAUDE.md`](CLAUDE.md).
+they're ready and you just pick a frontend. `stack install service` renders and installs it —
+the shipped file is a template whose `@SELF@` placeholder becomes this checkout's path, so it
+works wherever you cloned. Don't `cp` it by hand.
+
+```bash
+loginctl enable-linger   # optional: start at boot even before you log in
+stack on                 # arm it
+```
 
 ## How it works
 
-- Containers share the **`ai-net`** Podman network and reach KoboldCPP by name (`koboldcpp:5001`);
-  ComfyUI is reached at `host.containers.internal:8188`.
+- Containers share the **`ai-net`** Podman network and reach the backends by name —
+  `http://koboldcpp:5001` and `http://comfyui:8188`. Both are also published to the host
+  (`localhost:5001` / `localhost:8188`).
 - The app list is a small **registry** at the top of the `stack` script — adding a new frontend is
   one row plus one start line.
-
-## Requirements
-
-Podman, distrobox, curl, and an NVIDIA GPU. Designed for an immutable Fedora/Bazzite workstation.
-
-## Installing the backends
-
-`stack` is a **launcher, not an installer** — it assumes the backends already exist. To build one
-from scratch:
-
-- **KoboldCPP** — [`koboldcpp/INSTALL.md`](koboldcpp/INSTALL.md). The full recipe is in this repo
-  (`Containerfile`, `start.sh`, `chatml.json`); bring your own GGUF and run `./start.sh`.
-- **ComfyUI** — [`comfyui/INSTALL.md`](comfyui/INSTALL.md): distrobox creation, the CUDA-pinned
-  torch install, pinned requirements, systemd unit, and the model shopping list.
-
-Model weights are never vendored — both guides list what's in use and where to get it.
+- Backend recipes live in this repo (`koboldcpp/`, `comfyui/`) and are the canonical copies;
+  `stack install` wires them into the sibling directories where they run, so what you run and what
+  you publish can't diverge.
 
 ## Layout
 
@@ -72,18 +137,21 @@ Model weights are never vendored — both guides list what's in use and where to
 ```
 ai_ecosystem/
 ├── ai-stack/       # this repo
-├── koboldcpp/      # backend
-├── ComfyUI/        # backend
-├── companion/      # frontend
-├── ai_story_maker/ # frontend
-└── iguana_studio/  # frontend
+├── koboldcpp/      # backend — created by `stack install`; you add models/
+├── ComfyUI/        # backend state — created by `stack install`; you add models/
+├── companion/      # frontend — you clone
+├── ai_story_maker/ # frontend — you clone
+└── iguana_studio/  # frontend — you clone
 ```
 
-The root is found automatically from the script's own location, so cloning them side by side is all
-that's needed — nothing to configure. To keep them elsewhere, set `AI_ECOSYSTEM`:
+The two backend directories are made for you: `koboldcpp/` is a symlink farm back into this repo
+plus a real `models/`, and `ComfyUI/` holds only mutable state (`models`, `input`, `output`, `user`,
+`custom_nodes`) — the ComfyUI code itself ships inside the image, so there's no upstream checkout to
+clone.
+
+The root is found automatically from the script's own location, so cloning side by side is all
+that's needed — nothing to configure. To keep the projects elsewhere, set `AI_ECOSYSTEM`:
 
 ```bash
 export AI_ECOSYSTEM=/path/to/your/projects
 ```
-
-You only need the frontends you actually use; `stack` starts each on demand.
