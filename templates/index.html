@@ -10,8 +10,19 @@
   <header>
     <h1>stack</h1>
     <div id="switch" class="switch unknown">…</div>
+    <button id="btn-on" class="primary" hidden>turn on</button>
+    <button id="btn-off" hidden>turn off</button>
+    <span class="spacer"></span>
+    <button id="btn-up">start backends</button>
+    <button id="btn-downall" class="danger">stop all</button>
     <span id="updated" class="dim"></span>
   </header>
+
+  <div id="busy" class="busy" hidden>
+    <span class="spinner"></span><span id="busy-label"></span>
+    <button id="busy-hide" class="link">hide</button>
+  </div>
+  <pre id="console" class="raw" hidden></pre>
 
   <main>
     <section id="apps-section">
@@ -20,10 +31,15 @@
       <pre id="status-raw" class="raw" hidden></pre>
     </section>
 
-    <section>
-      <h2>Models
-        <span id="disk" class="dim"></span>
+    <section id="logs-section" hidden>
+      <h2>Logs — <span id="logs-app"></span>
+        <button id="logs-close">close</button>
       </h2>
+      <pre id="logs" class="raw tall"></pre>
+    </section>
+
+    <section>
+      <h2>Models <span id="disk" class="dim"></span></h2>
       <div class="cols">
         <div>
           <h3>KoboldCPP <span id="kobold-dir" class="dim path"></span></h3>
@@ -43,13 +59,16 @@
 
     <section>
       <h2>Doctor <button id="run-doctor">run</button></h2>
-      <p class="dim">Read-only prerequisite + install check. Not polled — it shells out to podman.</p>
+      <p class="dim">Read-only prerequisite + install check. Not polled — it shells out to podman.<br>
+        Three checks always fail from inside this container and aren't real: <code>nvidia-smi</code>
+        and the CDI spec need host GPU tooling, and the systemd-unit check looks for a file under
+        <code>$HOME</code>. Run <code>stack doctor</code> in a terminal for those.</p>
       <div id="doctor"></div>
     </section>
   </main>
 
   <footer class="dim">
-    phase 0 — read-only. Nothing on this page can change the state of the machine.
+    phase 1 — control. Model browsing and downloads are phase 3.
   </footer>
 
   <script src="/static/js/app.js"></script>

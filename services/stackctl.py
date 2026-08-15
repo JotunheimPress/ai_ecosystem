@@ -1,12 +1,15 @@
 """Invoking the `stack` script — the only thing here that touches the system.
 
-Two rules this module exists to enforce:
+Three rules this module exists to enforce:
 
 1. **No shell.** Every call is a list argv to subprocess, never a string. Nothing a
    browser sends is ever interpolated into a command line.
-2. **Allowlist, not validation.** Callers ask for a verb by key; unknown keys raise.
-   Phase 0 exposes only the two read-only verbs, so this whole service cannot change
-   the state of the machine.
+2. **Allowlist, not validation.** Callers ask for a verb by key; the key maps to a fixed
+   argv. A verb that isn't in VERBS cannot be run — which is why phase 0 was read-only
+   *by construction*, and why this table is where review attention belongs now that
+   mutating verbs live in it.
+3. **Targets come from the registry, not the request.** An app name is only accepted if
+   `stack status` currently lists it. The browser can't name a process to act on.
 
 `stack` is found the way `stack` finds everything else: AI_ECOSYSTEM if set, else the
 parent of this project, with the checkout expected as a sibling.
@@ -18,18 +21,45 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterator
 
 BASE = Path(__file__).resolve().parent.parent
 ECO = Path(os.environ.get("AI_ECOSYSTEM") or BASE.parent)
 STACK = ECO / "ai-stack" / "stack"
 
-# Phase 0 is read-only by construction. Mutating verbs (on/off/up/down/restart) arrive
-# in phase 1 — adding them here is the *only* place that needs to change, which is why
-# they aren't merely disabled in the UI.
-VERBS: dict[str, list[str]] = {
-    "status": ["status"],
-    "doctor": ["doctor"],
+# This app's own name in the registry. It is never a legal target: `down stackui` or
+# `restart stackui` issued through the UI would kill the server mid-request, leaving the
+# page hanging on a reply that can never come. Stop it from a terminal.
+SELF_APP = "stackui"
+
+# `down` accepts group names as well as apps.
+DOWN_GROUPS = {"all", "backends", "frontends"}
+
+
+@dataclass(frozen=True)
+class Verb:
+    argv: list[str]                 # fixed prefix; the validated target is appended
+    mutating: bool
+    target: str | None = None       # None | "app" | "down"
+    stream: bool = False            # long-running: stream output instead of buffering
+    timeout: int = 30
+
+
+VERBS: dict[str, Verb] = {
+    # read-only
+    "status":  Verb(["status"], False),
+    "doctor":  Verb(["doctor"], False, timeout=60),
+    "logs":    Verb(["logs"], False, target="app", stream=True),
+    # mutating — phase 1
+    "on":      Verb(["on"], True, stream=True),
+    "off":     Verb(["off"], True, stream=True),
+    "up":      Verb(["up"], True, stream=True),
+    "down":    Verb(["down"], True, target="down", stream=True),
+    "restart": Verb(["restart"], True, target="app", stream=True),
+    # `stack <app>` — the bare-app-name form that starts one thing
+    "start":   Verb([], True, target="app", stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -47,44 +77,146 @@ def available() -> bool:
     return STACK.is_file() and os.access(STACK, os.X_OK)
 
 
-def run(verb: str, timeout: int = 30) -> dict:
-    """Run an allowlisted verb. Returns exit code + de-coloured output."""
-    if verb not in VERBS:
-        raise StackError(f"verb not allowed: {verb!r}")
+# Passed through to `stack` when present. Everything else in the environment is dropped:
+# a small explicit list is easier to reason about than "inherit and hope".
+#   CONTAINER_HOST            — the host podman engine. Without it, podman in the
+#                               container talks to an engine that isn't there, so every
+#                               up/down/restart silently does nothing.
+#   DBUS_SESSION_BUS_ADDRESS  — the host user systemd, via the systemctl shim. Without it
+#                               `stack` can't see the unit and the on/off switch vanishes
+#                               from status entirely (it reads as "unknown", not "off").
+_PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS")
+
+
+def _env() -> dict:
+    """Minimal environment: enough for podman and systemctl to find the user session."""
+    e = {
+        "HOME": os.environ.get("HOME", ""),
+        "PATH": os.environ.get("PATH", ""),
+        "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", ""),
+        "USER": os.environ.get("USER", ""),
+    }
+    for k in _PASSTHROUGH:
+        if k in os.environ:
+            e[k] = os.environ[k]
+    return e
+
+
+# --- the registry ------------------------------------------------------------
+_APPS: tuple[float, list[str]] = (0.0, [])
+_APPS_TTL = 60.0
+
+
+def invalidate_apps() -> None:
+    """Drop the cached registry — call after anything that could change what's running."""
+    global _APPS
+    _APPS = (0.0, [])
+
+
+def known_apps(force: bool = False) -> list[str]:
+    """App names `stack status` currently lists. The allowlist for every target."""
+    global _APPS
+    if not force and time.monotonic() - _APPS[0] < _APPS_TTL and _APPS[1]:
+        return _APPS[1]
+    names = [a["name"] for a in parse_status(run("status")["output"])["apps"]]
+    if names:
+        _APPS = (time.monotonic(), names)
+    return names
+
+
+def resolve(verb_key: str, target: str | None) -> list[str]:
+    """Validate a (verb, target) pair into a concrete argv. Raises on anything unknown."""
+    v = VERBS.get(verb_key)
+    if v is None:
+        raise StackError(f"verb not allowed: {verb_key!r}")
+    if v.target is None:
+        if target:
+            raise StackError(f"`{verb_key}` takes no target")
+        return [*v.argv]
+
+    if not target:
+        raise StackError(f"`{verb_key}` needs a target")
+    apps = known_apps()
+    if not apps:
+        # Better to refuse than to fall back to trusting the request: an empty registry
+        # means we can't tell a real app from anything else the browser sent.
+        raise StackError("registry unavailable — cannot validate the target")
+
+    if v.target == "down":
+        if target not in DOWN_GROUPS and target not in apps:
+            raise StackError(f"unknown target: {target!r}")
+    elif target not in apps:
+        raise StackError(f"unknown app: {target!r}")
+
+    if v.mutating and target == SELF_APP:
+        raise StackError(f"refusing to {verb_key} {SELF_APP} from its own UI — "
+                         f"use a terminal: stack down {SELF_APP}")
+    return [*v.argv, target]
+
+
+# --- running -----------------------------------------------------------------
+def run(verb_key: str, target: str | None = None) -> dict:
+    """Run to completion and buffer the output. For the quick read-only verbs."""
+    v = VERBS[verb_key] if verb_key in VERBS else None
+    argv = resolve(verb_key, target)
     if not available():
         raise StackError(f"stack not found or not executable at {STACK}")
     started = time.monotonic()
     try:
-        p = subprocess.run(
-            [str(STACK), *VERBS[verb]],
-            capture_output=True, text=True, timeout=timeout,
-            # A clean env with just enough to work: `stack` shells out to podman and
-            # systemctl, which need HOME/PATH/XDG_RUNTIME_DIR to find the user session.
-            env={
-                "HOME": os.environ.get("HOME", ""),
-                "PATH": os.environ.get("PATH", ""),
-                "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", ""),
-                "USER": os.environ.get("USER", ""),
-                **({"AI_ECOSYSTEM": os.environ["AI_ECOSYSTEM"]} if "AI_ECOSYSTEM" in os.environ else {}),
-            },
-        )
+        p = subprocess.run([str(STACK), *argv], capture_output=True, text=True,
+                           timeout=(v.timeout if v else 30), env=_env())
     except subprocess.TimeoutExpired:
-        raise StackError(f"`stack {verb}` timed out after {timeout}s")
+        raise StackError(f"`stack {' '.join(argv)}` timed out")
     return {
-        "verb": verb,
-        "exit_code": p.returncode,
+        "verb": verb_key, "target": target, "exit_code": p.returncode,
         "output": strip_ansi(p.stdout + p.stderr).rstrip(),
         "duration_ms": int((time.monotonic() - started) * 1000),
     }
+
+
+def stream(verb_key: str, target: str | None = None) -> Iterator[tuple[str, object]]:
+    """Yield ("line", str) as output arrives, then ("exit", int).
+
+    Used for the slow verbs — `stack up` waits on health checks and can take a couple of
+    minutes on a cold model load, which is far too long to hold a request open blind.
+    The caller MUST close this generator (or exhaust it); closing terminates the child.
+    """
+    argv = resolve(verb_key, target)
+    if not available():
+        raise StackError(f"stack not found or not executable at {STACK}")
+    p = subprocess.Popen(
+        [str(STACK), *argv], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, env=_env(),
+        # Own process group: `stack logs` execs `podman logs -f`, and killing only the
+        # parent would leave that child attached to the pipe forever.
+        start_new_session=True,
+    )
+    try:
+        for line in p.stdout:                      # type: ignore[union-attr]
+            yield "line", strip_ansi(line.rstrip("\n"))
+        p.wait()
+        yield "exit", p.returncode
+    finally:
+        if p.poll() is None:
+            try:
+                os.killpg(os.getpgid(p.pid), 15)
+            except (ProcessLookupError, PermissionError):
+                p.terminate()
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        if p.stdout:
+            p.stdout.close()
 
 
 # --- parsing -----------------------------------------------------------------
 # `stack status` prints for humans, so this is text-scraping and it is the one brittle
 # seam in the app. Everything degrades to showing the raw text if a line doesn't match,
 # and `raw` is always returned so the UI can fall back wholesale. The real fix is a
-# `stack status --json` mode — worth doing when phase 1 needs structured data anyway.
+# `stack status --json` mode.
 
-_ROW = re.compile(r"^\s+(?P<name>\S+)\s+\[(?P<state>up|down)\]\s+:(?P<port>\d+)\s+(?P<desc>.*?)\s*$")
+_ROW = re.compile(r"^\s+(?P<name>\S+)\s+\[(?P<state>up|down)\s*\]\s+:(?P<port>\d+)\s+(?P<desc>.*?)\s*$")
 _SWITCH = re.compile(r"^AI backend switch:\s*(?P<state>ON|OFF)\b")
 _GROUP = re.compile(r"^(?P<group>Backends|Frontends|Control)\b")
 
@@ -101,10 +233,12 @@ def parse_status(output: str) -> dict:
         if m := _ROW.match(line):
             apps.append({
                 "name": m.group("name"),
-                "up": m.group("state") == "up",
+                "up": m.group("state").strip() == "up",
                 "port": int(m.group("port")),
                 "desc": m.group("desc"),
                 "group": group or "other",
+                # The UI greys out controls it must not offer rather than failing later.
+                "self": m.group("name") == SELF_APP,
             })
     return {"switch": switch, "apps": apps, "parsed": bool(apps)}
 
@@ -114,7 +248,6 @@ _DOCTOR_WARN = re.compile(r"^\s+!\s+(.*)$")
 
 
 def parse_doctor(output: str) -> dict:
-    """Split doctor's ✓/! lines out so the UI can show a count without re-running it."""
     ok = [m.group(1) for line in output.splitlines() if (m := _DOCTOR_OK.match(line))]
     warn = [m.group(1) for line in output.splitlines() if (m := _DOCTOR_WARN.match(line))]
     return {"ok": ok, "warnings": warn, "healthy": not warn}

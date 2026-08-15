@@ -88,3 +88,32 @@ button[disabled] { opacity: .5; cursor: default; }
   border-radius: 6px; padding: .6rem .8rem; font-size: .85rem;
 }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .78rem; }
+
+/* --- phase 1: controls, action console, logs ------------------------------ */
+.spacer { flex: 1; }
+button.primary { border-color: var(--up); color: var(--up); }
+button.primary:hover { background: rgba(90,196,124,.1); }
+button.danger:hover { border-color: var(--down); color: var(--down); background: rgba(209,86,106,.1); }
+button.link { border: 0; background: none; color: var(--dim); padding: .2rem .3rem; }
+button.link:hover { color: var(--accent); }
+
+.card .actions {
+  display: flex; gap: .4rem; align-items: center;
+  margin-top: .6rem; padding-top: .5rem; border-top: 1px solid var(--line);
+}
+.card .actions button { font-size: .74rem; padding: .12rem .5rem; }
+
+.busy {
+  display: flex; align-items: center; gap: .6rem;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
+  padding: .5rem .8rem; margin-bottom: .8rem; font-size: .85rem;
+}
+.spinner {
+  width: .8rem; height: .8rem; border: 2px solid var(--line);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite; flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.raw.tall { max-height: 26rem; overflow-y: auto; white-space: pre-wrap; }
+#console { max-height: 16rem; overflow-y: auto; white-space: pre-wrap; color: var(--fg); }
