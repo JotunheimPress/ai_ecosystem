@@ -215,13 +215,37 @@ async function loadInventory() {
   kb.replaceChildren();
   for (const m of k.models) {
     const tr = el("tr", m.active ? "active" : null);
-    tr.append(el("td", "name", m.name), el("td", "size", bytes(m.size)));
+    const acts = el("td", "rowacts");
+    if (!m.active) {
+      const use = el("button", "link", "use");
+      use.title = "write koboldcpp/model.env — applies on the next start";
+      use.onclick = () => selectKobold(m.name);
+      acts.append(use);
+    }
+    if (m.running) acts.append(el("span", "loaded", "loaded"));
+    const del = el("button", "link danger-link", "delete");
+    del.onclick = () => deleteModel("kobold", m.name, m.size);
+    acts.append(del);
+    tr.append(el("td", "name", m.name), el("td", "size", bytes(m.size)), acts);
     kb.append(tr);
   }
   if (!k.models.length) {
     const tr = el("tr");
     tr.append(el("td", "dim", "no .gguf files"));
     kb.append(tr);
+  }
+
+  const pending = $("kobold-pending");
+  if (k.restart_needed) {
+    pending.replaceChildren(
+      el("span", null, `selected ${k.active} — loaded ${k.running}. Restart to apply.`));
+    const btn = el("button", "primary", "restart koboldcpp");
+    btn.onclick = () => act("restart", "koboldcpp");
+    btn.disabled = busy;
+    pending.append(btn);
+    pending.hidden = false;
+  } else {
+    pending.hidden = true;
   }
 
   const active = $("kobold-active");
@@ -231,9 +255,12 @@ async function loadInventory() {
   } else {
     active.className = "dim";
     active.textContent = k.active
-      ? `active: ${k.active} (from ${k.source}${k.gpu_layers ? `, ${k.gpu_layers} layers` : ""})`
+      ? `selected: ${k.active} (from ${k.source}${k.gpu_layers ? `, ${k.gpu_layers} layers` : ""})`
+        + (k.running ? ` · loaded: ${k.running}` : " · not running")
       : "no selection found";
   }
+  $("layers").value = k.gpu_layers || "";
+  $("layers").dataset.model = k.active || "";
 
   $("comfy-dir").textContent = inv.comfyui.dir;
   const cb = $("comfy").querySelector("tbody");
@@ -250,10 +277,47 @@ async function loadInventory() {
   ck.replaceChildren();
   for (const c of inv.checkpoints) {
     const tr = el("tr");
-    tr.append(el("td", "name", c.name), el("td", "size", bytes(c.size)));
+    const acts = el("td", "rowacts");
+    const del = el("button", "link danger-link", "delete");
+    del.onclick = () => deleteModel("checkpoint", c.name, c.size);
+    acts.append(del);
+    tr.append(el("td", "name", c.name), el("td", "size", bytes(c.size)), acts);
     ck.append(tr);
   }
   $("ckpt-wrap").hidden = !inv.checkpoints.length;
+}
+
+// --- model management (phase 2) -------------------------------------------
+// Both of these write, so both carry the X-Stack-UI header the server demands. Neither
+// restarts anything: selecting a model is a file write, and applying it is the ordinary
+// restart action the user triggers deliberately.
+
+async function selectKobold(model, gpuLayers) {
+  try {
+    await api("/api/kobold/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Stack-UI": "1" },
+      body: JSON.stringify({ model, gpu_layers: gpuLayers ?? null }),
+    });
+    loadInventory();
+  } catch (e) {
+    alert(`could not select ${model}: ${e.message}`);
+  }
+}
+
+async function deleteModel(kind, name, size) {
+  if (!confirm(`Delete ${name}? This frees ${bytes(size)} and cannot be undone.`)) return;
+  try {
+    await api(`/api/models/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: { "X-Stack-UI": "1" },
+    });
+    loadInventory();
+  } catch (e) {
+    // The server refuses to delete the selected or the loaded model; that reason is
+    // worth showing verbatim, since it tells you what to do first.
+    alert(`could not delete ${name}: ${e.message}`);
+  }
 }
 
 // --- doctor ---------------------------------------------------------------
@@ -287,6 +351,11 @@ async function runDoctor() {
 
 // --- wiring ---------------------------------------------------------------
 $("run-doctor").onclick = runDoctor;
+$("layers-save").onclick = () => {
+  const f = $("layers");
+  if (!f.dataset.model) return alert("no model selected yet");
+  selectKobold(f.dataset.model, f.value === "" ? null : Number(f.value));
+};
 $("btn-on").onclick = () => act("on");
 $("btn-off").onclick = () => act("off", null, "Stop both backends and disable boot auto-start?");
 $("btn-up").onclick = () => act("up");

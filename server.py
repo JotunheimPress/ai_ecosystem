@@ -116,6 +116,41 @@ def inv():
     }
 
 
+# --- inventory writes (phase 2) ----------------------------------------------
+@app.post("/api/kobold/select")
+def kobold_select(body: dict = Body(...)):
+    """Pin the model KoboldCPP boots. Takes effect on its next start, not now.
+
+    Deliberately does NOT restart on your behalf: a restart drops whatever is loaded and
+    costs 20-30 s of model load, and doing that as a side effect of clicking a name in a
+    list is the kind of surprise this UI shouldn't spring. The response says a restart is
+    pending; the button that does it is the ordinary `restart koboldcpp` action.
+    """
+    layers = body.get("gpu_layers")
+    if isinstance(layers, str) and layers.strip():
+        try:
+            layers = int(layers)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="gpu_layers must be a number")
+    elif layers == "" or layers is None:
+        layers = None
+    try:
+        return inventory.select_kobold(body.get("model") or "", layers)
+    except inventory.InventoryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/models/{kind}/{name}")
+def delete_model(kind: str, name: str):
+    """Delete one model file. The name is validated against the live listing, not trusted."""
+    try:
+        return inventory.delete_model(kind, name)
+    except inventory.InventoryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"delete failed: {e}")
+
+
 # --- actions -----------------------------------------------------------------
 @app.post("/api/action")
 def action(body: dict = Body(...)):

@@ -44,7 +44,13 @@
         <div>
           <h3>KoboldCPP <span id="kobold-dir" class="dim path"></span></h3>
           <table id="kobold"><tbody></tbody></table>
+          <div id="kobold-pending" class="pending" hidden></div>
           <p id="kobold-active" class="dim"></p>
+          <p class="dim layers-row">
+            GPU layers <input id="layers" type="number" min="0" max="200" step="1" placeholder="33">
+            <button id="layers-save">save</button>
+            <span class="hint">lower it if a bigger quant won't fit 12 GB</span>
+          </p>
         </div>
         <div>
           <h3>ComfyUI <span id="comfy-dir" class="dim path"></span></h3>

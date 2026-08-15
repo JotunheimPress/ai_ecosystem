@@ -154,8 +154,30 @@ Deliberate, not incidental:
 - **The UI disables every button while an action runs**, which is what keeps the
   single-slot 409 from being something a user can trip over by accident.
 
-## Phase 2 (next)
+## Writes (phase 2)
 
-Inventory management: model list with delete, and switching the Kobold model by writing
-`koboldcpp/model.env` + `stack restart koboldcpp`. Activation is independently useful, so
-it lands before any downloading. See `../ai-stack/STACK_UI_PLAN.md`.
+`POST /api/kobold/select` writes `koboldcpp/model.env`; `DELETE /api/models/{kind}/{name}`
+removes a model file. Both go through `inventory._safe_target()`, which is the only way to
+name a file in this app:
+
+- the collection is a **key** (`kobold`/`checkpoint`/`lora`/`vae`) mapped to a directory —
+  a request never supplies a path;
+- the name must have no separators and must carry the right extension;
+- after resolution the parent must still be exactly that directory, so a symlinked models
+  dir or a crafted name can't land the write elsewhere;
+- the file must already exist.
+
+**Selecting does not restart.** A restart drops what's loaded and costs 20–30 s of model
+load; doing that as a side effect of clicking a name is a surprise the UI shouldn't spring.
+The inventory exposes `running` (from KoboldCPP's own API) and `restart_needed`, and the
+UI shows a pending banner whose button fires the ordinary `restart koboldcpp` action.
+
+**Deleting refuses two cases**: the currently *selected* model (start.sh hard-fails on a
+missing selection, so it would break the backend at the next start rather than now) and
+the currently *loaded* one. `model.env` is written atomically — a torn write would be
+parsed by start.sh at the next boot.
+
+## Phase 3 (next)
+
+HuggingFace search → file picker with fit hints → download jobs → auto-activate. See
+`../ai-stack/STACK_UI_PLAN.md`.
