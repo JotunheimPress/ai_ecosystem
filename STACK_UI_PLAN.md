@@ -6,17 +6,26 @@ for the two backends without leaving the browser or hand-editing anything.
 Status: **plan only, nothing built.** The one prerequisite that *is* done is `koboldcpp/model.env`
 (persistent model selection — see `koboldcpp/INSTALL.md` §4); Phase 3 depends on it.
 
-## Why it isn't just another containerized frontend
+## A container that drives the host
 
-`stack` drives **`podman` and `systemctl --user`**. From inside a container that needs the podman
-socket bind-mounted, and `systemctl --user` is worse — so the on/off switch, the thing most worth
-having a button for, is exactly the thing containerization breaks.
+> **Superseded.** This was planned host-side and built that way first, on the reasoning that
+> `stack` drives `podman` *and* `systemctl --user` and so couldn't be containerized. That was
+> wrong — it's harder, not impossible. stack-ui is a container like everything else.
 
-So stack-ui runs **host-side**: a FastAPI app under a systemd user unit, calling `stack` directly as
-your user. That's the one `kind=proc` app the registry has been holding a slot for — `stack:52-55`
-keeps `port_pid()` and the `proc` branches alive with a comment calling them "the extension point
-for a future host-side app." This is it. Adding it is one `reg` row plus one `start_app()` line, and
-`stack down`/`stack logs` keep working through the existing PID path.
+What it took, since none of it is obvious:
+
+- **podman** → mount the host socket; ship the podman *client* only (static `podman-remote`,
+  version-pinned to the host engine).
+- **health probes** against `localhost:5001` → `--network=host`, or every app reads as down.
+- **paths** → mount the ecosystem at its **real host path**. A remote client has the *host* engine
+  resolve `-v` and build-context paths, so a container-only path starts apps with broken mounts,
+  silently, exit 0.
+- **`systemctl --user`** → genuinely cannot work: it only uses systemd's private socket, which
+  refuses a cross-userns peer. Worked around with a `systemctl`→D-Bus shim on the session bus, plus
+  `--userns=keep-id` so the bus's uid check passes.
+
+The `kind=proc` branch in `stack` therefore goes back to having no users. Details in
+`stack-ui/CLAUDE.md`.
 
 Consequence: it is the **most privileged thing in the ecosystem** — it can stop your backends, write
 into your models dirs, and pull files off the internet. Security section below is not boilerplate.
@@ -144,10 +153,10 @@ Concentrated here because this app deserves it:
 
 ## Phases
 
-- **Phase 0 — read-only dashboard.** `status` + `doctor` + disk + installed-model inventory. No
-  mutations. Proves the host-side service, the systemd unit, and the `proc` registry slot.
-- **Phase 1 — control.** on/off/up/down/restart + SSE log tail. At this point it already replaces
-  most terminal use.
+- **Phase 0 — read-only dashboard. ✅ DONE.** `status` + `doctor` + disk + installed-model
+  inventory. No mutations — enforced by the verb allowlist, not by the UI omitting buttons.
+- **Phase 1 — control. ✅ DONE.** on/off/up/down/restart/start + SSE log tail, single-slot action
+  runner, Host/Origin guards. At this point it already replaces most terminal use.
 - **Phase 2 — inventory management.** Model list with sizes, delete, and Kobold model switching via
   `model.env` (no downloading yet — activation is independently useful).
 - **Phase 3 — HuggingFace.** Search, file picker with fit hints, download jobs, auto-activate.

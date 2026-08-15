@@ -30,10 +30,10 @@ useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
 |-----|------|-----------|------|------|
 | `stackui` | 7863 | `stack-ui/` | `El-Iguana/stack-ui` | dashboard for the stack itself |
 
-Unlike everything above it runs **on the host**, not in a container — it drives `podman` and
-`systemctl --user`, so containerizing it would break the on/off switch. It's bound to loopback and
-has no auth, so it is reachable only from this machine. `stack down all` deliberately leaves it
-running; stop it with `stack down stackui`.
+A container like the rest, but one that controls the host: it mounts the podman socket and the
+user session bus so it can drive them, and runs with `--network=host` so the health probes work.
+It's bound to loopback and has no auth, so it is reachable only from this machine. `stack down all`
+deliberately leaves it running; stop it with `stack down stackui`.
 
 ## Requirements
 
@@ -95,14 +95,15 @@ configuration. They're separate private repos — ask for access.
 
 ### Control UI
 
-Optional, and set up differently from the rest — it runs on the host, so it needs a venv rather than
-an image:
+Optional. Clone it as a sibling like the frontends; the image builds on first start:
 
 ```bash
 git clone https://github.com/El-Iguana/stack-ui.git   stack-ui
-stack-ui/install.sh    # venv + deps + systemd user unit (idempotent)
-stack stackui          # then open http://localhost:7863
+stack stackui          # builds, then serves http://localhost:7863
 ```
+
+It needs the podman socket enabled — `systemctl --user enable --now podman.socket` — which is how
+it reaches the host engine.
 
 ## Usage
 
@@ -166,7 +167,7 @@ ai_ecosystem/
 ├── companion/      # frontend — you clone
 ├── ai_story_maker/ # frontend — you clone
 ├── iguana_studio/  # frontend — you clone
-└── stack-ui/       # control dashboard (optional) — you clone; runs on the host
+└── stack-ui/       # control dashboard (optional) — you clone
 ```
 
 The two backend directories are made for you: `koboldcpp/` is a symlink farm back into this repo
