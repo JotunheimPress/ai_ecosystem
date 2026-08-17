@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.title="stack-ui"
+LABEL org.opencontainers.image.description="Control dashboard for the local AI stack"
+
+# What `stack` shells out to, and therefore what has to exist in here:
+#   podman     — talks to the HOST engine over the mounted socket (client only, below)
+#   systemctl  — the on/off switch; talks to the HOST user systemd over the mounted bus
+#   curl       — health probes
+#   iproute2   — `ss`, used by the port_pid helper
+#   git        — `stack doctor` reads custom-node pins
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates iproute2 git systemd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Podman CLIENT only. The static remote build is deliberate: it's the client half with no
+# engine, no conmon, no storage config — this container must never run containers itself,
+# it only speaks to the host engine through CONTAINER_HOST. Pinned to the host's version
+# because client/server API skew across majors is a real failure mode.
+ARG PODMAN_VERSION=5.8.4
+RUN curl -fsSL -o /tmp/p.tgz \
+      "https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-remote-static-linux_amd64.tar.gz" \
+    && tar -xzf /tmp/p.tgz -C /tmp \
+    && install -m0755 "$(find /tmp -name 'podman-remote-static*' -type f | head -1)" /usr/local/bin/podman \
+    && rm -rf /tmp/p.tgz /tmp/bin \
+    && podman --version
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# The systemctl shim shadows Debian's real one via PATH order (/usr/local/bin first).
+# See shim/systemctl for why the real one cannot work from in here.
+COPY shim/systemctl /usr/local/bin/systemctl
+RUN chmod 0755 /usr/local/bin/systemctl
+
+COPY server.py run.py ./
+COPY services/ ./services/
+COPY templates/ ./templates/
+COPY static/ ./static/
+
+# NOTE: the ecosystem is bind-mounted at its REAL host path, and AI_ECOSYSTEM is set to
+# that same path at run time (see run-podman.sh) — deliberately NOT a tidy /eco. With a
+# remote podman client, -v and build-context paths are resolved by the HOST engine, so
+# any path that exists only inside this container silently produces a broken mount on
+# whatever it starts. Identical paths on both sides is what makes `stack <app>` work.
+# Where the host podman socket and session bus get mounted (see run-podman.sh).
+ENV CONTAINER_HOST=unix:///run/podman/podman.sock
+# Set by run-podman.sh to the host runtime dir (kept identical under keep-id).
+
+EXPOSE 7863
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -fs http://127.0.0.1:7863/api/health || exit 1
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["python3", "run.py"]

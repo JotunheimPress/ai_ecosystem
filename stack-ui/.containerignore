@@ -1,0 +1,17 @@
+# Deps are installed in the image; the venv was the host-side era and must not be baked.
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+*.md
+*.log
+# Podman / systemd plumbing doesn't belong inside the image
+Containerfile
+.containerignore
+run-podman.sh
+install.sh
+run.sh
+stack-ui.service

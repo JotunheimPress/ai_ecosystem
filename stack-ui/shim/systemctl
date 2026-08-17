@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""A `systemctl --user` shim that talks to the HOST user manager over D-Bus.
+
+Why this exists
+---------------
+`stack on` / `stack off` are `systemctl --user enable/disable --now`. Inside a container
+the real systemctl cannot reach the host's user manager: it only ever uses systemd's
+*private* socket (`$XDG_RUNTIME_DIR/systemd/private`), and that socket refuses a peer from
+another user namespace — ENODATA, with or without --userns=keep-id, with or without
+SELinux. It will not fall back to the session bus.
+
+The session bus *does* accept us (EXTERNAL auth against the host-visible uid, which is why
+the container runs --userns=keep-id). systemd's user manager is on that bus as
+org.freedesktop.systemd1. So this shim implements exactly the five invocations `stack`
+makes, in terms of D-Bus calls, and shadows the real systemctl on PATH.
+
+The alternative was reimplementing `stack on`/`off` in the web app, duplicating the logic
+that `stack` is supposed to own. A translation layer this narrow is the cheaper lie:
+`stack` stays unmodified and unaware, and everything it knows about the switch stays in
+one place. Anything outside the five verbs exits 2 rather than pretending to work.
+"""
+from __future__ import annotations
+
+import sys
+
+from jeepney import DBusAddress, MessageType, new_method_call
+from jeepney.io.blocking import open_dbus_connection
+
+MANAGER = DBusAddress("/org/freedesktop/systemd1",
+                      bus_name="org.freedesktop.systemd1",
+                      interface="org.freedesktop.systemd1.Manager")
+
+
+def call(method: str, signature: str = "", body: tuple = ()):
+    conn = open_dbus_connection(bus="SESSION")
+    try:
+        reply = conn.send_and_get_reply(new_method_call(MANAGER, method, signature, body))
+        if reply.header.message_type is MessageType.error:
+            raise RuntimeError(f"{reply.header.fields.get(4)}: {reply.body}")
+        return reply.body
+    finally:
+        conn.close()
+
+
+def main(argv: list[str]) -> int:
+    args = [a for a in argv if a != "--user"]      # this shim is only ever --user
+    if not args:
+        print("shim: nothing to do", file=sys.stderr)
+        return 2
+    verb, rest = args[0], args[1:]
+    now = "--now" in rest
+    units = [a for a in rest if not a.startswith("-")]
+
+    try:
+        if verb == "daemon-reload":
+            call("Reload")
+            return 0
+
+        if verb == "list-unit-files":
+            # `stack`'s have_svc(): exit status is the whole answer.
+            found = call("ListUnitFilesByPatterns", "asas", ([], units))[0]
+            for path, state in found:
+                print(f"{path.rsplit('/', 1)[-1]} {state}")
+            return 0 if found else 1
+
+        if verb == "is-enabled":
+            # `stack`'s svc_enabled() greps for exactly "enabled".
+            state = call("GetUnitFileState", "s", (units[0],))[0]
+            print(state)
+            return 0 if state.startswith("enabled") else 1
+
+        if verb == "enable":
+            call("EnableUnitFiles", "asbb", (units, False, True))
+            call("Reload")
+            if now:
+                for u in units:
+                    call("StartUnit", "ss", (u, "replace"))
+            return 0
+
+        if verb == "disable":
+            # Stop BEFORE disabling: the unit's ExecStop is what actually brings the
+            # backends down, and a disabled unit is no longer startable/stoppable by name.
+            if now:
+                for u in units:
+                    call("StopUnit", "ss", (u, "replace"))
+            call("DisableUnitFiles", "asb", (units, False))
+            call("Reload")
+            return 0
+
+        if verb in ("start", "stop", "restart"):
+            method = {"start": "StartUnit", "stop": "StopUnit", "restart": "RestartUnit"}[verb]
+            for u in units:
+                call(method, "ss", (u, "replace"))
+            return 0
+
+        if verb in ("status", "show", "is-active"):
+            # Not needed by `stack`; be honest rather than silently wrong.
+            print(f"shim: '{verb}' is not implemented (containerized stack-ui)", file=sys.stderr)
+            return 2
+
+    except Exception as e:                                  # noqa: BLE001
+        print(f"shim: {verb} failed: {e}", file=sys.stderr)
+        return 1
+
+    print(f"shim: unsupported systemctl verb: {verb}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
