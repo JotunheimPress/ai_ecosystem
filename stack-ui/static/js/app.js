@@ -66,6 +66,16 @@ function watchJob(job) {
     } else if (d.type === "done") {
       if (d.error) out.textContent += `\n!! ${d.error}\n`;
       else out.textContent += `\n[exit ${d.exit_code}]\n`;
+      // `stack install` fails its prerequisite check in here every time: nvidia-smi and
+      // the CDI spec need host tooling this container doesn't have. The work above it
+      // still happened, so say that rather than leaving a successful sync sitting under
+      // the words "install failed".
+      if (job.verb === "install_comfyui" && d.exit_code !== 0) {
+        out.textContent +=
+          "note: the non-zero exit is the GPU prerequisite check, which cannot pass from " +
+          "inside this container. The node work above it did run — check the lines above, " +
+          "or run `stack doctor` in a terminal.\n";
+      }
       out.scrollTop = out.scrollHeight;
       actionES.close();
       actionES = null;
@@ -585,6 +595,47 @@ function watchDownload(d) {
   dlES.onerror = () => { if (dlES) { dlES.close(); dlES = null; } };
 }
 
+// --- custom nodes ---------------------------------------------------------
+// The pins come from stack's own CUSTOM_NODES registry, so this panel and `stack doctor`
+// can't disagree. Fixing drift is `stack install comfyui` — idempotent, and it already
+// knows how to clone, fetch and re-checkout.
+
+async function loadNodes() {
+  let d;
+  try { d = await api("/api/nodes"); } catch { return; }
+  const tb = $("nodes").querySelector("tbody");
+  tb.replaceChildren();
+  const LABEL = {
+    on_pin: ["ok", "on pin"], off_pin: ["warn", "off pin"],
+    missing: ["warn", "missing"], not_git: ["warn", "not a checkout"],
+    unreadable: ["warn", "unreadable"],
+  };
+  for (const n of d.nodes) {
+    const [cls, text] = LABEL[n.state] || ["warn", n.state];
+    const tr = el("tr");
+    const state = el("td", "rowacts");
+    state.append(el("span", `band ${cls === "ok" ? "fits" : "tight"}`, text));
+    const shas = el("td", "size");
+    shas.textContent = n.head && n.state === "off_pin"
+      ? `${n.head.slice(0, 7)} → ${n.pin.slice(0, 7)}`
+      : n.pin.slice(0, 7);
+    tr.append(el("td", "name", n.name), shas, state);
+    tb.append(tr);
+  }
+  $("nodes-note").textContent = d.drift
+    ? "drifted from the pinned commits"
+    : `all on pin · ${d.note}`;
+  // Only offer the fix when there is something it would fix. `not_git` is deliberately
+  // excluded: stack reports those and leaves them alone, so a button would be a lie.
+  const fixable = d.nodes.some((n) => n.state === "off_pin" || n.state === "missing");
+  const btn = $("nodes-sync");
+  btn.hidden = !fixable;
+  btn.disabled = busy;
+  btn.onclick = () => act("install_comfyui", null,
+    "Run `stack install comfyui`? It clones or re-checks-out the pinned nodes. " +
+    "Python deps for new nodes still need a ComfyUI image rebuild.");
+}
+
 // --- doctor ---------------------------------------------------------------
 async function runDoctor() {
   const btn = $("run-doctor");
@@ -649,7 +700,7 @@ async function resumeWatch() {
   } catch { /* nothing running */ }
 }
 
-function refresh() { loadStatus(); loadInventory(); loadVram(); }
+function refresh() { loadStatus(); loadInventory(); loadVram(); loadNodes(); }
 resumeWatch();
 refresh();
 // Don't poll over a running action: the output stream is the live view, and a status

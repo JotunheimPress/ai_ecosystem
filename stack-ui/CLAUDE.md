@@ -262,7 +262,26 @@ differs per quant, which is the whole reason it's worth remembering. Selecting a
 no explicit layer count reuses its remembered one rather than silently dropping to the
 default.
 
-## Later
+## Custom-node pins
 
-Custom-node pin updates surfaced from `stack`'s `CUSTOM_NODES` registry. See
-`../STACK_UI_PLAN.md`.
+`services/nodes.py` parses the `CUSTOM_NODES=(...)` array out of the `stack` script itself
+and compares each pin to the checked-out HEAD. **The pins are read, never copied** — a
+dashboard that disagreed with `stack doctor` about which commit is correct would be worse
+than no dashboard.
+
+Fixing drift is the `install_comfyui` verb (`stack install comfyui`), which is idempotent
+and already knows how to clone, fetch and re-checkout. The target is baked into the argv
+rather than accepted from a request: `install` also has `service` and `path` targets, and
+those write under `$HOME` — which in this container is a throwaway directory, so exposing
+the whole verb would offer two buttons that quietly do nothing useful.
+
+- **`not_git` is excluded from the fix.** `stack install` reports a directory that isn't a
+  git checkout and leaves it alone, so offering a button there would be a lie.
+- **Expect a non-zero exit.** `stack install` runs its prerequisite check first, and
+  `nvidia-smi` + the CDI spec cannot pass from inside this container, so the command exits
+  1 *even when the node work succeeded*. The console appends a note saying so — otherwise a
+  successful re-pin sits under the words "install failed".
+- **Python deps are not covered.** A node arriving via a re-pin may still need a ComfyUI
+  image rebuild, because deps live in `comfyui/Containerfile`. The failure mode — a node
+  that imports and then errors at runtime — doesn't look like a missing dependency, so the
+  panel says it in the header.

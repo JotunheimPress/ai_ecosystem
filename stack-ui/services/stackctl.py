@@ -60,6 +60,12 @@ VERBS: dict[str, Verb] = {
     "restart": Verb(["restart"], True, target="app", stream=True),
     # `stack <app>` — the bare-app-name form that starts one thing
     "start":   Verb([], True, target="app", stream=True),
+    # Re-pins the ComfyUI custom nodes (clone/fetch/checkout, idempotent). The target is
+    # baked into the argv rather than accepted from the request: `install` also has
+    # `service` and `path` targets, and those write under $HOME — which, in this
+    # container, is a throwaway directory. Exposing the whole verb would offer two
+    # buttons that quietly do nothing useful.
+    "install_comfyui": Verb(["install", "comfyui"], True, stream=True, timeout=600),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from services import civitai, downloads, hub, inventory, jobs, stackctl, vram
+from services import civitai, downloads, hub, inventory, jobs, nodes, stackctl, vram
 
 app = FastAPI(title="stack-ui", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -150,6 +150,14 @@ def delete_model(kind: str, name: str):
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"delete failed: {e}")
+
+
+# --- ComfyUI custom nodes ----------------------------------------------------
+@app.get("/api/nodes")
+def custom_nodes():
+    """Pinned commits vs what's checked out. Read from `stack`'s own registry, so this
+    can't disagree with `stack doctor` about which commit is correct."""
+    return nodes.status()
 
 
 # --- VRAM planner ------------------------------------------------------------

@@ -170,7 +170,10 @@ Concentrated here because this app deserves it:
   nesting preserved and URLs resolved server-side from a version id.
 - **Phase 5 — VRAM planner. ✅ DONE.** Live VRAM (via ComfyUI), a `/free` button for the
   hold-after-job failure, GGUF-header layer counts, pairing estimates, and per-model layer presets.
-- **Later:** custom-node pins from `stack`'s `CUSTOM_NODES` registry surfaced as an update button.
+- **Phase 6 — custom-node pins. ✅ DONE.** Pin vs HEAD read from `stack`'s own registry, with a
+  sync button that runs `stack install comfyui`.
+
+Every phase in this plan is now built.
 
 ## Non-goals
 
