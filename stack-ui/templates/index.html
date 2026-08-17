@@ -63,6 +63,19 @@
       </div>
     </section>
 
+    <section id="vram-section">
+      <h2>VRAM <span id="vram-line" class="dim"></span>
+        <button id="vram-free" title="ask ComfyUI to unload models and release VRAM">release</button>
+      </h2>
+      <div class="planner">
+        <select id="plan-model"></select>
+        <span class="dim">alongside</span>
+        <select id="plan-ckpt"><option value="">no checkpoint</option></select>
+        <button id="plan-apply" hidden>use suggested layers</button>
+      </div>
+      <p id="plan-out" class="dim"></p>
+    </section>
+
     <section id="find">
       <h2>Find models <span class="dim">HuggingFace · Civitai</span></h2>
       <div class="searchbar">

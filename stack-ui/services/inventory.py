@@ -23,6 +23,10 @@ from .stackctl import ECO
 
 KOBOLD_MODELS = ECO / "koboldcpp" / "models"
 MODEL_ENV = ECO / "koboldcpp" / "model.env"
+# Per-model layer counts. model.env holds only the ACTIVE selection, so without this,
+# switching models loses the layer count you worked out for the previous one — and the
+# right value differs per quant, which is exactly why it's worth remembering.
+PRESETS = ECO / "koboldcpp" / "model-presets.json"
 START_SH = ECO / "ai-stack" / "koboldcpp" / "start.sh"
 COMFY_MODELS = Path(os.environ.get("COMFYUI_STATE") or (ECO / "ComfyUI")) / "models"
 
@@ -86,6 +90,26 @@ def _read_model_env() -> dict[str, str]:
     return out
 
 
+def read_presets() -> dict[str, int]:
+    try:
+        data = json.loads(PRESETS.read_text())
+        return {k: int(v) for k, v in data.items() if isinstance(v, (int, str)) and str(v).isdigit()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def write_preset(model: str, gpu_layers: int | None) -> None:
+    """Remember (or forget) the layer count for one model. Atomic, like model.env."""
+    presets = read_presets()
+    if gpu_layers is None:
+        presets.pop(model, None)
+    else:
+        presets[model] = int(gpu_layers)
+    tmp = PRESETS.with_name(PRESETS.name + ".tmp")
+    tmp.write_text(json.dumps(presets, indent=2, sort_keys=True) + "\n")
+    os.replace(tmp, PRESETS)
+
+
 def running_model() -> str | None:
     """What KoboldCPP has actually LOADED, straight from its own API.
 
@@ -113,7 +137,8 @@ def kobold() -> dict:
                 size = f.stat().st_size
             except OSError:
                 continue
-            files.append({"name": f.name, "size": size, "active": f.name == active})
+            files.append({"name": f.name, "size": size, "active": f.name == active,
+                          "path": str(f)})
     running = running_model()
     for f in files:
         # Kobold strips the .gguf when reporting, so compare on the stem.
@@ -129,6 +154,7 @@ def kobold() -> dict:
         # An active model that isn't on disk is a start.sh hard failure, so surface it here.
         "active_present": any(f["active"] for f in files) if active else False,
         "running": running,
+        "presets": read_presets(),
         # The selection only reaches VRAM on a restart; the UI needs to say so plainly
         # rather than showing a green tick over a model that isn't loaded.
         "restart_needed": bool(running) and bool(active) and Path(active).stem != running,
@@ -232,6 +258,13 @@ def select_kobold(model: str, gpu_layers: int | None) -> dict:
     if gpu_layers is not None:
         if not isinstance(gpu_layers, int) or not (0 <= gpu_layers <= MAX_GPU_LAYERS):
             raise InventoryError(f"gpu_layers must be 0–{MAX_GPU_LAYERS}")
+
+    # An explicit value is remembered for this model; without one, a previously
+    # remembered value is reused rather than silently dropping back to the default.
+    if gpu_layers is not None:
+        write_preset(model, gpu_layers)
+    else:
+        gpu_layers = read_presets().get(model)
 
     lines = [
         "# Written by stack-ui. Parsed (never sourced) by koboldcpp/start.sh.",

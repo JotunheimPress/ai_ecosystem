@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from typing import Iterator
 
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -22,7 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from services import civitai, downloads, hub, inventory, jobs, stackctl
+from services import civitai, downloads, hub, inventory, jobs, stackctl, vram
 
 app = FastAPI(title="stack-ui", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -149,6 +150,52 @@ def delete_model(kind: str, name: str):
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"delete failed: {e}")
+
+
+# --- VRAM planner ------------------------------------------------------------
+@app.get("/api/vram")
+def vram_stats():
+    """Live VRAM plus what each backend would need. Figures come from ComfyUI — there is
+    no NVIDIA tooling in this container — so they're unavailable while it's stopped."""
+    s = vram.stats()
+    k = inventory.kobold()
+    models = []
+    for m in k["models"]:
+        meta = vram.gguf_meta(Path(m["path"]))
+        models.append({**m, "arch": meta.get("arch"), "n_layers": meta.get("n_layers")})
+    return {"vram": s, "kobold": {**k, "models": models},
+            "checkpoints": inventory.checkpoints()}
+
+
+@app.post("/api/vram/free")
+def vram_free():
+    """Make ComfyUI release VRAM it is holding after a job.
+
+    This is the fix for the failure that reads as KoboldCPP being broken: ComfyUI keeps
+    ~6.4 GB resident, Kobold OOMs at startup, and its --rm container vanishes before it
+    logs anything. No restart needed.
+    """
+    try:
+        return vram.free_vram()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/vram/plan")
+def vram_plan(model: str, checkpoint: str = ""):
+    """How many layers of `model` fit alongside `checkpoint`. An estimate, labelled so."""
+    try:
+        path = inventory._safe_target("kobold", model)
+    except inventory.InventoryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ckpt_size = 0
+    if checkpoint:
+        try:
+            ckpt_size = inventory._safe_target("checkpoint", checkpoint).stat().st_size
+        except (inventory.InventoryError, OSError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    s = vram.stats()
+    return vram.plan(path, path.stat().st_size, ckpt_size, s.get("total") or 0)
 
 
 # --- model browsing + downloads (phase 3) ------------------------------------

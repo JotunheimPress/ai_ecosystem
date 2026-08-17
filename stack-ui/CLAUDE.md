@@ -1,8 +1,8 @@
 # stack-ui — control dashboard for the AI stack
 
-Web frontend for the stack itself. **Phases 0–1 built:** service status, model inventory,
-disk, `stack doctor` on demand, plus the control verbs (on/off/up/down/restart/start) and
-a streamed log tail. Model browsing and downloads are phase 3.
+Web frontend for the stack itself. **Phases 0–5 built:** service status and control, streamed
+logs, model inventory with selection and delete, HuggingFace + Civitai browsing and downloads,
+and a VRAM planner across both backends.
 
 Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* the ai-stack
 repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
@@ -23,7 +23,7 @@ three mounts are load-bearing (all in `run-podman.sh`):
 Consequence: it is the most privileged app in the ecosystem — it can control the host's
 containers and user services. That is the same authority the earlier host-side version
 had; containerizing didn't add power, it added a filesystem boundary. It runs as your
-user, stops and starts services, and from phase 2 will write into model dirs.
+user, stops and starts services, writes into model dirs, and fetches files off the internet.
 
 ### The systemctl problem (and the shim)
 
@@ -62,7 +62,11 @@ shim/systemctl         # systemctl -> D-Bus translation (see above)
 services/
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
   jobs.py              # single-slot action runner (one mutation at a time)
-  inventory.py         # models on disk, active Kobold selection (read-only)
+  inventory.py         # models on disk, selection, delete, per-model layer presets
+  hub.py               # HuggingFace search + fit hints
+  civitai.py           # Civitai search (checkpoints / LoRAs / VAEs)
+  downloads.py         # transfers: progress, resume, host allowlist
+  vram.py              # GGUF header parsing, live VRAM, the planner
 templates/index.html · static/css/style.css · static/js/app.js
 ```
 
@@ -152,8 +156,6 @@ Deliberate, not incidental:
   a bad app name surfaced as an empty 200 stream instead of a 400. The logs route now
   calls `resolve()` itself before constructing the stream. Any future streaming route
   must do the same.
-- **`stack logs stackui` is refused** with an explanation: `cmd_logs` is `podman logs -f`
-  and this app isn't a container. Its log is `server.log` beside the code.
 - **The UI disables every button while an action runs**, which is what keeps the
   single-slot 409 from being something a user can trip over by accident.
 
@@ -232,7 +234,35 @@ where `comfyui/INSTALL.md` §8's list actually came from. Same stdlib-only shape
   "503: Model search is temporarily overloaded" tells you to wait. Learned the hard way —
   their search was down while this was being built.
 
-## Phase 5 (later)
+## VRAM planner (phase 5)
 
-VRAM planner across both backends, per-model layer presets, custom-node pin updates from
-`stack`'s `CUSTOM_NODES` registry. See `../STACK_UI_PLAN.md`.
+Both backends share one 12 GB card, and the documented failure mode is nasty: ComfyUI holds
+VRAM after a job, KoboldCPP OOMs the instant it starts, and its `--rm` container disappears
+before logging — so `stack up` says "did not come up" and `podman logs koboldcpp` says no
+such container. It reads as KoboldCPP being broken when it is ComfyUI still holding 6.4 GB.
+
+- **`POST /api/vram/free`** is the fix for exactly that, and needs no restart.
+- **Layer counts are read from the GGUF header** (`vram.gguf_meta`) — exact, not guessed.
+  Worth knowing: Qwen3.5-9B has **32** layers while the built-in default is
+  `KOBOLDCPP_GPU_LAYERS=33`, which is one more than exists. Kobold clamps, but it shows how
+  arbitrary that default was.
+- **The estimate is labelled an estimate.** VRAM for N offloaded layers is taken as N/total
+  of the file plus a per-layer KV allowance; real usage depends on quant format, context and
+  batch size. It exists to get you to a working number fast, not to be authoritative.
+- **`DESKTOP_HEADROOM` (768 MB) is held back from every budget** — the KDE compositor is on
+  this card too. Without it the planner produced "12.3 GB of 12.5 GB", which is
+  arithmetically true and practically an OOM.
+- **Live figures need ComfyUI running.** No NVIDIA tooling in this container; the planner
+  degrades to "start ComfyUI for live figures" rather than inventing a total.
+
+**Per-model layer presets** live in `koboldcpp/model-presets.json` (gitignored, written
+atomically). `model.env` only holds the *active* selection, so without this, switching
+models loses the layer count you worked out for the previous one — and the right value
+differs per quant, which is the whole reason it's worth remembering. Selecting a model with
+no explicit layer count reuses its remembered one rather than silently dropping to the
+default.
+
+## Later
+
+Custom-node pin updates surfaced from `stack`'s `CUSTOM_NODES` registry. See
+`../STACK_UI_PLAN.md`.

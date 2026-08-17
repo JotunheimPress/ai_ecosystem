@@ -320,6 +320,81 @@ async function deleteModel(kind, name, size) {
   }
 }
 
+// --- VRAM planner ---------------------------------------------------------
+// Both backends share one 12 GB card. The numbers here are estimates and say so; the
+// layer count comes from the GGUF header (exact), the VRAM those layers take does not.
+
+let vramData = null;
+
+async function loadVram() {
+  try {
+    vramData = await api("/api/vram");
+  } catch { return; }
+  const v = vramData.vram;
+  const line = $("vram-line");
+  line.replaceChildren();
+  if (v.available) {
+    const pct = v.total ? Math.round((v.used / v.total) * 100) : 0;
+    const bar = el("span", `vrambar${pct > 80 ? " hot" : ""}`);
+    bar.append(el("span"));
+    bar.firstChild.style.width = `${pct}%`;
+    line.append(bar, el("span", null,
+      ` ${bytes(v.used)} used of ${bytes(v.total)} · ${v.device || ""}`));
+  } else {
+    line.textContent = v.source;
+  }
+  $("vram-free").disabled = !v.available;
+
+  const ms = $("plan-model");
+  if (ms.options.length !== vramData.kobold.models.length) {
+    ms.replaceChildren();
+    for (const m of vramData.kobold.models) {
+      const o = el("option", null,
+        `${m.name}${m.n_layers ? ` (${m.n_layers} layers)` : ""}`);
+      o.value = m.name;
+      if (m.active) o.selected = true;
+      ms.append(o);
+    }
+    const cs = $("plan-ckpt");
+    cs.replaceChildren(el("option", null, "no checkpoint"));
+    cs.firstChild.value = "";
+    for (const c of vramData.checkpoints) {
+      const o = el("option", null, `${c.name} (${bytes(c.size)})`);
+      o.value = c.name;
+      cs.append(o);
+    }
+  }
+  runPlan();
+}
+
+async function runPlan() {
+  const model = $("plan-model").value;
+  const ckpt = $("plan-ckpt").value;
+  const out = $("plan-out");
+  if (!model) return;
+  try {
+    const p = await api(`/api/vram/plan?model=${encodeURIComponent(model)}` +
+                        `&checkpoint=${encodeURIComponent(ckpt)}`);
+    if (p.suggested_layers == null) {
+      out.className = "dim";
+      out.textContent = p.note || "not enough information to plan";
+      $("plan-apply").hidden = true;
+      return;
+    }
+    out.className = p.suggested_layers > 0 ? "dim" : "missing";
+    out.textContent =
+      `${p.note} — about ${bytes(p.estimated_vram)} of ${bytes(p.vram_total)}` +
+      `${ckpt ? `, leaving room for ${bytes(p.checkpoint_size)} of checkpoint` : ""}. Estimate.`;
+    const btn = $("plan-apply");
+    btn.hidden = p.suggested_layers <= 0;
+    btn.textContent = `use ${p.suggested_layers} layers`;
+    btn.onclick = () => selectKobold(model, p.suggested_layers);
+  } catch (e) {
+    out.className = "missing";
+    out.textContent = e.message;
+  }
+}
+
 // --- model browsing + downloads (phase 3) ---------------------------------
 // huggingface.co can't be iframed, so this is our own UI over their JSON API. The fit
 // bands are advisory: VRAM is read from ComfyUI's /system_stats, and when that's
@@ -541,6 +616,15 @@ async function runDoctor() {
 
 // --- wiring ---------------------------------------------------------------
 $("run-doctor").onclick = runDoctor;
+$("vram-free").onclick = async () => {
+  const btn = $("vram-free");
+  btn.disabled = true;
+  try { await api("/api/vram/free", { method: "POST", headers: { "X-Stack-UI": "1" } }); }
+  catch (e) { alert(`could not free VRAM: ${e.message}`); }
+  finally { btn.disabled = false; loadVram(); }
+};
+$("plan-model").onchange = runPlan;
+$("plan-ckpt").onchange = runPlan;
 $("hub-search").onclick = hubSearch;
 $("hub-kind").onchange = onKindChange;
 onKindChange();
@@ -565,7 +649,7 @@ async function resumeWatch() {
   } catch { /* nothing running */ }
 }
 
-function refresh() { loadStatus(); loadInventory(); }
+function refresh() { loadStatus(); loadInventory(); loadVram(); }
 resumeWatch();
 refresh();
 // Don't poll over a running action: the output stream is the live view, and a status

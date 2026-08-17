@@ -162,3 +162,13 @@ button.danger-link:hover { color: var(--down); }
 .hintnote { color: var(--dim); font-size: .72rem; }
 .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; flex: 1; min-width: 8rem; }
 .bar > span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+
+/* --- phase 5: vram planner ------------------------------------------------ */
+.planner { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.planner select {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: .22rem .45rem; font: inherit; font-size: .8rem; max-width: 22rem;
+}
+.vrambar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; width: 12rem; display: inline-block; vertical-align: middle; }
+.vrambar > span { display: block; height: 100%; background: var(--accent); }
+.vrambar.hot > span { background: var(--down); }

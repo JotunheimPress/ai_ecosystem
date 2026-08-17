@@ -3,7 +3,7 @@
 A web frontend for the stack itself: run the `stack` commands, and browse/download/activate models
 for the two backends without leaving the browser or hand-editing anything.
 
-Status: **phases 0–4 built** — status/control/logs, model inventory with selection and delete, and
+Status: **phases 0–5 built** — status/control/logs, model inventory with selection and delete, and
 HuggingFace and Civitai search + downloads. Lives in this repo at `stack-ui/`; the running notes are
 in `stack-ui/CLAUDE.md`, which is the authority where this plan and the code disagree.
 
@@ -168,8 +168,9 @@ Concentrated here because this app deserves it:
   resume, auto-activate. Built on stdlib urllib — see the reversal note in `stack-ui/CLAUDE.md`.
 - **Phase 4 — Civitai. ✅ DONE.** Checkpoints, LoRAs and VAEs, with the model→version→file
   nesting preserved and URLs resolved server-side from a version id.
-- **Later:** VRAM planner across both backends; per-model layer presets remembered per file; custom
-  node pins from `stack`'s `CUSTOM_NODES` registry surfaced as an update button.
+- **Phase 5 — VRAM planner. ✅ DONE.** Live VRAM (via ComfyUI), a `/free` button for the
+  hold-after-job failure, GGUF-header layer counts, pairing estimates, and per-model layer presets.
+- **Later:** custom-node pins from `stack`'s `CUSTOM_NODES` registry surfaced as an update button.
 
 ## Non-goals
 
