@@ -3,8 +3,10 @@
 A web frontend for the stack itself: run the `stack` commands, and browse/download/activate models
 for the two backends without leaving the browser or hand-editing anything.
 
-Status: **plan only, nothing built.** The one prerequisite that *is* done is `koboldcpp/model.env`
-(persistent model selection — see `koboldcpp/INSTALL.md` §4); Phase 3 depends on it.
+Status: **phases 0–3 built** — status/control/logs, model inventory with selection and delete, and
+HuggingFace search + downloads. Lives at `github.com/El-Iguana/stack-ui`; the running notes are in
+`stack-ui/CLAUDE.md`, which is the authority where this plan and the code disagree. Phase 4
+(Civitai) is next.
 
 ## A container that drives the host
 
@@ -36,16 +38,20 @@ into your models dirs, and pull files off the internet. Security section below i
 stack-ui/                      # sibling project, like the other frontends
   server.py                    # FastAPI — command layer + catalog layer + job layer
   services/
-    stackctl.py                # allowlisted `stack` invocations
-    hub.py                     # HuggingFace search / file listing
-    civitai.py                 # Civitai search
-    downloads.py               # job queue, progress, destination routing
+    stackctl.py                # allowlisted `stack` invocations   [built]
+    jobs.py                    # single-slot action runner          [built]
+    inventory.py               # models on disk, select, delete     [built]
+    hub.py                     # HuggingFace search / file listing  [built]
+    downloads.py               # transfers, progress, resume        [built]
+    civitai.py                 # Civitai search                     [phase 4]
+  shim/systemctl               # systemctl -> D-Bus, so `stack on/off` works in a container
   static/ templates/           # vanilla JS SPA, no build step (house style)
   run.py                       # uvicorn on 127.0.0.1:7863
-  stack-ui.service             # systemd --user unit, @SELF@-templated like the backends unit
+  Containerfile · run-podman.sh · entrypoint.sh
 ```
 
-Registry row: `reg stackui 7863 "http://127.0.0.1:7863/" "Stack control UI" proc`.
+Registry row:
+`reg stackui 7863 "http://127.0.0.1:7863/api/health" "Stack control dashboard" container stackui`
 
 Reuse rather than reinvent: `iguana_studio/comfyui-auto/server.py:191` already lists ComfyUI
 checkpoints off `/object_info/CheckpointLoaderSimple`, and companion's SSE chat stream is the
@@ -157,9 +163,10 @@ Concentrated here because this app deserves it:
   inventory. No mutations — enforced by the verb allowlist, not by the UI omitting buttons.
 - **Phase 1 — control. ✅ DONE.** on/off/up/down/restart/start + SSE log tail, single-slot action
   runner, Host/Origin guards. At this point it already replaces most terminal use.
-- **Phase 2 — inventory management.** Model list with sizes, delete, and Kobold model switching via
+- **Phase 2 — inventory management. ✅ DONE.** Model list with sizes, delete, and Kobold model switching via
   `model.env` (no downloading yet — activation is independently useful).
-- **Phase 3 — HuggingFace.** Search, file picker with fit hints, download jobs, auto-activate.
+- **Phase 3 — HuggingFace. ✅ DONE.** Search, file picker with fit hints, download jobs with
+  resume, auto-activate. Built on stdlib urllib — see the reversal note in `stack-ui/CLAUDE.md`.
 - **Phase 4 — Civitai** for ComfyUI checkpoints, then LoRA/VAE targets.
 - **Later:** VRAM planner across both backends; per-model layer presets remembered per file; custom
   node pins from `stack`'s `CUSTOM_NODES` registry surfaced as an update button.
