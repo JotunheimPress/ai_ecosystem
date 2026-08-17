@@ -320,6 +320,132 @@ async function deleteModel(kind, name, size) {
   }
 }
 
+// --- model browsing + downloads (phase 3) ---------------------------------
+// huggingface.co can't be iframed, so this is our own UI over their JSON API. The fit
+// bands are advisory: VRAM is read from ComfyUI's /system_stats, and when that's
+// unavailable the hint is suppressed rather than guessed.
+
+let dlES = null;
+
+async function hubSearch() {
+  const q = $("hub-q").value.trim();
+  const kind = $("hub-kind").value;
+  const out = $("hub-results");
+  if (!q) return;
+  out.replaceChildren(el("p", "dim", "searching…"));
+  try {
+    const { results } = await api(
+      `/api/hub/search?q=${encodeURIComponent(q)}&kind=${kind === "kobold" ? "gguf" : "safetensors"}`);
+    out.replaceChildren();
+    if (!results.length) return out.append(el("p", "dim", "nothing found"));
+    for (const r of results) out.append(repoRow(r, kind));
+  } catch (e) {
+    out.replaceChildren(el("div", "error", `search failed: ${e.message}`));
+  }
+}
+
+function repoRow(r, kind) {
+  const d = el("details", "repo");
+  const sum = el("summary");
+  sum.append(el("span", "rid", r.id));
+  if (r.gated) sum.append(el("span", "gated", "gated"));
+  const stats = el("span", "stats",
+    `${r.downloads ? r.downloads.toLocaleString() + " dl" : ""}${r.likes ? " · ♥ " + r.likes : ""}`);
+  sum.append(stats);
+  d.append(sum);
+  const files = el("div", "files");
+  files.append(el("p", "dim", "open to list files…"));
+  d.append(files);
+  // Fetch the file list lazily: one request per repo you actually open, not per result.
+  d.addEventListener("toggle", async () => {
+    if (!d.open || d.dataset.loaded) return;
+    d.dataset.loaded = "1";
+    try {
+      const data = await api(`/api/hub/files?repo=${encodeURIComponent(r.id)}&kind=${kind}`);
+      files.replaceChildren();
+      if (!data.files.length) return files.append(el("p", "dim", "no matching files in this repo"));
+      if (!data.vram_total) {
+        files.append(el("p", "hintnote",
+          "VRAM unknown (ComfyUI is down) — showing sizes without fit hints."));
+      }
+      const tbl = el("table");
+      const body = el("tbody");
+      for (const f of data.files) body.append(fileRow(r.id, f, kind));
+      tbl.append(body);
+      files.append(tbl);
+    } catch (e) {
+      files.replaceChildren(el("div", "error", e.message));
+    }
+  });
+  return d;
+}
+
+function fileRow(repo, f, kind) {
+  const tr = el("tr");
+  const meta = el("td", "rowacts");
+  const band = el("span", `band ${f.fit.band}`, f.fit.band);
+  if (f.fit.note) band.title = f.fit.note;
+  meta.append(band);
+  const btn = el("button", "link", "download");
+  if (f.fit.disk_ok === false) {
+    btn.disabled = true;
+    btn.title = "not enough free disk";
+  }
+  btn.onclick = () => startDownload(repo, f.path, kind, f.size);
+  meta.append(btn);
+  tr.append(el("td", "name", f.name), el("td", "size", bytes(f.size)), meta);
+  return tr;
+}
+
+async function startDownload(repo, path, kind, size) {
+  const activate = kind === "kobold" &&
+    confirm(`Download ${path.split("/").pop()} (${bytes(size)})?\n\n` +
+            "OK = download and select it for KoboldCPP (applies on next restart)\n" +
+            "Cancel = just download");
+  try {
+    watchDownload(await api("/api/downloads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Stack-UI": "1" },
+      body: JSON.stringify({ repo, path, kind, activate }),
+    }));
+  } catch (e) {
+    alert(`could not start: ${e.message}`);
+  }
+}
+
+function watchDownload(d) {
+  const box = $("dl-active");
+  box.hidden = false;
+  if (dlES) dlES.close();
+  dlES = new EventSource(`/api/downloads/${encodeURIComponent(d.id)}/events`);
+  dlES.onmessage = (ev) => {
+    const p = JSON.parse(ev.data);
+    box.replaceChildren();
+    box.append(el("span", null, `${p.label}`));
+    if (p.state === "running") {
+      const bar = el("div", "bar");
+      bar.append(el("span"));
+      bar.firstChild.style.width = `${p.pct || 0}%`;
+      box.append(bar, el("span", "dim",
+        `${bytes(p.received)}${p.total ? " / " + bytes(p.total) : ""}` +
+        `${p.rate ? " · " + bytes(p.rate) + "/s" : ""}${p.eta ? " · " + p.eta + "s left" : ""}`));
+      const cancel = el("button", "danger", "cancel");
+      cancel.onclick = async () => {
+        await fetch(`/api/downloads/${p.id}`, { method: "DELETE", headers: { "X-Stack-UI": "1" } });
+      };
+      box.append(cancel);
+    } else {
+      box.append(el("span", p.state === "done" ? "dim" : "missing",
+        p.state === "done" ? `done — ${bytes(p.received)}` : `${p.state}: ${p.error || ""}`));
+      if (p.error && p.state === "done") box.append(el("span", "missing", p.error));
+      dlES.close();
+      dlES = null;
+      loadInventory();
+    }
+  };
+  dlES.onerror = () => { if (dlES) { dlES.close(); dlES = null; } };
+}
+
 // --- doctor ---------------------------------------------------------------
 async function runDoctor() {
   const btn = $("run-doctor");
@@ -351,6 +477,8 @@ async function runDoctor() {
 
 // --- wiring ---------------------------------------------------------------
 $("run-doctor").onclick = runDoctor;
+$("hub-search").onclick = hubSearch;
+$("hub-q").addEventListener("keydown", (e) => { if (e.key === "Enter") hubSearch(); });
 $("layers-save").onclick = () => {
   const f = $("layers");
   if (!f.dataset.model) return alert("no model selected yet");
@@ -364,7 +492,15 @@ $("busy-hide").onclick = () => { $("console").hidden = true; };
 $("logs-close").onclick = () => closeLogs();
 window.addEventListener("beforeunload", () => { closeLogs(); if (actionES) actionES.close(); });
 
+async function resumeWatch() {
+  try {
+    const { download } = await api("/api/downloads");
+    if (download && download.state === "running" && !dlES) watchDownload(download);
+  } catch { /* nothing running */ }
+}
+
 function refresh() { loadStatus(); loadInventory(); }
+resumeWatch();
 refresh();
 // Don't poll over a running action: the output stream is the live view, and a status
 // refresh mid-action just fights the disabled-button state.

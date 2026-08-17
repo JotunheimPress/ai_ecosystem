@@ -177,7 +177,38 @@ missing selection, so it would break the backend at the next start rather than n
 the currently *loaded* one. `model.env` is written atomically — a torn write would be
 parsed by start.sh at the next boot.
 
-## Phase 3 (next)
+## Browsing + downloads (phase 3)
 
-HuggingFace search → file picker with fit hints → download jobs → auto-activate. See
-`../ai-stack/STACK_UI_PLAN.md`.
+`services/hub.py` searches HuggingFace (huggingface.co can't be iframed, so this is our
+own UI over their JSON API); `services/downloads.py` fetches into the directory a backend
+actually reads.
+
+**No `huggingface_hub` dependency**, reversing the plan's lean. The download loop has to
+be hand-written anyway for byte-level progress, the library's cache would put files in a
+HF-shaped cache dir rather than the models dir the backends scan, and this is a
+control-plane container where a small dependency surface is worth more. Three URLs total.
+
+- **Fit hints are advisory and say so.** VRAM comes from ComfyUI's `/system_stats` — there
+  is no NVIDIA tooling in here — and when ComfyUI is down the hint is *suppressed*, not
+  guessed. `STACK_UI_VRAM_BYTES` overrides. Bands account for an SD 1.5 checkpoint
+  alongside, which is the pairing both INSTALL guides recommend.
+- **One download at a time**, refused (409) rather than queued — same reasoning as
+  actions. Two 7 GB transfers over one link finish later than one after the other.
+- **`.part` + atomic rename.** Bytes land in `<name>.part` and are renamed only after a
+  length check, so a killed transfer can never look like a usable model to a backend
+  scanning that directory. Cancelling *keeps* the `.part` — throwing away 6 GB at 90% is
+  worse than a resumable stub — and a restart resumes with a `Range` request. If the
+  server ignores `Range` and answers 200, the old bytes are discarded rather than appended.
+- **Overwrite is refused.** `safe_new_target()` rejects a name that already exists: a
+  download silently replacing a model a backend may have loaded is the worst surprise
+  available here.
+- **The remote filename is basenamed** before it is joined to anything, so `../../x.gguf`
+  names `x.gguf` inside the collection rather than escaping it — and the resolved parent
+  is re-checked anyway.
+- **Auto-activate only writes `model.env`.** It never restarts a backend as a side effect
+  of a transfer finishing.
+- `HF_TOKEN` is picked up from the environment for gated repos.
+
+## Phase 4 (next)
+
+Civitai for ComfyUI checkpoints, then LoRA/VAE targets. See `../ai-stack/STACK_UI_PLAN.md`.

@@ -264,3 +264,32 @@ def delete_model(kind: str, name: str) -> dict:
     p.unlink()
     _CACHE.clear()                          # the ComfyUI walk is cached; it just changed
     return {"deleted": name, "kind": kind, "freed": size}
+
+
+def safe_new_target(kind: str, name: str) -> Path:
+    """Resolve (kind, name) for a file that does NOT exist yet — the download destination.
+
+    Same checks as `_safe_target` minus "must exist", plus a refusal to overwrite. A
+    download that silently replaced a model you already had would be the worst kind of
+    surprise: the file changes under a backend that may have it loaded.
+    """
+    entry = WRITABLE.get(kind)
+    if entry is None:
+        raise InventoryError(f"unknown collection: {kind!r}")
+    directory, exts = entry
+    if not name or name != Path(name).name or name.startswith("."):
+        raise InventoryError(f"invalid name: {name!r}")
+    if not name.endswith(exts):
+        raise InventoryError(f"{name!r} is not a {'/'.join(exts)} file")
+    p = directory / name
+    if p.parent.resolve() != directory.resolve():
+        raise InventoryError(f"refusing to write outside {directory}")
+    if p.exists():
+        raise InventoryError(f"{name} already exists — delete it first")
+    directory.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def invalidate() -> None:
+    """Drop the size caches — call after anything that changes what's on disk."""
+    _CACHE.clear()

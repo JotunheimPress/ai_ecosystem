@@ -139,3 +139,26 @@ button.danger-link:hover { color: var(--down); }
   font-size: .8rem;
 }
 .layers-row .hint { font-size: .74rem; opacity: .75; }
+
+/* --- phase 3: model browsing + downloads --------------------------------- */
+.searchbar { display: flex; gap: .5rem; margin-bottom: .8rem; flex-wrap: wrap; }
+.searchbar input { flex: 1; min-width: 14rem; }
+.searchbar input, .searchbar select {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 5px; padding: .25rem .5rem; font: inherit; font-size: .84rem;
+}
+.repo { border: 1px solid var(--line); border-radius: 6px; margin-bottom: .45rem; background: var(--panel); }
+.repo > summary { padding: .5rem .8rem; cursor: pointer; display: flex; gap: .6rem; align-items: baseline; }
+.repo > summary::marker { color: var(--dim); }
+.repo .rid { font-family: ui-monospace, monospace; font-size: .8rem; }
+.repo .stats { color: var(--dim); font-size: .74rem; margin-left: auto; white-space: nowrap; }
+.repo .files { padding: 0 .8rem .6rem; }
+.gated { color: var(--warn); font-size: .7rem; border: 1px solid var(--warn); border-radius: 3px; padding: 0 .25rem; }
+.band { font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; border-radius: 3px; padding: 0 .3rem; border: 1px solid; }
+.band.fits { color: var(--up); border-color: var(--up); }
+.band.tight { color: var(--warn); border-color: var(--warn); }
+.band.partial { color: var(--down); border-color: var(--down); }
+.band.unknown { color: var(--dim); border-color: var(--line); }
+.hintnote { color: var(--dim); font-size: .72rem; }
+.bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; flex: 1; min-width: 8rem; }
+.bar > span { display: block; height: 100%; background: var(--accent); transition: width .4s; }

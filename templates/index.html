@@ -63,6 +63,20 @@
       </div>
     </section>
 
+    <section id="find">
+      <h2>Find models <span class="dim">HuggingFace</span></h2>
+      <div class="searchbar">
+        <select id="hub-kind">
+          <option value="kobold">GGUF → KoboldCPP</option>
+          <option value="checkpoint">Checkpoint → ComfyUI</option>
+        </select>
+        <input id="hub-q" type="search" placeholder="qwen3 gguf…" autocomplete="off">
+        <button id="hub-search" class="primary">search</button>
+      </div>
+      <div id="dl-active" class="pending" hidden></div>
+      <div id="hub-results"></div>
+    </section>
+
     <section>
       <h2>Doctor <button id="run-doctor">run</button></h2>
       <p class="dim">Read-only prerequisite + install check. Not polled — it shells out to podman.<br>

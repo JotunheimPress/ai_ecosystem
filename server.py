@@ -1,4 +1,4 @@
-"""stack-ui — control dashboard for the AI stack (phase 1).
+"""stack-ui — control dashboard for the AI stack (phases 0-3).
 
 Runs as a container like everything else in the stack, but an unusual one: it drives the
 HOST's podman engine (mounted socket) and the HOST's user systemd (mounted session bus,
@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from services import inventory, jobs, stackctl
+from services import downloads, hub, inventory, jobs, stackctl
 
 app = FastAPI(title="stack-ui", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -149,6 +149,79 @@ def delete_model(kind: str, name: str):
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"delete failed: {e}")
+
+
+# --- model browsing + downloads (phase 3) ------------------------------------
+@app.get("/api/hub/search")
+def hub_search(q: str, kind: str = "gguf", limit: int = 25):
+    try:
+        return {"results": hub.search(q, kind=kind, limit=limit)}
+    except hub.HubError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/hub/files")
+def hub_files(repo: str, kind: str = "kobold"):
+    """A repo's downloadable files with sizes, each carrying a fit hint.
+
+    The hints are advisory and labelled as such: VRAM comes from ComfyUI's /system_stats
+    (there is no NVIDIA tooling in this container), and is suppressed entirely rather than
+    guessed when that's unavailable.
+    """
+    exts = (".gguf",) if kind == "kobold" else (".safetensors", ".ckpt")
+    try:
+        data = hub.files(repo, exts)
+    except hub.HubError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    vram = hub.vram_total()
+    free = stackctl.disk()["free"]
+    for f in data["files"]:
+        f["fit"] = hub.fit(f["size"], vram, free)
+    data["vram_total"] = vram
+    data["free_disk"] = free
+    return data
+
+
+@app.post("/api/downloads")
+def download_start(body: dict = Body(...)):
+    try:
+        d = downloads.start(
+            repo=str(body.get("repo") or ""), path=str(body.get("path") or ""),
+            kind=str(body.get("kind") or "kobold"), activate=bool(body.get("activate")),
+        )
+    except downloads.Busy as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except inventory.InventoryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(status_code=202, content=d.public())
+
+
+@app.get("/api/downloads")
+def download_state():
+    d = downloads.current()
+    return {"download": d.public() if d else None}
+
+
+@app.get("/api/downloads/{job_id}/events")
+def download_events(job_id: str):
+    d = downloads.get(job_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="no such download")
+
+    def gen():
+        while True:
+            yield {"type": "progress", **d.public()}
+            if d.state != "running":
+                return
+            time.sleep(1)
+    return _sse(gen())
+
+
+@app.delete("/api/downloads/{job_id}")
+def download_cancel(job_id: str):
+    if not downloads.cancel(job_id):
+        raise HTTPException(status_code=404, detail="not running")
+    return {"cancelled": job_id}
 
 
 # --- actions -----------------------------------------------------------------
