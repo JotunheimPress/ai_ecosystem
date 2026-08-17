@@ -23,7 +23,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ECO="${AI_ECOSYSTEM:-$(dirname "$SCRIPT_DIR")}"
+# ai-stack/stack-ui -> ai-stack -> the ecosystem root. Two dirnames, not one: this app
+# ships inside the ai-stack checkout (like the comfyui recipe), not as a sibling project.
+ECO="${AI_ECOSYSTEM:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
 IMAGE="localhost/stackui:latest"
 CONTAINER="stackui"
 PORT="${STACK_UI_PORT:-7863}"

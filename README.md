@@ -26,9 +26,9 @@ useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
 
 **Control**
 
-| App | Port | Directory | Repo | What |
-|-----|------|-----------|------|------|
-| `stackui` | 7863 | `stack-ui/` | `El-Iguana/stack-ui` | dashboard for the stack itself |
+| App | Port | Directory | What |
+|-----|------|-----------|------|
+| `stackui` | 7863 | `stack-ui/` (in this repo) | dashboard for the stack itself |
 
 A container like the rest, but one that controls the host: it mounts the podman socket and the
 user session bus so it can drive them, and runs with `--network=host` so the health probes work.
@@ -55,10 +55,10 @@ cd ai-stack
 
 `stack install` is the executable form of the two INSTALL guides, so they can't drift from the real
 thing. It checks prerequisites, links `stack` onto your PATH, renders the systemd unit for *this*
-checkout, creates the `ai-net` network, builds both backend images, lays out `koboldcpp/` and
-`ComfyUI/` next to the checkout, and clones the pinned ComfyUI custom nodes.
+checkout, creates the `ai-net` network, builds both backend images plus the control UI, lays out
+`koboldcpp/` and `ComfyUI/` next to the checkout, and clones the pinned ComfyUI custom nodes.
 
-Targets: `all` (default) · `backends` · `koboldcpp` · `comfyui` · `service` · `path`.
+Targets: `all` (default) · `backends` · `koboldcpp` · `comfyui` · `stackui` · `service` · `path`.
 
 **It never downloads model weights** — they're third-party and ~73 GB. A fresh install therefore
 ends with *"install done, N item(s) need you"*: the images are built, but nothing can start until
@@ -95,15 +95,16 @@ configuration. They're separate private repos — ask for access.
 
 ### Control UI
 
-Optional. Clone it as a sibling like the frontends; the image builds on first start:
+Ships in this repo (`stack-ui/`) and is built by `stack install`, so there's nothing extra to clone:
 
 ```bash
-git clone https://github.com/El-Iguana/stack-ui.git   stack-ui
-stack stackui          # builds, then serves http://localhost:7863
+stack install stackui                        # or just `stack install`
+systemctl --user enable --now podman.socket  # how it reaches the host engine
+stack stackui                                # serves http://localhost:7863
 ```
 
-It needs the podman socket enabled — `systemctl --user enable --now podman.socket` — which is how
-it reaches the host engine.
+`stack install` warns if that socket isn't active — without it the dashboard builds fine and then
+can't do anything.
 
 ## Usage
 
@@ -166,8 +167,7 @@ ai_ecosystem/
 ├── ComfyUI/        # backend state — created by `stack install`; you add models/
 ├── companion/      # frontend — you clone
 ├── ai_story_maker/ # frontend — you clone
-├── iguana_studio/  # frontend — you clone
-└── stack-ui/       # control dashboard (optional) — you clone
+└── iguana_studio/  # frontend — you clone
 ```
 
 The two backend directories are made for you: `koboldcpp/` is a symlink farm back into this repo

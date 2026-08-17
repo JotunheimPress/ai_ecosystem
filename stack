@@ -14,7 +14,7 @@
 #   stack logs <app>
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
-#                           all|backends|koboldcpp|comfyui|service|path  (default: all)
+#                           all|backends|koboldcpp|comfyui|stackui|service|path (default: all)
 #   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
@@ -73,7 +73,8 @@ start_app() {
     # supplies only mutable state via --base-directory.
     comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
-    stackui)   "$ECO/stack-ui/run-podman.sh" >/dev/null 2>&1 ;;
+    # Ships in this checkout, like the comfyui recipe — hence $SELF, not $ECO.
+    stackui)   "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1 ;;
   esac
 }
 
@@ -201,6 +202,7 @@ cmd_logs() {
 
 IMG_KOBOLD="localhost/koboldcpp:latest"
 IMG_COMFY="localhost/comfyui:latest"
+IMG_STACKUI="localhost/stackui:latest"
 
 # ComfyUI custom nodes the frontends depend on. Cloned into the bind-mounted
 # custom_nodes/ state dir, pinned to a commit so a rebuild can't silently pull in
@@ -397,10 +399,29 @@ install_comfyui() {
   fi
 }
 
+install_stackui() {
+  step "stack-ui"
+  if podman image exists "$IMG_STACKUI"; then
+    ok "image $IMG_STACKUI built"
+  else
+    echo "  building (python + podman client; ~1 minute)…"
+    podman build -t "$IMG_STACKUI" "$SELF/stack-ui" || { warn "build failed"; return 1; }
+    ok "image built"
+  fi
+  # It drives the host engine through this socket, so without it the dashboard builds
+  # fine and then can't do anything. Not enabled for you: it's your session config, the
+  # same reason linger is a warning rather than an action.
+  if systemctl --user is-active podman.socket >/dev/null 2>&1; then
+    ok "podman.socket active (stack-ui reaches the host engine through it)"
+  else
+    warn "podman.socket inactive — run: systemctl --user enable --now podman.socket"
+  fi
+}
+
 cmd_install() {
   local t=${1:-all} rc=0
-  case "$t" in all|backends|koboldcpp|comfyui|service|path) ;;
-    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|service|path)"; return 1 ;;
+  case "$t" in all|backends|koboldcpp|comfyui|stackui|service|path) ;;
+    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|stackui|service|path)"; return 1 ;;
   esac
   echo "${C_B}ai-stack install${C_OFF} — target: $t   ${C_DIM}(idempotent; weights are never downloaded)${C_OFF}"
   echo "${C_B}Prerequisites${C_OFF}"; check_prereqs || rc=1
@@ -410,6 +431,9 @@ cmd_install() {
     echo "${C_B}Backends${C_OFF}"; ensure_net
     [[ "$t" == comfyui   ]] || install_koboldcpp || rc=1
     [[ "$t" == koboldcpp ]] || install_comfyui   || rc=1
+  fi
+  if [[ "$t" == all || "$t" == stackui ]]; then
+    echo "${C_B}Control UI${C_OFF}"; install_stackui || rc=1
   fi
   echo
   # Missing weights are not an install failure — they're deliberately out of scope —
@@ -429,6 +453,7 @@ cmd_doctor() {
   echo "${C_B}Installed${C_OFF}"
   podman image exists "$IMG_KOBOLD" && ok "$IMG_KOBOLD" || warn "$IMG_KOBOLD missing — stack install koboldcpp"
   podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
+  podman image exists "$IMG_STACKUI" && ok "$IMG_STACKUI" || warn "$IMG_STACKUI missing — stack install stackui"
   podman network exists "$NET" 2>/dev/null && ok "network $NET" || warn "network $NET missing — stack install"
   if [ ! -x "$ECO/koboldcpp/start.sh" ]; then
     warn "no $ECO/koboldcpp/start.sh — stack install koboldcpp"

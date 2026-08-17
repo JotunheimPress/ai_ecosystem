@@ -4,7 +4,9 @@ Web frontend for the stack itself. **Phases 0–1 built:** service status, model
 disk, `stack doctor` on demand, plus the control verbs (on/off/up/down/restart/start) and
 a streamed log tail. Model browsing and downloads are phase 3.
 
-Full roadmap: [`../ai-stack/STACK_UI_PLAN.md`](../ai-stack/STACK_UI_PLAN.md).
+Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* the ai-stack
+repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
+reaches it via `$SELF` like the comfyui recipe.
 
 ## A container that drives the host
 
@@ -40,7 +42,8 @@ verbs exits 2 rather than pretending to work.
 ## Running
 
 ```bash
-stack stackui              # build on first run, then start
+stack install stackui      # build the image (part of `stack install`)
+stack stackui              # start
 stack down stackui         # stop
 ./run-podman.sh --rebuild  # rebuild after a code change (code is baked into the image)
 stack logs stackui         # podman logs -f
@@ -211,4 +214,4 @@ control-plane container where a small dependency surface is worth more. Three UR
 
 ## Phase 4 (next)
 
-Civitai for ComfyUI checkpoints, then LoRA/VAE targets. See `../ai-stack/STACK_UI_PLAN.md`.
+Civitai for ComfyUI checkpoints, then LoRA/VAE targets. See `../STACK_UI_PLAN.md`.
