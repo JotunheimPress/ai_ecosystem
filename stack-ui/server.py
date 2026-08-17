@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from services import downloads, hub, inventory, jobs, stackctl
+from services import civitai, downloads, hub, inventory, jobs, stackctl
 
 app = FastAPI(title="stack-ui", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -182,13 +182,36 @@ def hub_files(repo: str, kind: str = "kobold"):
     return data
 
 
+@app.get("/api/civitai/search")
+def civitai_search(q: str, type: str = "Checkpoint", base: str = "", limit: int = 20):
+    """Civitai keeps model -> version -> file. The nesting is preserved: picking the
+    version (SD 1.5 vs SDXL, v1.8 vs v2) is the actual decision."""
+    try:
+        items = civitai.search(q, model_type=type, base=base, limit=limit)
+    except civitai.CivitaiError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    free = stackctl.disk()["free"]
+    for m in items:
+        for v in m["versions"]:
+            for f in v["files"]:
+                f["disk_ok"] = free > f["size"] * 1.05
+    return {"results": items, "free_disk": free}
+
+
 @app.post("/api/downloads")
 def download_start(body: dict = Body(...)):
+    source = str(body.get("source") or "hf")
+    kind = str(body.get("kind") or "kobold")
+    activate = bool(body.get("activate"))
     try:
-        d = downloads.start(
-            repo=str(body.get("repo") or ""), path=str(body.get("path") or ""),
-            kind=str(body.get("kind") or "kobold"), activate=bool(body.get("activate")),
-        )
+        if source == "civitai":
+            d = downloads.start_civitai(body.get("version_id"), str(body.get("name") or ""),
+                                        kind, activate)
+        elif source == "hf":
+            d = downloads.start_hf(str(body.get("repo") or ""), str(body.get("path") or ""),
+                                   kind, activate)
+        else:
+            raise HTTPException(status_code=400, detail=f"unknown source: {source!r}")
     except downloads.Busy as e:
         raise HTTPException(status_code=409, detail=str(e))
     except inventory.InventoryError as e:

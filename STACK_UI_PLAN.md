@@ -3,10 +3,9 @@
 A web frontend for the stack itself: run the `stack` commands, and browse/download/activate models
 for the two backends without leaving the browser or hand-editing anything.
 
-Status: **phases 0–3 built** — status/control/logs, model inventory with selection and delete, and
-HuggingFace search + downloads. Lives at `github.com/El-Iguana/stack-ui`; the running notes are in
-`stack-ui/CLAUDE.md`, which is the authority where this plan and the code disagree. Phase 4
-(Civitai) is next.
+Status: **phases 0–4 built** — status/control/logs, model inventory with selection and delete, and
+HuggingFace and Civitai search + downloads. Lives in this repo at `stack-ui/`; the running notes are
+in `stack-ui/CLAUDE.md`, which is the authority where this plan and the code disagree.
 
 ## A container that drives the host
 
@@ -35,7 +34,7 @@ into your models dirs, and pull files off the internet. Security section below i
 ## Architecture
 
 ```
-stack-ui/                      # sibling project, like the other frontends
+stack-ui/                      # in this repo, beside the koboldcpp and comfyui recipes
   server.py                    # FastAPI — command layer + catalog layer + job layer
   services/
     stackctl.py                # allowlisted `stack` invocations   [built]
@@ -43,7 +42,7 @@ stack-ui/                      # sibling project, like the other frontends
     inventory.py               # models on disk, select, delete     [built]
     hub.py                     # HuggingFace search / file listing  [built]
     downloads.py               # transfers, progress, resume        [built]
-    civitai.py                 # Civitai search                     [phase 4]
+    civitai.py                 # Civitai search                     [built]
   shim/systemctl               # systemctl -> D-Bus, so `stack on/off` works in a container
   static/ templates/           # vanilla JS SPA, no build step (house style)
   run.py                       # uvicorn on 127.0.0.1:7863
@@ -167,7 +166,8 @@ Concentrated here because this app deserves it:
   `model.env` (no downloading yet — activation is independently useful).
 - **Phase 3 — HuggingFace. ✅ DONE.** Search, file picker with fit hints, download jobs with
   resume, auto-activate. Built on stdlib urllib — see the reversal note in `stack-ui/CLAUDE.md`.
-- **Phase 4 — Civitai** for ComfyUI checkpoints, then LoRA/VAE targets.
+- **Phase 4 — Civitai. ✅ DONE.** Checkpoints, LoRAs and VAEs, with the model→version→file
+  nesting preserved and URLs resolved server-side from a version id.
 - **Later:** VRAM planner across both backends; per-model layer presets remembered per file; custom
   node pins from `stack`'s `CUSTOM_NODES` registry surfaced as an update button.
 

@@ -212,6 +212,27 @@ control-plane container where a small dependency surface is worth more. Three UR
   of a transfer finishing.
 - `HF_TOKEN` is picked up from the environment for gated repos.
 
-## Phase 4 (next)
+## Civitai (phase 4)
 
-Civitai for ComfyUI checkpoints, then LoRA/VAE targets. See `../STACK_UI_PLAN.md`.
+`services/civitai.py` covers what ComfyUI loads — checkpoints, LoRAs, VAEs — since that's
+where `comfyui/INSTALL.md` §8's list actually came from. Same stdlib-only shape as `hub.py`.
+
+- **The nesting is preserved**, not flattened: Civitai keeps model → version → file, and
+  picking the *version* (SD 1.5 vs SDXL, v1.8 vs v2) is the real decision. A flat file list
+  would hide the thing you came to choose.
+- **The browser never sends a URL.** It sends a version id and a filename; `resolve_file()`
+  re-fetches the version from Civitai and takes the download URL from there. A client that
+  could hand the downloader an arbitrary URL would turn this into a fetch-anything proxy —
+  a much worse thing to have listening on your machine than a model browser.
+- **`downloads.ALLOWED_HOSTS`** refuses anything not on huggingface.co or civitai.com
+  regardless, as the belt to that braces.
+- `CIVITAI_TOKEN` is sent as a bearer header when set — never as a query parameter, which
+  would land in logs and shell history. Search needs no key; many downloads now do.
+- **Their error bodies are surfaced.** A bare "503" sends you debugging your own client;
+  "503: Model search is temporarily overloaded" tells you to wait. Learned the hard way —
+  their search was down while this was being built.
+
+## Phase 5 (later)
+
+VRAM planner across both backends, per-model layer presets, custom-node pin updates from
+`stack`'s `CUSTOM_NODES` registry. See `../STACK_UI_PLAN.md`.

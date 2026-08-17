@@ -327,6 +327,14 @@ async function deleteModel(kind, name, size) {
 
 let dlES = null;
 
+// GGUFs come from HuggingFace, everything ComfyUI loads comes from Civitai — which is
+// where comfyui/INSTALL.md §8's list actually came from. One box, routed by destination.
+const CIVITAI_TYPE = { checkpoint: "Checkpoint", lora: "LORA", vae: "VAE" };
+
+function onKindChange() {
+  $("cv-base").hidden = $("hub-kind").value === "kobold";
+}
+
 async function hubSearch() {
   const q = $("hub-q").value.trim();
   const kind = $("hub-kind").value;
@@ -334,13 +342,69 @@ async function hubSearch() {
   if (!q) return;
   out.replaceChildren(el("p", "dim", "searching…"));
   try {
-    const { results } = await api(
-      `/api/hub/search?q=${encodeURIComponent(q)}&kind=${kind === "kobold" ? "gguf" : "safetensors"}`);
-    out.replaceChildren();
-    if (!results.length) return out.append(el("p", "dim", "nothing found"));
-    for (const r of results) out.append(repoRow(r, kind));
+    if (kind === "kobold") {
+      const { results } = await api(`/api/hub/search?q=${encodeURIComponent(q)}&kind=gguf`);
+      out.replaceChildren();
+      if (!results.length) return out.append(el("p", "dim", "nothing found"));
+      for (const r of results) out.append(repoRow(r, kind));
+    } else {
+      const base = $("cv-base").value;
+      const { results } = await api(`/api/civitai/search?q=${encodeURIComponent(q)}` +
+        `&type=${CIVITAI_TYPE[kind]}&base=${encodeURIComponent(base)}`);
+      out.replaceChildren();
+      if (!results.length) return out.append(el("p", "dim", "nothing found"));
+      for (const m of results) out.append(civitaiRow(m, kind));
+    }
   } catch (e) {
     out.replaceChildren(el("div", "error", `search failed: ${e.message}`));
+  }
+}
+
+function civitaiRow(m, kind) {
+  const d = el("details", "repo");
+  const sum = el("summary");
+  sum.append(el("span", "rid", m.name));
+  if (m.nsfw) sum.append(el("span", "gated", "nsfw"));
+  sum.append(el("span", "stats",
+    `${m.creator ? m.creator + " · " : ""}${m.downloads ? m.downloads.toLocaleString() + " dl" : ""}`));
+  d.append(sum);
+
+  const body = el("div", "files");
+  for (const v of m.versions) {
+    const head = el("p", "dim");
+    head.append(el("span", null, v.name || `version ${v.id}`));
+    if (v.base) head.append(el("span", "band unknown", v.base));
+    body.append(head);
+    const tbl = el("table");
+    const tb = el("tbody");
+    for (const f of v.files) {
+      const tr = el("tr");
+      const acts = el("td", "rowacts");
+      const btn = el("button", "link", "download");
+      if (f.disk_ok === false) { btn.disabled = true; btn.title = "not enough free disk"; }
+      btn.onclick = () => startCivitai(v.id, f.name, kind, f.size);
+      acts.append(btn);
+      tr.append(el("td", "name", f.name), el("td", "size", bytes(f.size)), acts);
+      tb.append(tr);
+    }
+    tbl.append(tb);
+    body.append(tbl);
+  }
+  d.append(body);
+  return d;
+}
+
+async function startCivitai(versionId, name, kind, size) {
+  if (!confirm(`Download ${name} (${bytes(size)}) into ComfyUI ${kind}s?`)) return;
+  try {
+    watchDownload(await api("/api/downloads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Stack-UI": "1" },
+      body: JSON.stringify({ source: "civitai", version_id: versionId, name, kind }),
+    }));
+  } catch (e) {
+    // Civitai gates a lot of files behind an account now; the server says so plainly.
+    alert(`could not start: ${e.message}`);
   }
 }
 
@@ -406,7 +470,7 @@ async function startDownload(repo, path, kind, size) {
     watchDownload(await api("/api/downloads", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Stack-UI": "1" },
-      body: JSON.stringify({ repo, path, kind, activate }),
+      body: JSON.stringify({ source: "hf", repo, path, kind, activate }),
     }));
   } catch (e) {
     alert(`could not start: ${e.message}`);
@@ -478,6 +542,8 @@ async function runDoctor() {
 // --- wiring ---------------------------------------------------------------
 $("run-doctor").onclick = runDoctor;
 $("hub-search").onclick = hubSearch;
+$("hub-kind").onchange = onKindChange;
+onKindChange();
 $("hub-q").addEventListener("keydown", (e) => { if (e.key === "Enter") hubSearch(); });
 $("layers-save").onclick = () => {
   const f = $("layers");

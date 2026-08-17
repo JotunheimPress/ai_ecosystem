@@ -27,8 +27,13 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import inventory
+from . import civitai, inventory
 from .hub import UA, HubError
+
+# A download only ever fetches from these hosts. The URL is built or looked up server-side
+# (never sent by the browser), and this is the belt to that braces: if a resolver is ever
+# changed to trust input, this still refuses to make the app a fetch-anything proxy.
+ALLOWED_HOSTS = {"huggingface.co", "civitai.com"}
 
 CHUNK = 1024 * 1024
 RESOLVE = "https://huggingface.co/{repo}/resolve/main/{path}"
@@ -37,7 +42,9 @@ RESOLVE = "https://huggingface.co/{repo}/resolve/main/{path}"
 @dataclass
 class Download:
     id: str
-    repo: str
+    source: str                     # "hf" | "civitai"
+    url: str
+    repo: str                       # display only: repo id, or the civitai model name
     path: str
     kind: str
     name: str
@@ -55,7 +62,8 @@ class Download:
         rate = self.received / elapsed
         remaining = max(self.total - self.received, 0)
         return {
-            "id": self.id, "repo": self.repo, "path": self.path, "kind": self.kind,
+            "id": self.id, "source": self.source, "repo": self.repo,
+            "path": self.path, "kind": self.kind,
             "name": self.name, "total": self.total, "received": self.received,
             "state": self.state, "error": self.error,
             "pct": round(self.received / self.total * 100, 1) if self.total else None,
@@ -102,20 +110,43 @@ def _check_repo(repo: str) -> None:
         raise inventory.InventoryError(f"not a repo id: {repo!r}")
 
 
-def start(repo: str, path: str, kind: str, activate: bool = False) -> Download:
-    global _current
+def _check_url(url: str) -> None:
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host not in ALLOWED_HOSTS and not host.endswith(".civitai.com"):
+        raise inventory.InventoryError(f"refusing to download from {host or url!r}")
+
+
+def start_hf(repo: str, path: str, kind: str, activate: bool = False) -> Download:
     _check_repo(repo)
     # The remote path is reduced to its basename before it is ever joined to a directory,
     # so a crafted "../../x.gguf" names x.gguf in the collection rather than escaping it.
     # safe_new_target re-checks that on the resolved path.
     name = path.rsplit("/", 1)[-1]
+    url = RESOLVE.format(repo=urllib.parse.quote(repo), path=urllib.parse.quote(path))
+    return _start("hf", url, repo, path, kind, name, activate)
+
+
+def start_civitai(version_id, name: str, kind: str, activate: bool = False) -> Download:
+    """Resolve the URL from Civitai's own API — the browser sends an id, never a link."""
+    try:
+        url, _size = civitai.resolve_file(version_id, name)
+    except civitai.CivitaiError as e:
+        raise inventory.InventoryError(str(e))
+    return _start("civitai", url, f"civitai:{version_id}", name, kind, name, activate)
+
+
+def _start(source: str, url: str, repo: str, path: str, kind: str, name: str,
+           activate: bool) -> Download:
+    global _current
+    _check_url(url)
     dest = inventory.safe_new_target(kind, name)          # raises InventoryError
 
     with _lock:
         if _current and _current.state == "running":
             raise Busy(f"already downloading {_current.name}")
-        d = Download(id=f"{next(_counter)}-{int(time.time())}", repo=repo, path=path,
-                     kind=kind, name=name, dest=dest, activate=activate)
+        d = Download(id=f"{next(_counter)}-{int(time.time())}", source=source, url=url,
+                     repo=repo, path=path, kind=kind, name=name, dest=dest,
+                     activate=activate)
         _current = d
 
     threading.Thread(target=_run, args=(d,), name=f"dl-{d.id}", daemon=True).start()
@@ -127,10 +158,9 @@ def _run(d: Download) -> None:
     part = d.dest.with_name(d.dest.name + ".part")
     try:
         have = part.stat().st_size if part.exists() else 0
-        url = RESOLVE.format(repo=urllib.parse.quote(d.repo),
-                             path=urllib.parse.quote(d.path))
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        token = os.environ.get("HF_TOKEN", "").strip()
+        req = urllib.request.Request(d.url, headers={"User-Agent": UA})
+        token = os.environ.get(
+            "CIVITAI_TOKEN" if d.source == "civitai" else "HF_TOKEN", "").strip()
         if token:
             req.add_header("Authorization", f"Bearer {token}")
         if have:

@@ -64,11 +64,19 @@
     </section>
 
     <section id="find">
-      <h2>Find models <span class="dim">HuggingFace</span></h2>
+      <h2>Find models <span class="dim">HuggingFace · Civitai</span></h2>
       <div class="searchbar">
         <select id="hub-kind">
-          <option value="kobold">GGUF → KoboldCPP</option>
-          <option value="checkpoint">Checkpoint → ComfyUI</option>
+          <option value="kobold">HuggingFace · GGUF → KoboldCPP</option>
+          <option value="checkpoint">Civitai · Checkpoint → ComfyUI</option>
+          <option value="lora">Civitai · LoRA → ComfyUI</option>
+          <option value="vae">Civitai · VAE → ComfyUI</option>
+        </select>
+        <select id="cv-base" hidden>
+          <option value="">any base</option>
+          <option value="SD 1.5">SD 1.5</option>
+          <option value="SDXL 1.0">SDXL 1.0</option>
+          <option value="Flux.1 D">Flux.1 D</option>
         </select>
         <input id="hub-q" type="search" placeholder="qwen3 gguf…" autocomplete="off">
         <button id="hub-search" class="primary">search</button>
