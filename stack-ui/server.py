@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 
 from services import civitai, downloads, hub, inventory, jobs, nodes, stackctl, vram
 
-app = FastAPI(title="stack-ui", docs_url=None, redoc_url=None)
+app = FastAPI(title="AI Ecosystem", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 

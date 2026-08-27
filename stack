@@ -48,7 +48,7 @@ reg story     7860 "http://localhost:7860/"              "AI Story Maker"       
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
 # Containerized like everything else, but with the host podman socket and session bus
 # mounted so it can drive them. Loopback-only by design (see stack-ui/CLAUDE.md).
-reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Stack control dashboard"                   container stackui
+reg stackui   7863 "http://127.0.0.1:7863/api/health"    "AI Ecosystem control dashboard"            container stackui
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
@@ -405,7 +405,7 @@ install_stackui() {
     ok "image $IMG_STACKUI built"
   else
     echo "  building (python + podman client; ~1 minute)…"
-    podman build -t "$IMG_STACKUI" "$SELF/stack-ui" || { warn "build failed"; return 1; }
+    podman build --format docker -t "$IMG_STACKUI" "$SELF/stack-ui" || { warn "build failed"; return 1; }
     ok "image built"
   fi
   # It drives the host engine through this socket, so without it the dashboard builds
@@ -433,7 +433,7 @@ cmd_install() {
     [[ "$t" == koboldcpp ]] || install_comfyui   || rc=1
   fi
   if [[ "$t" == all || "$t" == stackui ]]; then
-    echo "${C_B}Control UI${C_OFF}"; install_stackui || rc=1
+    echo "${C_B}AI Ecosystem${C_OFF}"; install_stackui || rc=1
   fi
   echo
   # Missing weights are not an install failure — they're deliberately out of scope —
