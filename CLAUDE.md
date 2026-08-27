@@ -172,6 +172,6 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
   recipe is ever mirrored out the way `koboldcpp/` is.
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are
   still associated with it; it clears once they're recreated on `ai-net`.
-- This dir is a git repo, pushed to `github.com/El-Iguana/ai-stack`. Its default branch is
+- This dir is a git repo, pushed to `github.com/JotunheimPress/ai-stack`. Its default branch is
   **`master`**, while the sibling `iguana_studio` repo uses `main` — worth knowing before scripting
   across both.

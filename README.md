@@ -17,9 +17,9 @@ once, then pick whichever app you want.
 
 | App | Port | Directory | Repo | What |
 |-----|------|-----------|------|------|
-| `companion` | 7861 | `companion/` | `El-Iguana/companion` | **Pantheon** — character-card AI companion |
-| `story` | 7860 | `ai_story_maker/` | `El-Iguana/ai-story-maker` | **Rhapsode** — the Narrative Engine |
-| `iguana` | 7862 | `iguana_studio/` | `El-Iguana/iquana_studio` | ComfyUI web GUI |
+| `companion` | 7861 | `companion/` | `JotunheimPress/companion` | **Pantheon** — character-card AI companion |
+| `story` | 7860 | `ai_story_maker/` | `JotunheimPress/ai-story-maker` | **Rhapsode** — the Narrative Engine |
+| `iguana` | 7862 | `iguana_studio/` | `JotunheimPress/iguana_studio` | ComfyUI web GUI |
 
 You only need the frontends you actually use; `stack` starts each on demand. The backends are
 useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
@@ -48,7 +48,7 @@ distrobox is no longer used.
 ## Install
 
 ```bash
-git clone https://github.com/El-Iguana/ai-stack.git
+git clone https://github.com/JotunheimPress/ai-stack.git
 cd ai-stack
 ./stack install          # idempotent — safe to re-run any time
 ```
@@ -86,9 +86,9 @@ names, so pass the target explicitly:
 
 ```bash
 cd ..                                                              # the ecosystem root
-git clone https://github.com/El-Iguana/companion.git       companion
-git clone https://github.com/El-Iguana/ai-story-maker.git  ai_story_maker
-git clone https://github.com/El-Iguana/iquana_studio.git   iguana_studio
+git clone https://github.com/JotunheimPress/companion.git       companion
+git clone https://github.com/JotunheimPress/ai-story-maker.git  ai_story_maker
+git clone https://github.com/JotunheimPress/iguana_studio.git   iguana_studio
 ```
 
 Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
