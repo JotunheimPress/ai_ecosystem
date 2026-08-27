@@ -48,7 +48,7 @@ reg story     7860 "http://localhost:7860/"              "The Narrative Engine" 
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
 # Containerized like everything else, but with the host podman socket and session bus
 # mounted so it can drive them. Loopback-only by design (see stack-ui/CLAUDE.md).
-reg stackui   7863 "http://127.0.0.1:7863/api/health"    "AI Ecosystem control dashboard"            container stackui
+reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Control dashboard for the stack itself"    container stackui
 
 # Facing names. The key on the left is what you type (`stack companion`) and what every
 # target check matches — this is only what a UI puts on the card, so a product rename never
@@ -59,6 +59,7 @@ declare -A LABEL=(
   [companion]="Pantheon"
   [story]="Rhapsode"
   [iguana]="Iguana Studio"
+  [stackui]="AI Ecosystem"
 )
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
