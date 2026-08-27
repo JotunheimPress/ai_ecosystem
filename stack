@@ -57,6 +57,7 @@ reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Control dashboard for 
 # one registry, so the dashboard cannot disagree with the CLI about what a thing is called.
 declare -A LABEL=(
   [koboldcpp]="Oracle"
+  [comfyui]="Morpheus"
   [companion]="Pantheon"
   [story]="Rhapsode"
   [iguana]="Iguana Studio"
