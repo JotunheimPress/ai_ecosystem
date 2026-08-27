@@ -1,4 +1,4 @@
-# stack-ui — control dashboard for the AI stack
+# stack-ui — the AI Ecosystem control dashboard
 
 Web frontend for the stack itself. **Phases 0–5 built:** service status and control, streamed
 logs, model inventory with selection and delete, HuggingFace + Civitai browsing and downloads,
@@ -7,6 +7,12 @@ and a VRAM planner across both backends.
 Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* the ai-stack
 repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
 reaches it via `$SELF` like the comfyui recipe.
+
+**Naming.** The facing name is **AI Ecosystem** — the page title, the `<h1>`, the FastAPI app
+title, the `stack status` description, and the startup banner all say that. Everything an
+operator *types* is unchanged and must stay unchanged: the `stackui` service key (`stack stackui`,
+`stack down stackui`, `stack install stackui`), the `localhost/stackui` image, this `stack-ui/`
+directory, and the `X-Stack-UI: 1` write header. Rename labels, never identifiers.
 
 ## A container that drives the host
 

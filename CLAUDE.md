@@ -22,10 +22,10 @@ shared across every app; frontends run side-by-side on their own ports.
   could never install. **One exception: `.containerignore` is a real copy, not a link** — podman
   does not follow a symlinked ignore file (it behaves as if there were none), and the build would
   then tar the whole `models/` tree. Install refreshes that copy so it can't drift either.
-- `stack-ui/` — the **control dashboard** (its own FastAPI app + Containerfile, with its own
-  `CLAUDE.md`). Lives in this repo rather than as a sibling project because it *is* part of the
-  stack rather than a consumer of it, so `stack install` can build it and `start_app` reaches it
-  via `$SELF` like the comfyui recipe. Was briefly a standalone repo
+- `stack-ui/` — **AI Ecosystem**, the control dashboard (its own FastAPI app + Containerfile,
+  with its own `CLAUDE.md`). Lives in this repo rather than as a sibling project because it *is*
+  part of the stack rather than a consumer of it, so `stack install` can build it and `start_app`
+  reaches it via `$SELF` like the comfyui recipe. Was briefly a standalone repo
   (`github.com/El-Iguana/stack-ui`), imported here with its history via `git subtree`.
 - `comfyui/` — the **canonical** ComfyUI recipe, same shape as `koboldcpp/`: `Containerfile`
   (ubuntu:24.04 + cu130 torch + ComfyUI cloned at a pinned tag), `start.sh`, `.containerignore`,

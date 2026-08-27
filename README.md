@@ -28,7 +28,7 @@ useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
 
 | App | Port | Directory | What |
 |-----|------|-----------|------|
-| `stackui` | 7863 | `stack-ui/` (in this repo) | dashboard for the stack itself |
+| `stackui` | 7863 | `stack-ui/` (in this repo) | **AI Ecosystem** — dashboard for the stack itself |
 
 A container like the rest, but one that controls the host: it mounts the podman socket and the
 user session bus so it can drive them, and runs with `--network=host` so the health probes work.
@@ -55,8 +55,9 @@ cd ai-stack
 
 `stack install` is the executable form of the two INSTALL guides, so they can't drift from the real
 thing. It checks prerequisites, links `stack` onto your PATH, renders the systemd unit for *this*
-checkout, creates the `ai-net` network, builds both backend images plus the control UI, lays out
-`koboldcpp/` and `ComfyUI/` next to the checkout, and clones the pinned ComfyUI custom nodes.
+checkout, creates the `ai-net` network, builds both backend images plus the AI Ecosystem
+dashboard, lays out `koboldcpp/` and `ComfyUI/` next to the checkout, and clones the pinned
+ComfyUI custom nodes.
 
 Targets: `all` (default) · `backends` · `koboldcpp` · `comfyui` · `stackui` · `service` · `path`.
 
@@ -93,7 +94,7 @@ git clone https://github.com/El-Iguana/iquana_studio.git   iguana_studio
 Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
 configuration. They're separate private repos — ask for access.
 
-### Control UI
+### AI Ecosystem (the control dashboard)
 
 Ships in this repo (`stack-ui/`) and is built by `stack install`, so there's nothing extra to clone:
 
@@ -115,7 +116,7 @@ stack             # interactive: show status, ensure backends, then pick a front
 stack up          # start the backends now (without touching the boot toggle)
 stack status      # what's running (+ the on/off switch state)
 stack companion   # launch a frontend  (companion | story | iguana)
-stack stackui     # launch the control dashboard on :7863
+stack stackui     # launch AI Ecosystem, the dashboard, on :7863
 stack down        # stop everything    (also: down backends | down frontends | down <app>)
                   #   — leaves stackui alone; stop that with `down stackui`
 stack restart <app>
