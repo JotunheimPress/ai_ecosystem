@@ -17,7 +17,7 @@ once, then pick whichever app you want.
 
 | App | Port | Directory | Repo | What |
 |-----|------|-----------|------|------|
-| `companion` | 7861 | `companion/` | `El-Iguana/companion` | **La Cantina** — character-card AI companion |
+| `companion` | 7861 | `companion/` | `El-Iguana/companion` | **Pantheon** — character-card AI companion |
 | `story` | 7860 | `ai_story_maker/` | `El-Iguana/ai-story-maker` | AI Story Maker |
 | `iguana` | 7862 | `iguana_studio/` | `El-Iguana/iquana_studio` | ComfyUI web GUI |
 
