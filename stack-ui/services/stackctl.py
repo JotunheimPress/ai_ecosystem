@@ -223,12 +223,28 @@ def stream(verb_key: str, target: str | None = None) -> Iterator[tuple[str, obje
 # `stack status --json` mode.
 
 _ROW = re.compile(r"^\s+(?P<name>\S+)\s+\[(?P<state>up|down)\s*\]\s+:(?P<port>\d+)\s+(?P<desc>.*?)\s*$")
+
+# Facing names come out of the `stack` script's LABEL array, not a copy kept here — the
+# same reason nodes.py reads CUSTOM_NODES from it. Display only: `name` stays the registry
+# key, so every target check and every button still acts on what the CLI accepts.
+_LABEL_BLOCK = re.compile(r"^declare -A LABEL=\((.*?)^\)", re.S | re.M)
+_LABEL_ROW = re.compile(r'^\s*\[([A-Za-z0-9_.-]+)\]="([^"]*)"', re.M)
+
+
+def labels() -> dict:
+    """{registry key: product name} for the apps whose name differs from their key."""
+    try:
+        block = _LABEL_BLOCK.search(STACK.read_text())
+    except OSError:
+        return {}
+    return dict(_LABEL_ROW.findall(block.group(1))) if block else {}
 _SWITCH = re.compile(r"^AI backend switch:\s*(?P<state>ON|OFF)\b")
 _GROUP = re.compile(r"^(?P<group>Backends|Frontends|Control)\b")
 
 
 def parse_status(output: str) -> dict:
     switch, group, apps = None, None, []
+    label = labels()
     for line in output.splitlines():
         if m := _SWITCH.match(line):
             switch = m.group("state")
@@ -239,6 +255,7 @@ def parse_status(output: str) -> dict:
         if m := _ROW.match(line):
             apps.append({
                 "name": m.group("name"),
+                "label": label.get(m.group("name"), m.group("name")),
                 "up": m.group("state").strip() == "up",
                 "port": int(m.group("port")),
                 "desc": m.group("desc"),

@@ -50,6 +50,16 @@ reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI 
 # mounted so it can drive them. Loopback-only by design (see stack-ui/CLAUDE.md).
 reg stackui   7863 "http://127.0.0.1:7863/api/health"    "AI Ecosystem control dashboard"            container stackui
 
+# Facing names. The key on the left is what you type (`stack companion`) and what every
+# target check matches — this is only what a UI puts on the card, so a product rename never
+# touches a command anyone has in their fingers. Apps whose product name is already their
+# key need no row. stack-ui reads this out of the script the same way it reads CUSTOM_NODES:
+# one registry, so the dashboard cannot disagree with the CLI about what a thing is called.
+declare -A LABEL=(
+  [companion]="Pantheon"
+  [iguana]="Iguana Studio"
+)
+
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
 ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating network $NET"; podman network create "$NET" >/dev/null; }; }

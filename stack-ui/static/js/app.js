@@ -155,14 +155,17 @@ async function loadStatus() {
     const card = el("div", `card ${a.up ? "up" : "down"}`);
     const meta = el("div", "meta");
     const name = el("div", "name");
+    // Heading shows the product name; every action below still sends a.name, the registry
+    // key the CLI accepts. a.label falls back to a.name for apps that never differed.
+    const shown = a.label || a.name;
     if (a.up) {
-      const link = el("a", null, a.name);
+      const link = el("a", null, shown);
       link.href = `http://localhost:${a.port}/`;
       link.target = "_blank";
       link.rel = "noreferrer";
       name.append(link);
     } else {
-      name.textContent = a.name;
+      name.textContent = shown;
     }
     meta.append(name, el("span", "state", a.up ? "up" : "down"));
     card.append(meta, el("div", "desc", a.desc), el("div", "group", `${a.group} · :${a.port}`));
