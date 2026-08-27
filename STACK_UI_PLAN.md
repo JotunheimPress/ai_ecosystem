@@ -1,4 +1,4 @@
-# stack-ui — plan
+# AI Ecosystem (stack-ui) — plan
 
 A web frontend for the stack itself: run the `stack` commands, and browse/download/activate models
 for the two backends without leaving the browser or hand-editing anything.
@@ -6,6 +6,11 @@ for the two backends without leaving the browser or hand-editing anything.
 Status: **phases 0–5 built** — status/control/logs, model inventory with selection and delete, and
 HuggingFace and Civitai search + downloads. Lives in this repo at `stack-ui/`; the running notes are
 in `stack-ui/CLAUDE.md`, which is the authority where this plan and the code disagree.
+
+It presents itself as **AI Ecosystem** — that is the page title, the header, and what `stack status`
+calls it. `stack-ui` throughout this document is the directory and the codebase; `stackui` is the
+service key you type. Those did not move with the name, and shouldn't (see the Naming note in
+`stack-ui/CLAUDE.md`).
 
 ## A container that drives the host
 
@@ -50,7 +55,7 @@ stack-ui/                      # in this repo, beside the koboldcpp and comfyui 
 ```
 
 Registry row:
-`reg stackui 7863 "http://127.0.0.1:7863/api/health" "Stack control dashboard" container stackui`
+`reg stackui 7863 "http://127.0.0.1:7863/api/health" "AI Ecosystem control dashboard" container stackui`
 
 Reuse rather than reinvent: `iguana_studio/comfyui-auto/server.py:191` already lists ComfyUI
 checkpoints off `/object_info/CheckpointLoaderSimple`, and companion's SSE chat stream is the
