@@ -19,7 +19,7 @@ NET="${COMFYUI_NET:-ai-net}"
 
 if ! podman image exists "${IMAGE}"; then
     echo "Image not found — building from Containerfile (this takes a while: torch + CUDA wheels)…"
-    podman build -t "${IMAGE}" "${SCRIPT_DIR}"
+    podman build --format docker -t "${IMAGE}" "${SCRIPT_DIR}"
 fi
 
 for d in models input output user custom_nodes; do

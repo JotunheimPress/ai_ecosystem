@@ -13,7 +13,7 @@ CONTAINER_NAME="koboldcpp"
 # Build image if it doesn't exist yet
 if ! podman image exists "${IMAGE}"; then
     echo "Image not found — building from Containerfile..."
-    podman build -t "${IMAGE}" "${SCRIPT_DIR}"
+    podman build --format docker -t "${IMAGE}" "${SCRIPT_DIR}"
 fi
 
 # Remove any stopped container with the same name

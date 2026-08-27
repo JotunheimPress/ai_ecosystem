@@ -318,7 +318,7 @@ install_koboldcpp() {
     ok "image $IMG_KOBOLD built"
   else
     echo "  building (pulls the CUDA base + KoboldCPP binary; a few minutes)…"
-    podman build -t "$IMG_KOBOLD" "$ECO/koboldcpp" || { warn "build failed"; return 1; }
+    podman build --format docker -t "$IMG_KOBOLD" "$ECO/koboldcpp" || { warn "build failed"; return 1; }
     ok "image built"
   fi
   local models="$ECO/koboldcpp/models" n=0   # created by link_koboldcpp_recipe
@@ -371,7 +371,7 @@ install_comfyui() {
     ok "image $IMG_COMFY built"
   else
     echo "  building (torch + CUDA wheels, ~6.9 GB; several minutes)…"
-    podman build -t "$IMG_COMFY" "$SELF/comfyui" || { warn "build failed"; return 1; }
+    podman build --format docker -t "$IMG_COMFY" "$SELF/comfyui" || { warn "build failed"; return 1; }
     ok "image built"
   fi
   # Code ships in the image; the host tree only holds state. Create the skeleton so a

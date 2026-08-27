@@ -80,5 +80,18 @@ RUN pip install --no-cache-dir \
 
 EXPOSE 8188
 
+# HEALTHCHECK is a docker-format field with no OCI slot, so podman drops it unless the build
+# passes --format docker (start.sh and `stack install comfyui` both do). Without that flag
+# this block is silently inert.
+#
+# python3 rather than curl: curl isn't in this image, and a liveness probe doesn't justify an
+# apt layer for it. /opt/venv/bin/python3 is first on PATH (set above) and urllib is stdlib.
+#
+# The long start period covers importing torch and loading custom nodes — insightface and the
+# GGUF node included — which takes far longer than an ordinary web app's boot. Failures inside
+# the period don't count. /system_stats is what `stack status` already probes.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8188/system_stats', timeout=8)" || exit 1
+
 ENTRYPOINT ["/opt/venv/bin/python3", "main.py"]
 CMD ["--listen", "0.0.0.0", "--port", "8188", "--base-directory", "/data"]

@@ -21,6 +21,21 @@ RUN curl -fsSL \
 VOLUME /models
 EXPOSE 5001
 
+# HEALTHCHECK is a docker-format field with no OCI slot, so podman drops it unless the build
+# passes --format docker (start.sh and `stack install koboldcpp` both do). Without that flag
+# this block is silently inert.
+#
+# The long start period is the point of the whole block: this loads a multi-GB GGUF into VRAM
+# before the port answers at all, and a cold read off disk is far slower than a warm one.
+# Failures inside the start period don't count against the container, so an honest ceiling
+# here is what keeps a slow load from reporting unhealthy instead of starting.
+#
+# retries=5, not the usual 3, because KoboldCPP answers the API on the same listener that
+# serves generation: a long completion can leave this probe waiting, and five intervals
+# (~2.5 min) outlasts one. /api/v1/model is what `stack status` already probes.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=5 \
+    CMD curl -fs http://localhost:5001/api/v1/model || exit 1
+
 ENTRYPOINT ["/usr/local/bin/koboldcpp"]
 # Pass extra flags after "--" when using start.sh, or override CMD entirely.
 # --usecublas enables CUDA; --gpulayers -1 offloads all layers to GPU.
