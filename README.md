@@ -18,7 +18,7 @@ once, then pick whichever app you want.
 | App | Port | Directory | Repo | What |
 |-----|------|-----------|------|------|
 | `companion` | 7861 | `companion/` | `El-Iguana/companion` | **Pantheon** — character-card AI companion |
-| `story` | 7860 | `ai_story_maker/` | `El-Iguana/ai-story-maker` | AI Story Maker |
+| `story` | 7860 | `ai_story_maker/` | `El-Iguana/ai-story-maker` | **Rhapsode** — the Narrative Engine |
 | `iguana` | 7862 | `iguana_studio/` | `El-Iguana/iquana_studio` | ComfyUI web GUI |
 
 You only need the frontends you actually use; `stack` starts each on demand. The backends are
