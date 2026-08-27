@@ -73,9 +73,27 @@ def _sse(gen: Iterator[dict]) -> StreamingResponse:
 
 
 # --- read-only ---------------------------------------------------------------
+def _asset_ver(rel: str) -> int:
+    """mtime of a static asset — appended as ?v= so a rebuild busts the browser cache."""
+    try:
+        return int((Path("static") / rel).stat().st_mtime)
+    except OSError:
+        return 0
+
+
 @app.get("/")
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    # no-store on the HTML, ?v= on the assets it names. StaticFiles sends an ETag but no
+    # Cache-Control, which leaves browsers free to *heuristically* cache — reusing a copy
+    # for a while without revalidating. That is how a rename can land, be served correctly,
+    # and still show the old names in a tab that never asked again. The HTML is tiny and
+    # regenerated per request anyway; the assets it points at change name when they change.
+    resp = templates.TemplateResponse(request, "index.html", {
+        "css_v": _asset_ver("css/style.css"),
+        "js_v": _asset_ver("js/app.js"),
+    })
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/health")
