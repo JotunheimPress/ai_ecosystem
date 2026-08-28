@@ -448,6 +448,20 @@ async function hubSearch() {
   }
 }
 
+// Every result is a page on somebody's site, and the tables here deliberately don't
+// reproduce the model card — the licence, the prompt format, the example images. So each
+// row links out to the real page. It sits inside a <summary>, where a plain click would
+// also toggle the row open, hence stopPropagation.
+function pageLink(href, label) {
+  const a = el("a", "srclink", label || "page \u2197");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.title = href;
+  a.addEventListener("click", (e) => e.stopPropagation());
+  return a;
+}
+
 function civitaiRow(m, kind) {
   const d = el("details", "repo");
   const sum = el("summary");
@@ -455,6 +469,7 @@ function civitaiRow(m, kind) {
   if (m.nsfw) sum.append(el("span", "gated", "nsfw"));
   sum.append(el("span", "stats",
     `${m.creator ? m.creator + " · " : ""}${m.downloads ? m.downloads.toLocaleString() + " dl" : ""}`));
+  if (m.id) sum.append(pageLink(`https://civitai.com/models/${encodeURIComponent(m.id)}`));
   d.append(sum);
 
   const body = el("div", "files");
@@ -462,6 +477,12 @@ function civitaiRow(m, kind) {
     const head = el("p", "dim");
     head.append(el("span", null, v.name || `version ${v.id}`));
     if (v.base) head.append(el("span", "band unknown", v.base));
+    // The version is the download unit, so link the version page, not just the model's.
+    if (m.id && v.id) {
+      head.append(pageLink(
+        `https://civitai.com/models/${encodeURIComponent(m.id)}?modelVersionId=${encodeURIComponent(v.id)}`,
+        "version page \u2197"));
+    }
     body.append(head);
     const tbl = el("table");
     const tb = el("tbody");
@@ -504,6 +525,9 @@ function repoRow(r, kind) {
   const stats = el("span", "stats",
     `${r.downloads ? r.downloads.toLocaleString() + " dl" : ""}${r.likes ? " · ♥ " + r.likes : ""}`);
   sum.append(stats);
+  // r.id is "owner/name"; the slash is a path separator, so encode the halves, not the id.
+  sum.append(pageLink("https://huggingface.co/" +
+    r.id.split("/").map(encodeURIComponent).join("/")));
   d.append(sum);
   const files = el("div", "files");
   files.append(el("p", "dim", "open to list files…"));

@@ -218,6 +218,12 @@ control-plane container where a small dependency surface is worth more. Three UR
   is re-checked anyway.
 - **Auto-activate only writes `model.env`.** It never restarts a backend as a side effect
   of a transfer finishing.
+- **Every result links out to its own page** (`pageLink()` in `app.js`): the repo on
+  huggingface.co, the model — and each *version* — on civitai.com. The result rows show
+  sizes and quants, never the model card, so the licence, the prompt format and the
+  example images are one click away instead of unreachable. The link lives inside the
+  `<summary>`, so its click handler calls `stopPropagation()` — otherwise opening the
+  page would also toggle the row.
 - `HF_TOKEN` is picked up from the environment for gated repos.
 
 ## Civitai (phase 4)

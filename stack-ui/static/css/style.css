@@ -153,6 +153,11 @@ button.danger-link:hover { color: var(--down); }
 .repo .rid { font-family: ui-monospace, monospace; font-size: .8rem; }
 .repo .stats { color: var(--dim); font-size: .74rem; margin-left: auto; white-space: nowrap; }
 .repo .files { padding: 0 .8rem .6rem; }
+/* Link out to the item's own page on HF/Civitai — same weight as button.link so it
+   reads as one more row action rather than prose. */
+.srclink { color: var(--dim); font-size: .74rem; text-decoration: none; white-space: nowrap; }
+.srclink:hover { color: var(--accent); text-decoration: underline; }
+.repo .files .dim .srclink { margin-left: .5rem; }
 .gated { color: var(--warn); font-size: .7rem; border: 1px solid var(--warn); border-radius: 3px; padding: 0 .25rem; }
 .band { font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; border-radius: 3px; padding: 0 .3rem; border: 1px solid; }
 .band.fits { color: var(--up); border-color: var(--up); }
