@@ -250,6 +250,10 @@ and `inventory.kobold()` / `inventory.checkpoints()` join on the filename.
   30 s checkpoint cache already sees it.
 - **`delete_model` forgets the entry**, or a later file of the same name would inherit a
   link to something it isn't.
+- **The download panel links out too**, from `Download.page` — it is the one place that
+  knows the origin for certain, since it's the URL being fetched right now, so the link is
+  shown whether the transfer succeeds or fails. The failure case is the more useful of the
+  two: the page is where you find out the repo is gated or the file has been pulled.
 - The store is a cache of provenance, not a source of truth about what exists: missing,
   unreadable or corrupt degrades to "no entry" and never blocks a listing, and a failed
   write never turns a finished 7 GB download into an error.

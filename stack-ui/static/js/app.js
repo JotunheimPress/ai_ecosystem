@@ -612,6 +612,11 @@ function watchDownload(d) {
     const p = JSON.parse(ev.data);
     box.replaceChildren();
     box.append(el("span", null, `${p.label}`));
+    // The panel is the one place that knows the origin for certain — it's the URL being
+    // fetched right now — so it links out whether the transfer succeeds or fails. On a
+    // failure that's the more useful moment of the two: the page is where you find out
+    // the repo is gated or the file was pulled.
+    if (p.page) box.append(pageLink(p.page));
     if (p.state === "running") {
       const bar = el("div", "bar");
       bar.append(el("span"));

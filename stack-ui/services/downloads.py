@@ -68,7 +68,7 @@ class Download:
         remaining = max(self.total - self.received, 0)
         return {
             "id": self.id, "source": self.source, "repo": self.repo,
-            "path": self.path, "kind": self.kind,
+            "path": self.path, "kind": self.kind, "page": self.page,
             "name": self.name, "total": self.total, "received": self.received,
             "state": self.state, "error": self.error,
             "pct": round(self.received / self.total * 100, 1) if self.total else None,
