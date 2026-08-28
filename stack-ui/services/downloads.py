@@ -27,7 +27,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import civitai, inventory
+from . import civitai, inventory, provenance
 from .hub import UA, HubError
 
 # A download only ever fetches from these hosts. The URL is built or looked up server-side
@@ -49,6 +49,11 @@ class Download:
     kind: str
     name: str
     dest: Path
+    # The item's page on the site it came from, recorded when the transfer completes so
+    # the inventory can link a file on disk back to where it came from. Resolved at start
+    # (it needs an API call for Civitai) rather than at the end, where a failure would be
+    # blamed on a download that actually succeeded.
+    page: str = ""
     total: int = 0
     received: int = 0
     started: float = field(default_factory=time.time)
@@ -123,20 +128,22 @@ def start_hf(repo: str, path: str, kind: str, activate: bool = False) -> Downloa
     # safe_new_target re-checks that on the resolved path.
     name = path.rsplit("/", 1)[-1]
     url = RESOLVE.format(repo=urllib.parse.quote(repo), path=urllib.parse.quote(path))
-    return _start("hf", url, repo, path, kind, name, activate)
+    page = "https://huggingface.co/" + "/".join(
+        urllib.parse.quote(part) for part in repo.split("/"))
+    return _start("hf", url, repo, path, kind, name, activate, page)
 
 
 def start_civitai(version_id, name: str, kind: str, activate: bool = False) -> Download:
     """Resolve the URL from Civitai's own API — the browser sends an id, never a link."""
     try:
-        url, _size = civitai.resolve_file(version_id, name)
+        url, _size, page = civitai.resolve_file(version_id, name)
     except civitai.CivitaiError as e:
         raise inventory.InventoryError(str(e))
-    return _start("civitai", url, f"civitai:{version_id}", name, kind, name, activate)
+    return _start("civitai", url, f"civitai:{version_id}", name, kind, name, activate, page)
 
 
 def _start(source: str, url: str, repo: str, path: str, kind: str, name: str,
-           activate: bool) -> Download:
+           activate: bool, page: str = "") -> Download:
     global _current
     _check_url(url)
     dest = inventory.safe_new_target(kind, name)          # raises InventoryError
@@ -146,7 +153,7 @@ def _start(source: str, url: str, repo: str, path: str, kind: str, name: str,
             raise Busy(f"already downloading {_current.name}")
         d = Download(id=f"{next(_counter)}-{int(time.time())}", source=source, url=url,
                      repo=repo, path=path, kind=kind, name=name, dest=dest,
-                     activate=activate)
+                     activate=activate, page=page)
         _current = d
 
     threading.Thread(target=_run, args=(d,), name=f"dl-{d.id}", daemon=True).start()
@@ -197,6 +204,10 @@ def _run(d: Download) -> None:
         if d.total and d.received != d.total:
             raise OSError(f"short read: got {d.received} of {d.total} bytes")
         os.replace(part, d.dest)                          # atomic, same filesystem
+        # Only now — the record must describe a file that actually exists, and a `.part`
+        # that never completed would leave a link pointing at a model you don't have.
+        # Before invalidate(), so the next listing to repopulate the cache already sees it.
+        provenance.record(d.kind, d.name, d.source, d.page)
         inventory.invalidate()
         d.state = "done"
 

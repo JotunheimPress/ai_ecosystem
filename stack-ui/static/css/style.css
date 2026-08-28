@@ -121,6 +121,7 @@ button.link:hover { color: var(--accent); }
 /* --- phase 2: model management ------------------------------------------- */
 td.rowacts { text-align: right; white-space: nowrap; width: 1%; }
 td.rowacts button { font-size: .72rem; }
+td.rowacts .srclink { margin-left: .45rem; }
 button.danger-link:hover { color: var(--down); }
 .loaded {
   font-size: .64rem; text-transform: uppercase; letter-spacing: .07em;

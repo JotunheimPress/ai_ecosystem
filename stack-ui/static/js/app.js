@@ -239,6 +239,7 @@ async function loadInventory() {
     const del = el("button", "link danger-link", "delete");
     del.onclick = () => deleteModel("kobold", m.name, m.size);
     acts.append(del);
+    acts.append(m.url ? pageLink(m.url) : searchLink("kobold", m.name));
     tr.append(el("td", "name", m.name), el("td", "size", bytes(m.size)), acts);
     kb.append(tr);
   }
@@ -294,6 +295,7 @@ async function loadInventory() {
     const del = el("button", "link danger-link", "delete");
     del.onclick = () => deleteModel("checkpoint", c.name, c.size);
     acts.append(del);
+    acts.append(c.url ? pageLink(c.url) : searchLink("checkpoint", c.name));
     tr.append(el("td", "name", c.name), el("td", "size", bytes(c.size)), acts);
     ck.append(tr);
   }
@@ -460,6 +462,18 @@ function pageLink(href, label) {
   a.title = href;
   a.addEventListener("click", (e) => e.stopPropagation());
   return a;
+}
+
+// Nothing on disk records where it came from unless *this* app downloaded it, and most of
+// what's here was copied in by hand. Those rows get a search rather than a page, labelled
+// as one: a link that claims to be the model's page and lands on a list of near-matches is
+// worse than no link.
+function searchLink(kind, name) {
+  const q = encodeURIComponent(name.replace(/\.(gguf|safetensors|ckpt|pt)$/i, ""));
+  return pageLink(
+    kind === "kobold" ? `https://huggingface.co/models?search=${q}`
+                      : `https://civitai.com/search/models?query=${q}`,
+    "search \u2197");
 }
 
 function civitaiRow(m, kind) {

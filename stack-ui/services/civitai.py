@@ -107,22 +107,30 @@ def search(query: str, model_type: str = "Checkpoint", base: str = "", limit: in
     return items
 
 
-def resolve_file(version_id: int | str, name: str) -> tuple[str, int]:
-    """(download_url, size) for one file of one version — re-fetched, never client-supplied.
+def resolve_file(version_id: int | str, name: str) -> tuple[str, int, str]:
+    """(download_url, size, page_url) for one file of one version — re-fetched, never
+    client-supplied.
 
     The browser sends an id and a filename; the URL is looked up here. A client that could
     hand the downloader an arbitrary URL would turn this app into a fetch-anything proxy,
     which is a much worse thing to have listening on your machine than a model browser.
+
+    The page URL comes back too so the downloader can record where the file came from
+    (`services/provenance.py`). It needs the *model* id, which only this response carries
+    — a version id alone has no public page — so it is read here rather than reconstructed
+    later from something the browser sent.
     """
     try:
         vid = int(version_id)
     except (TypeError, ValueError):
         raise CivitaiError(f"not a version id: {version_id!r}")
     data = _get(f"{API}/model-versions/{vid}")
+    model_id = data.get("modelId")
+    page = f"https://civitai.com/models/{model_id}?modelVersionId={vid}" if model_id else ""
     for f in data.get("files") or []:
         if f.get("name") == name:
             url = f.get("downloadUrl") or ""
             if not url:
                 raise CivitaiError(f"{name} has no download url")
-            return url, int((f.get("sizeKB") or 0) * 1024)
+            return url, int((f.get("sizeKB") or 0) * 1024), page
     raise CivitaiError(f"version {vid} has no file named {name!r}")

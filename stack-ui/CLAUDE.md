@@ -72,6 +72,7 @@ services/
   hub.py               # HuggingFace search + fit hints
   civitai.py           # Civitai search (checkpoints / LoRAs / VAEs)
   downloads.py         # transfers: progress, resume, host allowlist
+  provenance.py        # where each downloaded model came from (model-sources.json)
   vram.py              # GGUF header parsing, live VRAM, the planner
 templates/index.html · static/css/style.css · static/js/app.js
 ```
@@ -225,6 +226,33 @@ control-plane container where a small dependency surface is worth more. Three UR
   `<summary>`, so its click handler calls `stopPropagation()` — otherwise opening the
   page would also toggle the row.
 - `HF_TOKEN` is picked up from the environment for gated repos.
+
+## Provenance — linking a file on disk back to its page
+
+The search results link out for free: a result *is* a remote item. An inventory row is a
+directory listing — a name and a size — and nothing about a `.gguf` in `models/` says which
+repo it came from. So `services/provenance.py` writes it down at the moment we fetch it,
+and `inventory.kobold()` / `inventory.checkpoints()` join on the filename.
+
+- **Recorded, never guessed.** The store is `$ECO/model-sources.json` — the ecosystem root,
+  because it spans both backends' model directories — keyed `"<collection>/<filename>"`,
+  written atomically like `model.env`. Gitignored by living outside any checkout.
+- **Only what this app downloaded has an entry.** Most of the 85 GB was copied in by hand
+  and always will have none, so the UI falls back to a **search** link that says *search*.
+  A link that claims to be the model's page and lands on a list of near-matches is worse
+  than no link, so the two are never presented as the same thing.
+- **The Civitai page URL needs the model id**, which only the `/model-versions/{id}`
+  response carries — a version id alone has no public page. `resolve_file()` therefore
+  returns it as a third element rather than having the downloader rebuild it from something
+  the browser sent.
+- **Written after the atomic rename, before `invalidate()`.** After, so a record can never
+  describe a `.part` that never completed; before, so the next listing to repopulate the
+  30 s checkpoint cache already sees it.
+- **`delete_model` forgets the entry**, or a later file of the same name would inherit a
+  link to something it isn't.
+- The store is a cache of provenance, not a source of truth about what exists: missing,
+  unreadable or corrupt degrades to "no entry" and never blocks a listing, and a failed
+  write never turns a finished 7 GB download into an error.
 
 ## Civitai (phase 4)
 

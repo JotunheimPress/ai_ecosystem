@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import provenance
 from .stackctl import ECO
 
 KOBOLD_MODELS = ECO / "koboldcpp" / "models"
@@ -131,6 +132,9 @@ def kobold() -> dict:
     selected = env.get("KOBOLDCPP_MODEL")
     active = selected or _builtin_default()
     files = []
+    # Where each file came from, if this app is what downloaded it. One read for the whole
+    # listing; a model with no record simply has url=None and the UI offers a search.
+    sources = provenance.urls("kobold")
     if KOBOLD_MODELS.is_dir():
         for f in sorted(KOBOLD_MODELS.glob("*.gguf")):
             try:
@@ -138,7 +142,7 @@ def kobold() -> dict:
             except OSError:
                 continue
             files.append({"name": f.name, "size": size, "active": f.name == active,
-                          "path": str(f)})
+                          "path": str(f), "url": sources.get(f.name)})
     running = running_model()
     for f in files:
         # Kobold strips the .gguf when reporting, so compare on the stem.
@@ -189,12 +193,14 @@ def checkpoints() -> list[dict]:
     """Individual checkpoint files — the ones you pick between in the other frontends."""
     def build():
         p = COMFY_MODELS / "checkpoints"
+        sources = provenance.urls("checkpoint")
         out = []
         if p.is_dir():
             for f in sorted(p.iterdir()):
                 if f.suffix in (".safetensors", ".ckpt"):
                     try:
-                        out.append({"name": f.name, "size": f.stat().st_size})
+                        out.append({"name": f.name, "size": f.stat().st_size,
+                                    "url": sources.get(f.name)})
                     except OSError:
                         pass
         return out
@@ -295,6 +301,9 @@ def delete_model(kind: str, name: str) -> dict:
 
     size = p.stat().st_size
     p.unlink()
+    # Drop the provenance entry too, or a later file of the same name inherits a link to
+    # something it isn't.
+    provenance.forget(kind, name)
     _CACHE.clear()                          # the ComfyUI walk is cached; it just changed
     return {"deleted": name, "kind": kind, "freed": size}
 
