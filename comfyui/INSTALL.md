@@ -147,11 +147,37 @@ Search Civitai by the filename above; exact URLs are omitted because they move. 
 subtrees: `photomaker/` (2.6 G), `insightface/` (927 M), `vae/` (320 M) — only needed for the
 workflows that reference them.
 
+### Video — WAN 2.2 TI2V 5B
+
+Only needed for Iguana Studio's **Animate** mode (image→video) and `run.py video`. Unlike the
+checkpoints above these are **not** interchangeable: all three go together, and the filenames are
+what `iguana_studio/comfyui-auto/workflows/video.py` names.
+
+From `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` on Hugging Face, under `split_files/`:
+
+| File | Size | Goes in |
+|---|---|---|
+| `wan2.2_ti2v_5B_fp16.safetensors` | 9.3 G | `models/diffusion_models/` |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | 6.3 G | `models/text_encoders/` |
+| `wan2.2_vae.safetensors` | 1.3 G | `models/vae/` |
+
+No custom nodes: ComfyUI v0.31.1 has native WAN nodes, native `CreateVideo`/`SaveVideo`, and the
+container's PyAV already carries an h264 encoder. Nothing to rebuild — the bind mount picks the
+weights up, and `UNETLoader` lists the model on the next `/object_info` call.
+
+**If fp16 will not fit**, put a GGUF WAN 5B (Q5_K_M, ~4 G) in `models/unet/` instead and swap node
+`1` in `video.py` from `UNETLoader` to `UnetLoaderGGUF`. `ComfyUI-GGUF` is already a pinned custom
+node (it is what loads Flux Kontext), so nothing else changes.
+
 ## VRAM budget
 
 12 GB total, **shared with KoboldCPP**. Running a large LLM and an SDXL checkpoint at once will OOM.
 Either run one heavy model at a time, or pair KoboldCPP with an SD 1.5 checkpoint. `stack off` frees
 the GPU entirely for gaming.
+
+**WAN 2.2 5B wants the card to itself.** At fp16 it is ~10 GB of the 11.6 GiB the driver reports, so
+`stack down koboldcpp` (or the dashboard's **Free VRAM**) before using Animate. Measured here with
+the card free: 25 frames at 960×544, 20 steps → 41 s.
 
 ## Topology
 
