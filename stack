@@ -9,6 +9,8 @@
 #   stack up              start the backends now (without touching the boot toggle)
 #   stack status          show what's up
 #   stack <app>           start one app        (companion|story|iguana|koboldcpp|comfyui)
+#   stack desktop         Pantheon's avatar on the desktop (starts the app if needed)
+#   stack desktop stop    close it
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
@@ -501,6 +503,38 @@ cmd_doctor() {
   echo "${C_B}Runtime${C_OFF}"; cmd_status
 }
 
+# Pantheon's desktop avatar: a host-side GTK window, not a container, so it is a
+# verb rather than a registry row -- it has no port and no health URL, and adding
+# a fake one would make it show as permanently down in `status`. It only frames
+# the companion container, so make sure that is up first.
+cmd_desktop() {
+  local shell="$ECO/companion/desktop/pantheon-desktop.py"
+  [[ -x "$shell" ]] || { echo "not found: $shell"; return 1; }
+  if ! is_up companion; then
+    echo "==> ${LABEL[companion]} is not running — starting it"
+    ensure_net; start_app companion
+    wait_up companion 30 || { echo "   ${LABEL[companion]} did not come up; see: stack logs companion"; return 1; }
+  fi
+  if pgrep -f '[p]antheon-desktop.py' >/dev/null; then
+    echo "==> already running (left-click the tray icon to show her)"
+    return 0
+  fi
+  echo "==> starting the ${LABEL[companion]} desktop avatar"
+  # Detached, so closing this terminal does not take her with it.
+  setsid "$shell" "${@}" >/dev/null 2>&1 < /dev/null &
+  disown 2>/dev/null || true
+  sleep 1
+  pgrep -f '[p]antheon-desktop.py' >/dev/null \
+    && echo "   up — tray icon menu has show/hide, move, and quit" \
+    || echo "   failed to start; run it directly to see why: $shell"
+}
+
+cmd_desktop_stop() {
+  local pids; pids=$(pgrep -f '[p]antheon-desktop.py' || true)
+  [[ -z "$pids" ]] && { echo "not running"; return 0; }
+  kill $pids && echo "stopped"
+}
+
 case "${1:-}" in
   ""|menu)   cmd_menu ;;
   on|enable)  cmd_on ;;
@@ -512,7 +546,11 @@ case "${1:-}" in
   logs)      cmd_logs "${2:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
-  -h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  desktop)   shift; [[ "${1:-}" == "stop" ]] && cmd_desktop_stop || cmd_desktop "$@" ;;
+  # Print the header block by finding its closing rule rather than a fixed line
+  # number -- the hardcoded 2,22 silently truncated the last lines of help as
+  # soon as a command was added.
+  -h|--help|help) awk 'NR>2 && /^# =+$/{exit} NR>=2' "$0" | sed 's/^# \{0,1\}//' ;;
   *)         a=$1; [[ -n "${KIND[$a]:-}" ]] || { echo "unknown app: $a (try: stack status)"; exit 1; }
              [[ " ${FRONTENDS[*]} " == *" $a "* ]] && ensure_net
              start_one "$a" ;;
