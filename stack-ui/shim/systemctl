@@ -93,7 +93,37 @@ def main(argv: list[str]) -> int:
                 call(method, "ss", (u, "replace"))
             return 0
 
-        if verb in ("status", "show", "is-active"):
+        if verb == "is-active":
+            # Needed since the dashboard grew a desktop-avatar toggle: it has to
+            # know whether the unit is up to label the button. ActiveState is a
+            # property on the unit object, so this is two calls, not one.
+            #
+            # A unit that has never been loaded has no object path and LoadUnit
+            # errors -- that is "inactive", not a failure.
+            try:
+                path = call("LoadUnit", "s", (units[0],))[0]
+            except Exception:                                   # noqa: BLE001
+                print("inactive")
+                return 3
+            conn = open_dbus_connection(bus="SESSION")
+            try:
+                msg = new_method_call(
+                    DBusAddress(path, bus_name="org.freedesktop.systemd1",
+                                interface="org.freedesktop.DBus.Properties"),
+                    "Get", "ss", ("org.freedesktop.systemd1.Unit", "ActiveState"))
+                reply = conn.send_and_get_reply(msg)
+                if reply.header.message_type is MessageType.error:
+                    print("inactive")
+                    return 3
+                state = reply.body[0][1]
+            finally:
+                conn.close()
+            if "--quiet" not in rest:
+                print(state)
+            # systemctl's convention: 0 only when active.
+            return 0 if state == "active" else 3
+
+        if verb in ("status", "show"):
             # Not needed by `stack`; be honest rather than silently wrong.
             print(f"shim: '{verb}' is not implemented (containerized stack-ui)", file=sys.stderr)
             return 2

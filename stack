@@ -16,7 +16,7 @@
 #   stack logs <app>
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
-#                           all|backends|koboldcpp|comfyui|stackui|service|path (default: all)
+#                           all|backends|koboldcpp|comfyui|stackui|service|path|desktop
 #   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
@@ -436,8 +436,8 @@ install_stackui() {
 
 cmd_install() {
   local t=${1:-all} rc=0
-  case "$t" in all|backends|koboldcpp|comfyui|stackui|service|path) ;;
-    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|stackui|service|path)"; return 1 ;;
+  case "$t" in all|backends|koboldcpp|comfyui|stackui|service|path|desktop) ;;
+    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|stackui|service|path|desktop)"; return 1 ;;
   esac
   echo "${C_B}ai-stack install${C_OFF} — target: $t   ${C_DIM}(idempotent; weights are never downloaded)${C_OFF}"
   echo "${C_B}Prerequisites${C_OFF}"; check_prereqs || rc=1
@@ -450,6 +450,9 @@ cmd_install() {
   fi
   if [[ "$t" == all || "$t" == stackui ]]; then
     echo "${C_B}AI Ecosystem${C_OFF}"; install_stackui || rc=1
+  fi
+  if [[ "$t" == all || "$t" == desktop ]]; then
+    echo "${C_B}Desktop avatar${C_OFF}"; install_desktop_unit || rc=1
   fi
   echo
   # Missing weights are not an install failure — they're deliberately out of scope —
@@ -507,32 +510,55 @@ cmd_doctor() {
 # verb rather than a registry row -- it has no port and no health URL, and adding
 # a fake one would make it show as permanently down in `status`. It only frames
 # the companion container, so make sure that is up first.
+DESKTOP_UNIT="pantheon-desktop.service"
+
+install_desktop_unit() {
+  local src="$ECO/companion/desktop/$DESKTOP_UNIT"
+  local dst="$HOME/.config/systemd/user/$DESKTOP_UNIT" rendered
+  [ -f "$src" ] || { warn "no desktop unit at $src"; return 1; }
+  rendered=$(sed "s|@ECO@|$ECO|g" "$src")
+  if [ -f "$dst" ] && [ "$rendered" = "$(cat "$dst")" ]; then
+    ok "desktop unit installed ($dst)"
+  else
+    step "installing desktop unit -> $dst"
+    mkdir -p "$(dirname "$dst")" && printf '%s\n' "$rendered" > "$dst" \
+      && systemctl --user daemon-reload && ok "installed"
+  fi
+}
+
+# Started as a systemd --user unit rather than a child of this script, because
+# `stack desktop` also runs from inside the stack-ui container -- which has the
+# host session bus but no Wayland display, so a process it spawns has nowhere to
+# draw. The host user manager does have the display, and the shim maps
+# `systemctl --user start` onto it, so this one path works from both places.
 cmd_desktop() {
-  local shell="$ECO/companion/desktop/pantheon-desktop.py"
-  [[ -x "$shell" ]] || { echo "not found: $shell"; return 1; }
+  # Ask the user manager, not the filesystem. $HOME inside the stack-ui container
+  # is a throwaway, so a file test there reports "not installed" for a unit that
+  # is present on the host -- which is exactly how this first failed. The shim
+  # forwards list-unit-files to the host manager, so one check works from both.
+  if ! systemctl --user list-unit-files "$DESKTOP_UNIT" >/dev/null 2>&1; then
+    echo "desktop unit not installed — run this once in a terminal:"
+    echo "    stack install desktop"
+    return 1
+  fi
   if ! is_up companion; then
     echo "==> ${LABEL[companion]} is not running — starting it"
     ensure_net; start_app companion
     wait_up companion 30 || { echo "   ${LABEL[companion]} did not come up; see: stack logs companion"; return 1; }
   fi
-  if pgrep -f '[p]antheon-desktop.py' >/dev/null; then
+  if systemctl --user is-active --quiet "$DESKTOP_UNIT"; then
     echo "==> already running (left-click the tray icon to show her)"
     return 0
   fi
   echo "==> starting the ${LABEL[companion]} desktop avatar"
-  # Detached, so closing this terminal does not take her with it.
-  setsid "$shell" "${@}" >/dev/null 2>&1 < /dev/null &
-  disown 2>/dev/null || true
-  sleep 1
-  pgrep -f '[p]antheon-desktop.py' >/dev/null \
+  systemctl --user start "$DESKTOP_UNIT" \
     && echo "   up — tray icon menu has show/hide, move, and quit" \
-    || echo "   failed to start; run it directly to see why: $shell"
+    || echo "   failed; see: journalctl --user -u $DESKTOP_UNIT -n 30"
 }
 
 cmd_desktop_stop() {
-  local pids; pids=$(pgrep -f '[p]antheon-desktop.py' || true)
-  [[ -z "$pids" ]] && { echo "not running"; return 0; }
-  kill $pids && echo "stopped"
+  systemctl --user is-active --quiet "$DESKTOP_UNIT" || { echo "not running"; return 0; }
+  systemctl --user stop "$DESKTOP_UNIT" && echo "stopped"
 }
 
 case "${1:-}" in

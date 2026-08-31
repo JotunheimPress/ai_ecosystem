@@ -148,6 +148,8 @@ async function loadStatus() {
   sw.className = "switch " + (s.switch ? s.switch.toLowerCase() : "unknown");
   $("btn-on").hidden = s.switch === "ON";
   $("btn-off").hidden = s.switch !== "ON";
+  desktopUp = !!s.desktop;
+  renderDesktopBtn();
 
   const wrap = $("apps");
   wrap.replaceChildren();
@@ -733,7 +735,22 @@ $("layers-save").onclick = () => {
 };
 $("btn-on").onclick = () => act("on");
 $("btn-off").onclick = () => act("off", null, "Stop both backends and disable boot auto-start?");
+let desktopUp = false;
+
+function renderDesktopBtn() {
+  const b = $("btn-desktop");
+  if (!b) return;
+  b.textContent = desktopUp ? "close avatar" : "desktop avatar";
+  b.classList.toggle("primary", !desktopUp);
+}
+
 $("btn-up").onclick = () => act("up");
+// Toggle: one button, because two ("launch"/"close") would both be live at once
+// and one of them always wrong. `stack desktop` is idempotent, so a stray second
+// press is harmless either way.
+$("btn-desktop").onclick = () => act(
+  desktopUp ? "desktop_stop" : "desktop", null,
+  desktopUp ? "Close the desktop avatar?" : null);
 $("btn-downall").onclick = () => act("down", "all", "Stop all backends and frontends?");
 $("busy-hide").onclick = () => { $("console").hidden = true; };
 $("logs-close").onclick = () => closeLogs();

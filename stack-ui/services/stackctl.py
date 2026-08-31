@@ -66,6 +66,15 @@ VERBS: dict[str, Verb] = {
     # container, is a throwaway directory. Exposing the whole verb would offer two
     # buttons that quietly do nothing useful.
     "install_comfyui": Verb(["install", "comfyui"], True, stream=True, timeout=600),
+    # Pantheon's desktop avatar. It has no port and no health URL, so it is not an
+    # app target -- hence a fixed argv here rather than target="app".
+    #
+    # This container has the host session bus but no Wayland display, so it cannot
+    # put a window on screen itself. `stack desktop` does not try: it asks the host
+    # user manager to start pantheon-desktop.service, which inherits the display
+    # from the session. The systemctl shim carries that call out of here.
+    "desktop":      Verb(["desktop"], True, stream=True, timeout=90),
+    "desktop_stop": Verb(["desktop", "stop"], True, stream=True, timeout=60),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -81,6 +90,28 @@ class StackError(RuntimeError):
 
 def available() -> bool:
     return STACK.is_file() and os.access(STACK, os.X_OK)
+
+
+DESKTOP_UNIT = "pantheon-desktop.service"
+
+
+def desktop_active() -> bool:
+    """Is the desktop avatar running?
+
+    Asked of the host user manager through the systemctl shim, because the unit
+    lives there and not in this container. Any failure -- no shim, no unit, no
+    bus -- reads as "not running", which is the safe answer: the button then
+    offers to start it, and starting something already up is a no-op.
+    """
+    exe = shutil.which("systemctl")
+    if not exe:
+        return False
+    try:
+        p = subprocess.run([exe, "--user", "is-active", DESKTOP_UNIT],
+                           capture_output=True, text=True, timeout=5)
+        return p.stdout.strip() == "active"
+    except Exception:                                   # noqa: BLE001
+        return False
 
 
 # Passed through to `stack` when present. Everything else in the environment is dropped:
