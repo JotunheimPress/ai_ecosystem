@@ -453,6 +453,7 @@ cmd_install() {
   fi
   if [[ "$t" == all || "$t" == desktop ]]; then
     echo "${C_B}Desktop avatar${C_OFF}"; install_desktop_unit || rc=1
+    install_kwin_rule || rc=1
   fi
   echo
   # Missing weights are not an install failure — they're deliberately out of scope —
@@ -524,6 +525,43 @@ install_desktop_unit() {
     mkdir -p "$(dirname "$dst")" && printf '%s\n' "$rendered" > "$dst" \
       && systemctl --user daemon-reload && ok "installed"
   fi
+}
+
+# Position is the compositor's business, not ours: a Wayland client may not know
+# or set where it is, under any toolkit. So "remember where I dragged her" can
+# only be a window rule. positionrule=2 is Remember, deliberately not 3/Force --
+# Force snaps her back after every drag, which looks like dragging is broken.
+install_kwin_rule() {
+  command -v kwriteconfig6 >/dev/null || { warn "kwriteconfig6 not found — skipping window rule"; return 0; }
+  local g=pantheon-desktop existing
+  existing=$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null)
+  case ",$existing," in
+    *",$g,"*) ok "window rule present" ;;
+    *)
+      step "installing KWin window rule ($g)"
+      # Append; never overwrite. Someone else's rules live in this same list.
+      kwriteconfig6 --file kwinrulesrc --group General --key rules \
+        "${existing:+$existing,}$g"
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key Description "Pantheon desktop avatar"
+      # Substring match: GTK sets the Wayland app_id from the application id and
+      # KWin normalises it, so an exact match is the brittle choice.
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclass "pantheon"
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclasscomplete false
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclassmatch 1
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key position "1400,380"
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key positionrule 2
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key size "420,620"
+      kwriteconfig6 --file kwinrulesrc --group "$g" --key sizerule 2
+      local k
+      for k in above skiptaskbar skippager skipswitcher noborder; do
+        kwriteconfig6 --file kwinrulesrc --group "$g" --key "$k" true
+        kwriteconfig6 --file kwinrulesrc --group "$g" --key "${k}rule" 3
+      done
+      qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 \
+        || qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+      ok "installed — drag her once and KWin remembers"
+      ;;
+  esac
 }
 
 # Started as a systemd --user unit rather than a child of this script, because
