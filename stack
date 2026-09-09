@@ -8,7 +8,7 @@
 #                           on  = start backends now + at boot
 #   stack up              start the backends now (without touching the boot toggle)
 #   stack status          show what's up
-#   stack <app>           start one app        (companion|story|iguana|koboldcpp|comfyui)
+#   stack <app>           start one app        (companion|story|iguana|nocturne|koboldcpp|comfyui)
 #   stack desktop         Pantheon's avatar on the desktop (starts the app if needed)
 #   stack desktop stop    close it
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
@@ -34,7 +34,7 @@ NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
 BACKENDS=(koboldcpp comfyui)
-FRONTENDS=(companion story iguana)
+FRONTENDS=(companion story iguana nocturne)
 # Control apps are shown and startable like the rest, but deliberately excluded from
 # `down all` / `down frontends`: stack-ui is the thing you're clicking in, and having a
 # button stop its own server is a bad afternoon. Stop it explicitly (`stack down stackui`).
@@ -48,6 +48,10 @@ reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation
 reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "The Narrative Engine"                      container ai-story-maker
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
+# /api/health, not /, and it stays 200 with ComfyUI down: this probe asks whether
+# *nocturne* is up, and reporting a failure because a dependency is down would make
+# `stack nocturne` look broken for an app that started fine.
+reg nocturne  7864 "http://localhost:7864/api/health"    "Ambient music generation"                  container nocturne
 # Containerized like everything else, but with the host podman socket and session bus
 # mounted so it can drive them. Loopback-only by design (see stack-ui/CLAUDE.md).
 reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Control dashboard for the stack itself"    container stackui
@@ -63,6 +67,7 @@ declare -A LABEL=(
   [companion]="Pantheon"
   [story]="Rhapsode"
   [iguana]="Iguana Studio"
+  [nocturne]="Nocturne"
   [stackui]="AI Ecosystem"
 )
 
@@ -89,6 +94,7 @@ start_app() {
     # supplies only mutable state via --base-directory.
     comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
     iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
+    nocturne)  "$ECO/nocturne/run-podman.sh" >/dev/null 2>&1 ;;
     # Ships in this checkout, like the comfyui recipe — hence $SELF, not $ECO.
     stackui)   "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1 ;;
   esac
