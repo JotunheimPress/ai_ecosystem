@@ -39,9 +39,14 @@ echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
 # --privileged koboldcpp uses — capability confinement stays on. It also makes `:z`
 # relabeling redundant, which matters: `:z` walks the whole 58 GB models tree on
 # every start.
+# --restart=on-failure:5 instead of --rm: podman restarts the container if it crashes
+# (OOM, CUDA fault), capped so a bad config can't loop forever. `podman stop` — what
+# `stack down`/`stack off` use — counts as a deliberate stop and is never restarted.
+# Without --rm a dead container also keeps its logs for `stack logs` post-mortem;
+# the `podman rm -f` above clears it before the next start.
 podman run -d \
     --name "${CONTAINER_NAME}" \
-    --rm \
+    --restart=on-failure:5 \
     --device nvidia.com/gpu=all \
     --security-opt label=disable \
     --network "${NET}" \

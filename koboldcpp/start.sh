@@ -45,8 +45,8 @@ fi
 MODEL="${KOBOLDCPP_MODEL:-${FILE_MODEL:-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}}"
 GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-${FILE_LAYERS:-33}}"
 
-# Fail here rather than inside the container: it runs --rm and detached, so a bad model
-# name otherwise vanishes with the container and `stack up` just reports "did not come up".
+# Fail here rather than inside the container: it runs detached, so a bad model name would
+# otherwise burn through the restart budget and `stack up` would just report "did not come up".
 if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
     echo "Model not found: ${MODELS_DIR}/${MODEL}" >&2
     echo "Available:" >&2
@@ -56,9 +56,14 @@ if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
 fi
 
 echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, gpu layers: ${GPU_LAYERS})"
+# --restart=on-failure:5 instead of --rm: podman restarts the container if it crashes
+# (OOM, CUDA fault), capped so a bad config can't loop forever. `podman stop` — what
+# `stack down`/`stack off` use — counts as a deliberate stop and is never restarted.
+# Without --rm a dead container also keeps its logs for `stack logs` post-mortem;
+# the `podman rm -f` above clears it before the next start.
 podman run -d \
     --name "${CONTAINER_NAME}" \
-    --rm \
+    --restart=on-failure:5 \
     --privileged \
     --device nvidia.com/gpu=all \
     --network ai-net \

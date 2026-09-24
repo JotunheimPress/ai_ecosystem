@@ -20,7 +20,7 @@ Containerized KoboldCPP LLM inference server with NVIDIA CUDA support, managed v
 ~/Development/ai_ecosystem/koboldcpp/start.sh
 ```
 
-Runs at http://localhost:5001. The container is started with `--rm`, so it disappears when stopped — just run the script again to restart.
+Runs at http://localhost:5001. The container runs with `--restart=on-failure:5`: podman restarts it after a crash, but not after `podman stop`. A stopped container lingers (logs intact) until the script runs again and replaces it.
 
 ## Configuration
 
@@ -43,7 +43,7 @@ stack restart koboldcpp
 `model.env` is **parsed, not sourced** (machine-written from internet-sourced model names), lives in
 the working tree next to `models/` as runtime state, and is the hook a control UI writes to when
 switching models. A model it names that isn't in `models/` fails the start with the available list
-instead of vanishing with the `--rm` container. Full rationale: [`INSTALL.md`](INSTALL.md) §4.
+instead of crash-looping inside the container. Full rationale: [`INSTALL.md`](INSTALL.md) §4.
 
 ## Networking
 

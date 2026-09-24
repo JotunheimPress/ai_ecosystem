@@ -73,8 +73,8 @@ Prefer one heavy model at a time, or pair KoboldCPP with an SD 1.5 checkpoint.
 
 **ComfyUI holds VRAM after a job** and won't give it back on its own, which reads as a *different*
 service being broken: with a Flux Kontext model resident (~6.4 GB), KoboldCPP OOMs the instant it
-starts and its `--rm` container disappears before logging, so `stack up` reports "did not come up"
-and `podman logs koboldcpp` says no such container. Make ComfyUI release it — no restart needed:
+starts, burns through its `--restart=on-failure:5` budget, and `stack up` reports "did not come up";
+`podman logs koboldcpp` shows the CUDA OOM. Make ComfyUI release it — no restart needed:
 
 ```bash
 curl -X POST http://localhost:8188/free -H 'Content-Type: application/json' \

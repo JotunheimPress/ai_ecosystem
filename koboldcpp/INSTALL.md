@@ -76,7 +76,7 @@ podman logs -f koboldcpp              # follow startup / model load
 curl -s localhost:5001/api/v1/model   # confirm which model is live
 ```
 
-The container runs with `--rm`, so it vanishes when stopped — just run the script again.
+The container runs with `--restart=on-failure:5`, so podman restarts it after a crash (not after `podman stop`). Run the script again to replace a stopped one.
 
 ## 4. Configuration
 
@@ -114,8 +114,8 @@ the internet, and sourcing would execute whatever landed in it. It's runtime sta
 committed.
 
 A model named here that isn't in `models/` **fails the start** with the list of what is there,
-rather than dying inside the container — it runs detached with `--rm`, so the container would
-otherwise disappear before logging and `stack up` would only say "did not come up".
+rather than dying inside the container — it runs detached, so it would otherwise crash-loop
+through its restart budget and `stack up` would only say "did not come up".
 
 `--usecublas` is always passed. If a model won't fit, reduce `KOBOLDCPP_GPU_LAYERS` rather than
 switching off CUDA — partial offload is much faster than pure CPU.

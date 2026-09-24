@@ -138,8 +138,13 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 
 ## Notes / gotchas
 
-- `koboldcpp/start.sh` now runs **detached** (`podman run -d --rm`) so the stack can start-and-forget it;
+- `koboldcpp/start.sh` now runs **detached** (`podman run -d`) so the stack can start-and-forget it;
   it still loads the ChatML adapter (`chatml.json`). Model reload after a restart takes ~20–30 s.
+- **Both backends run with `--restart=on-failure:5`, not `--rm`.** Before this, a crashed backend
+  vanished without a trace while the switch still said ON (found 2026-09-24: both gone, no container,
+  no logs). Podman now restarts a crash up to 5 times; `podman stop` (`stack down`/`stack off`) is a
+  deliberate stop and is never restarted — unlike the old `comfyui.service` below. Stopped containers
+  linger until the next `start.sh` removes them, so `stack logs` works after a crash.
 - **Every app is a container now.** ComfyUI was the last `kind=proc` holdout (a distrobox process); it
   was containerized in Aug 2026, so `podman stop` / `podman logs` work uniformly across the registry.
   The `proc` branch in `stop_app`/`start_one` and the `port_pid()` helper are kept as the extension
