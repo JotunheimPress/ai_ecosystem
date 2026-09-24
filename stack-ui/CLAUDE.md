@@ -144,6 +144,10 @@ Deliberate, not incidental:
   The subprocess env is a deliberate allowlist, and dropping either fails *quietly*:
   without the first, podman talks to an engine that isn't there and every up/down does
   nothing; without the second, the switch silently disappears from `stack status`.
+- **Mount the podman socket's directory, never the socket file.** A file bind-mount pins the
+  inode; when `podman.socket` re-creates the socket, the container keeps the dead one and every
+  action fails with `dial unix /run/podman/podman.sock: connection refused` while the page
+  itself still loads (status is read by health probes, not podman). Hit on 2026-09-23.
 - **The ecosystem is mounted at its REAL host path, never a tidy `/eco`.** With a remote
   client, `-v` and build-context paths are resolved by the *host* engine. A path that
   exists only inside this container produces containers with broken mounts — and it fails

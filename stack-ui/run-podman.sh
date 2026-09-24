@@ -9,6 +9,10 @@
 #                    netns also means uvicorn's 127.0.0.1 bind IS the host loopback, so
 #                    the service stays unreachable from the network — no -p needed.
 #   podman.sock      the host container engine. `stack` drives podman; this is how.
+#                    Its DIRECTORY is mounted, not the socket file: a file bind-mount pins
+#                    the inode, so when podman.socket re-creates the socket (it did on
+#                    2026-09-23) the container keeps the dead one and every `stack` call
+#                    fails with "connection refused" until the dashboard is restarted.
 #   session bus      the host user systemd. `stack on`/`off` are systemctl --user, so
 #                    without this the single most useful button doesn't work.
 #   $ECO             the projects themselves — the `stack` script, models, model.env.
@@ -83,7 +87,7 @@ podman run -d \
   -e "HOME=/tmp/home" \
   -e "AI_ECOSYSTEM=${ECO}" \
   -e "DBUS_SESSION_BUS_ADDRESS=unix:path=${BUS}" \
-  -v "$SOCK:/run/podman/podman.sock" \
+  -v "$(dirname "$SOCK"):/run/podman" \
   "${BUS_ARGS[@]}" \
   -v "$ECO:$ECO" \
   "$IMAGE"
