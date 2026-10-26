@@ -96,6 +96,12 @@ configuration. They're separate private repos — ask for access.
 
 ### AI Ecosystem (the control dashboard)
 
+![AI Ecosystem dashboard: the two backends with KoboldCPP's loaded model and ComfyUI's VRAM, GPU use, and the frontends below](stack-ui/docs/dashboard.png)
+
+The home screen shows the shared backends and what each has loaded, then the frontends; the
+sidebar has the model managers (installed GGUFs + HuggingFace search, ComfyUI files + Civitai),
+the VRAM planner, logs, custom-node pins and the doctor. Built with pytincture + wapyt.
+
 Ships in this repo (`stack-ui/`) and is built by `stack install`, so there's nothing extra to clone:
 
 ```bash

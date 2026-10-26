@@ -9,6 +9,7 @@ __pycache__/
 *.md
 *.log
 tests/
+docs/
 # Built into the image by the Containerfile; a local dev copy must not shadow it.
 appcode/wapyt-*.whl
 # Podman / systemd plumbing doesn't belong inside the image
