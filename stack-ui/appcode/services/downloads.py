@@ -219,7 +219,21 @@ def _run(d: Download) -> None:
             except inventory.InventoryError as e:
                 d.error = f"downloaded, but could not select: {e}"
 
-    except (urllib.error.HTTPError, urllib.error.URLError, HubError, OSError, ValueError) as e:
+    except urllib.error.HTTPError as e:
+        d.state = "error"
+        # A bare "HTTP Error 401" sends you debugging the client. Say what fixes it — the
+        # token var for this source, and whether one was sent at all — since a missing
+        # token and a token without access to this file look identical otherwise.
+        if e.code in (401, 403):
+            var = "CIVITAI_TOKEN" if d.source == "civitai" else "HF_TOKEN"
+            sent = bool(os.environ.get(var, "").strip())
+            d.error = (f"HTTP {e.code}: the {var} that was sent has no access to this file"
+                       if sent else
+                       f"HTTP {e.code}: this file needs an account token — set {var} "
+                       "(stack-ui/tokens.env) and restart the dashboard")
+        else:
+            d.error = str(e)
+    except (urllib.error.URLError, HubError, OSError, ValueError) as e:
         d.state = "error"
         d.error = str(e)
     except Exception as e:                                # noqa: BLE001

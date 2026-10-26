@@ -7,3 +7,5 @@ venv/
 appcode/wapyt-*.whl
 .pytest_cache/
 tests/shots/
+# Download tokens, read by run-podman.sh. Never commit.
+tokens.env

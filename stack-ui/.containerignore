@@ -10,6 +10,7 @@ __pycache__/
 *.log
 tests/
 docs/
+tokens.env
 # Built into the image by the Containerfile; a local dev copy must not shadow it.
 appcode/wapyt-*.whl
 # Podman / systemd plumbing doesn't belong inside the image

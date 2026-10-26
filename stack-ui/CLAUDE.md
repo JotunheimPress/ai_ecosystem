@@ -310,6 +310,12 @@ control-plane container where a small dependency surface is worth more. Three UR
   The tables show sizes and quants, never the model card, so the licence, the prompt
   format and the example images are one click away instead of unreachable.
 - `HF_TOKEN` is picked up from the environment for gated repos.
+- **Tokens reach the container through `run-podman.sh`** — `stack-ui/tokens.env`
+  (`CIVITAI_TOKEN=…` / `HF_TOKEN=…` lines, git-ignored, kept out of the image, `chmod 600`)
+  via `--env-file`, or the same names from the calling shell via `-e NAME` (no value on the
+  command line either way). Until 2026-10-26 nothing passed them in, so the containerized
+  dashboard could never download a gated file: a Civitai SDXL VAE came back `401`. A 401/403
+  now says which variable to set, or that the one sent lacks access.
 
 ## Provenance — linking a file on disk back to its page
 

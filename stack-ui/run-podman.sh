@@ -75,6 +75,21 @@ else
   echo "!! no session bus at $BUS — the on/off switch will not work" >&2
 fi
 
+# Download tokens. Civitai gates many files behind an account (401 without one), and
+# HuggingFace gates some repos. The code has always read CIVITAI_TOKEN / HF_TOKEN, but
+# nothing passed them in, so the containerized dashboard could never use them. Two
+# sources, neither of which puts a value on this command line (where `ps` would show it):
+#   stack-ui/tokens.env   KEY=value lines, git-ignored — keep it chmod 600
+#   your environment      `-e NAME` with no value copies it from this shell
+TOKEN_ARGS=()
+TOKENS="$SCRIPT_DIR/tokens.env"
+if [[ -f "$TOKENS" ]]; then
+  TOKEN_ARGS+=(--env-file "$TOKENS")
+fi
+for var in CIVITAI_TOKEN HF_TOKEN; do
+  if [[ -n "${!var:-}" ]]; then TOKEN_ARGS+=(-e "$var"); fi
+done
+
 echo "==> Starting $CONTAINER on http://127.0.0.1:${PORT} …"
 podman run -d \
   --name "$CONTAINER" \
@@ -89,6 +104,7 @@ podman run -d \
   -e "DBUS_SESSION_BUS_ADDRESS=unix:path=${BUS}" \
   -v "$(dirname "$SOCK"):/run/podman" \
   "${BUS_ARGS[@]}" \
+  "${TOKEN_ARGS[@]}" \
   -v "$ECO:$ECO" \
   "$IMAGE"
 
