@@ -4,15 +4,26 @@ Web frontend for the stack itself. **Phases 0–5 built:** service status and co
 logs, model inventory with selection and delete, HuggingFace + Civitai browsing and downloads,
 and a VRAM planner across both backends.
 
+**pytincture + wapyt since 2026-10-26.** The page is Python in the browser (Pyodide) built
+from wapyt widgets — the same stack as the Pytinc apps (`~/Development/Pytinc/basilisk_wapyt`
+is the closest sibling; its and Monguana's CLAUDE.md files document the framework traps).
+The vanilla-JS page and the JSON API it called are gone; `services/` carried over unchanged
+apart from moving into `appcode/`. Layout: a header toolbar (the switch and whole-stack
+actions), a sidebar of screens, and a **dashboard home** — backends and what they have
+*loaded* on top, frontends below. Language models (installed GGUFs + HuggingFace search),
+image models (ComfyUI files + Civitai search), VRAM planner, logs, custom nodes and doctor
+are sidebar screens. Screens route by URL hash (`#/llms`), so a reload keeps your place.
+
 Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* the ai-stack
 repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
 reaches it via `$SELF` like the comfyui recipe.
 
-**Naming.** The facing name is **AI Ecosystem** — the page title, the `<h1>`, the FastAPI app
-title, the `stack status` description, and the startup banner all say that. Everything an
+**Naming.** The facing name is **AI Ecosystem** — the browser tab title, the toolbar brand,
+the `stack status` description, and the startup banner all say that. Everything an
 operator *types* is unchanged and must stay unchanged: the `stackui` service key (`stack stackui`,
 `stack down stackui`, `stack install stackui`), the `localhost/stackui` image, this `stack-ui/`
-directory, and the `X-Stack-UI: 1` write header. Rename labels, never identifiers.
+directory, and the pytincture application name `stackui` (the page is `/stackui/`; `/`
+redirects there). Rename labels, never identifiers.
 
 ## A container that drives the host
 
@@ -55,17 +66,50 @@ stack down stackui         # stop
 stack logs stackui         # podman logs -f
 ```
 
-Then http://localhost:7863. `stack status` lists it under **Control**.
+Then http://localhost:7863 (redirects to `/stackui/`). `stack status` lists it under **Control**.
+The image clones wapyt from GitHub at the pinned `WAPYT_REF` (the Containerfile header says
+how to build against the local checkout instead).
+
+### Developing without the container
+
+```bash
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python "pytincture==1.0.0" "uvicorn[standard]" jeepney pytest pip \
+    ~/Development/Pytinc/wa_pytincture_widgetset
+PYTHON=$PWD/.venv/bin/python ~/Development/Pytinc/wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
+STACK_UI_PORT=7873 .venv/bin/python service.py      # 7863 is the running container's
+.venv/bin/python -m pytest -q tests                  # backends.py against fake APIs; BFF statelessness
+STACKUI_URL=http://127.0.0.1:7873 CHROME=~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome \
+  uv run --with playwright python tests/smoke.py    # every screen, fails on any console error
+```
+
+The host-side server drives the host's podman and systemctl directly — no shim needed — so it
+is a real control plane too, not a mock. The smoke test only reads (plus one HuggingFace
+search; `STACKUI_OFFLINE=1` skips it).
 
 ## Structure
 
 ```
-server.py              # FastAPI routes + the Host/Origin guards
-run.py                 # launcher; REFUSES to bind anything but loopback
-Containerfile          # python + podman CLIENT + the systemctl shim
+service.py             # ASGI entry: create_app + the GET event streams; REFUSES a non-loopback bind
+Containerfile          # python 3.13 + wapyt wheels + podman CLIENT + the systemctl shim
 run-podman.sh          # the run flags, each one load-bearing — read the header
 shim/systemctl         # systemctl -> D-Bus translation (see above)
-services/
+tests/                 # test_backends.py (pytest), smoke.py (Playwright)
+appcode/               # pytincture modules_path
+  stackui.py           # the page: toolbar, sidebar, routing, action console, download strip
+  ui/                  # browser-only screens (pytincture ships what the page imports)
+    common.py          #   spawn, esc, toast, failed(), Stream (EventSource), Listeners
+    dashboard.py       #   home: backend cards (loaded models) + frontend cards
+    llms.py            #   Language models: Installed + Find on HuggingFace
+    images.py          #   Image models: Installed + Find on Civitai
+    vramview.py        #   VRAM planner
+    system.py          #   Logs, Custom nodes, Doctor
+  static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load)
+  wapyt-99.99.99-*.whl # the BROWSER's wapyt (git-ignored; dev_wheel.sh / the Containerfile)
+appcode/services/
+  stack_api.py         # BFF: overview, action, current_job, doctor, nodes
+  models_api.py        # BFF: llms, images, select/delete, vram/plan/free, HF + Civitai, downloads
+  backends.py          # what KoboldCPP / ComfyUI have loaded right now (see below)
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
   jobs.py              # single-slot action runner (one mutation at a time)
   inventory.py         # models on disk, selection, delete, per-model layer presets
@@ -74,13 +118,45 @@ services/
   downloads.py         # transfers: progress, resume, host allowlist
   provenance.py        # where each downloaded model came from (model-sources.json)
   vram.py              # GGUF header parsing, live VRAM, the planner
-templates/index.html · static/css/style.css · static/js/app.js
+  nodes.py             # custom-node pins vs checkouts
 ```
+
+## pytincture: how the page talks to the server
+
+- **BFF calls** for everything request/response, mutations included:
+  `await StackApi().action_async(verb, target)`. Every method returns `{"ok": ...}` and
+  never raises for an expected failure; `ui.common.failed()` toasts the error.
+- **Plain GET event streams** in `service.py` for what outlives a request:
+  `/api/action/<id>/events`, `/api/logs/<app>/events`, `/api/downloads/<id>/events`. A BFF
+  call is bounded (~35 s in the browser) and `stack up` or a log tail is not. They only read;
+  closing one kills what it follows. `ui.common.Stream` wraps `EventSource` and stops on the
+  first error instead of letting it auto-reconnect (these streams are finite; a reconnect
+  would just replay).
+- `/api/health` stays where it was: `stack status` probes it.
+
+Traps hit while building it:
+
+- **BFF modules are re-executed on every call.** All state (the job slot, the download,
+  caches) lives in the plain `services/*` modules, which the BFFs import *inside* methods.
+  `tests/test_backends.py` fails on a module-level assignment or call in a BFF module.
+  `service.py` puts `appcode` on `sys.path` so the stream routes and the BFFs share one
+  `services` package — otherwise a job started by a BFF call is invisible to its stream.
+- **No `@bff_policy`.** There is no login, and any `@bff_policy` makes pytincture require a
+  policy hook at startup. Don't add one without adding auth.
+- **`get_cell()` returns wapyt's cell object, not an element** — use
+  `ui.common.container_of(cell)` (`getContainer()`) before `appendChild`/`innerHTML`.
+- **`[hidden]` loses to `display:`** — `.su-btn[hidden]` is restated in the CSS; any new
+  class that sets `display` on something toggled with `hidden` needs the same.
+- **Destroying a proxy from inside its own callback fails** — `Stream.close()` releases its
+  proxies on the next tick, because it is usually called from its own "done" handler.
+- Import *names* in browser code (`from ui.common import spawn`), never modules — the
+  packager only follows the first form. DOM misses are `JsNull` (falsy, not `None`).
 
 ## How an action runs
 
-`POST /api/action {verb, target}` → `jobs.start()` → `stackctl.resolve()` validates →
-thread runs `stackctl.stream()` → browser follows `GET /api/action/<id>/events` (SSE).
+`StackApi.action(verb, target)` (BFF) → `jobs.start()` → `stackctl.resolve()` validates →
+thread runs `stackctl.stream()` → the page follows `GET /api/action/<id>/events` (SSE) in
+the console panel at the bottom.
 
 - **One action at a time**, refused (409) rather than queued — a mutation that fires
   minutes later, after you've changed your mind, is worse than an error.
@@ -94,16 +170,20 @@ thread runs `stackctl.stream()` → browser follows `GET /api/action/<id>/events
 
 Deliberate, not incidental:
 
-- **Loopback only.** `run.py` exits rather than bind a non-loopback address. There's no
+- **Loopback only.** `service.py` exits rather than bind a non-loopback address. There's no
   auth, and that's only tolerable while it can't be reached off-box. (Companion binds
   `0.0.0.0`; that pattern must not be copied here.) If remote access is ever wanted, it
   needs auth in front first — companion's `services/auth.py` drops in.
-- **Host + Origin guards, and a required `X-Stack-UI: 1` header on writes.** Without auth
-  the browser is a confused deputy: any page you have open can POST to localhost. The Host
-  check blocks DNS rebinding; the custom header can't be set by a cross-origin form POST,
-  and anything that could set it is forced through a preflight we never answer. Not a
-  substitute for auth — it's what makes loopback-only defensible now that POST *does*
-  something.
+- **Host + Origin guards on every write.** Without auth the browser is a confused deputy:
+  any page you have open can POST to localhost. Since the pytincture port these come from
+  pytincture itself rather than our middleware: `allowed_hosts` (127.0.0.1/localhost/::1)
+  answers any other Host with 400, which blocks DNS rebinding; a BFF write must be
+  `application/json` (a cross-origin form can't send that, and anything that can is forced
+  through a CORS preflight nobody answers) and must carry a same-origin `Origin` /
+  `Sec-Fetch-Site`. That replaces the old `X-Stack-UI: 1` header, which gave the same
+  guarantee. Verified 2026-10-26: cross-origin JSON → 403 "Origin validation failed", a
+  form post → 415. The event-stream routes are GET-only and read-only. Not a substitute for
+  auth — it's what makes loopback-only defensible.
 - **No shell.** Every `stack` call is a list argv to `subprocess`, never a string.
 - **Allowlist, not validation.** `stackctl.VERBS` maps a key to a fixed argv. A verb that
   isn't in that dict cannot be run. **This table is the security boundary** — a new entry
@@ -138,7 +218,7 @@ Deliberate, not incidental:
   the server rendering it. Stop it explicitly: `stack down stackui`.
 - **The ComfyUI models walk is cached 30 s** (`inventory._TTL`) — it's a ~70 GB tree, and
   the dashboard polls every 10 s. Metadata only; it never opens a file.
-- **`/api/doctor` is not polled.** It shells out to podman several times; it's on-demand
+- **The doctor is not polled.** It shells out to podman several times; it's on-demand
   behind a button.
 - **`CONTAINER_HOST` and `DBUS_SESSION_BUS_ADDRESS` must be in `stackctl._PASSTHROUGH`.**
   The subprocess env is a deliberate allowlist, and dropping either fails *quietly*:
@@ -172,8 +252,8 @@ Deliberate, not incidental:
 
 ## Writes (phase 2)
 
-`POST /api/kobold/select` writes `koboldcpp/model.env`; `DELETE /api/models/{kind}/{name}`
-removes a model file. Both go through `inventory._safe_target()`, which is the only way to
+`ModelsApi.select_llm` writes `koboldcpp/model.env`; `ModelsApi.delete(kind, name)` removes a
+model file. Both go through `inventory._safe_target()`, which is the only way to
 name a file in this app:
 
 - the collection is a **key** (`kobold`/`checkpoint`/`lora`/`vae`) mapped to a directory —
@@ -186,7 +266,9 @@ name a file in this app:
 **Selecting does not restart.** A restart drops what's loaded and costs 20–30 s of model
 load; doing that as a side effect of clicking a name is a surprise the UI shouldn't spring.
 The inventory exposes `running` (from KoboldCPP's own API) and `restart_needed`, and the
-UI shows a pending banner whose button fires the ordinary `restart koboldcpp` action.
+UI shows a pending banner (on the dashboard's Oracle card and the Language models screen)
+whose button fires the ordinary `restart koboldcpp` action. Selecting from the Language
+models screen *offers* the restart in a confirm dialog; it still never happens by itself.
 
 **Deleting refuses two cases**: the currently *selected* model (start.sh hard-fails on a
 missing selection, so it would break the backend at the next start rather than now) and
@@ -223,12 +305,10 @@ control-plane container where a small dependency surface is worth more. Three UR
   is re-checked anyway.
 - **Auto-activate only writes `model.env`.** It never restarts a backend as a side effect
   of a transfer finishing.
-- **Every result links out to its own page** (`pageLink()` in `app.js`): the repo on
-  huggingface.co, the model — and each *version* — on civitai.com. The result rows show
-  sizes and quants, never the model card, so the licence, the prompt format and the
-  example images are one click away instead of unreachable. The link lives inside the
-  `<summary>`, so its click handler calls `stopPropagation()` — otherwise opening the
-  page would also toggle the row.
+- **Every result links out to its own page**: the repo on huggingface.co ("model card"
+  above the file list), the model — and each *version* ("Version page") — on civitai.com.
+  The tables show sizes and quants, never the model card, so the licence, the prompt
+  format and the example images are one click away instead of unreachable.
 - `HF_TOKEN` is picked up from the environment for gated repos.
 
 ## Provenance — linking a file on disk back to its page
@@ -289,7 +369,8 @@ VRAM after a job, KoboldCPP OOMs the instant it starts, and its `--rm` container
 before logging — so `stack up` says "did not come up" and `podman logs koboldcpp` says no
 such container. It reads as KoboldCPP being broken when it is ComfyUI still holding 6.4 GB.
 
-- **`POST /api/vram/free`** is the fix for exactly that, and needs no restart.
+- **`ModelsApi.free_vram`** ("Release VRAM" on the dashboard's Morpheus card and the VRAM
+  screen) is the fix for exactly that, and needs no restart.
 - **Layer counts are read from the GGUF header** (`vram.gguf_meta`) — exact, not guessed.
   Worth knowing: Qwen3.5-9B has **32** layers while the built-in default is
   `KOBOLDCPP_GPU_LAYERS=33`, which is one more than exists. Kobold clamps, but it shows how
@@ -333,3 +414,23 @@ the whole verb would offer two buttons that quietly do nothing useful.
   image rebuild, because deps live in `comfyui/Containerfile`. The failure mode — a node
   that imports and then errors at runtime — doesn't look like a missing dependency, so the
   panel says it in the header.
+
+## What the backends have loaded (`services/backends.py`)
+
+The dashboard's top section. The two backends answer differently, and the cards keep that
+difference visible:
+
+- **KoboldCPP names its model** (`/api/v1/model`), so "Loaded" is a fact, shown with size,
+  architecture, layer count (from the GGUF header) and context (`/api/extra/true_max_context_length`).
+  The selection in `model.env` is shown beside it only when it differs or KoboldCPP is down.
+  The "N of M layers on GPU" figure is hidden while a restart is pending: `model.env`'s layer
+  count then describes the *selected* model, not the loaded one.
+- **ComfyUI cannot name its resident models** — there is no endpoint for it; it loads per
+  job and keeps what it can. The card says how much VRAM torch holds (`/system_stats`
+  `torch_vram_total`; under 256 MB reads as "no models resident", a warm CUDA context) and
+  which files the running job (`/queue`) or the last one (`/history?max_items=1`) named. It
+  never says "X is loaded". Files are found by **extension of any input value**, not by a
+  list of loader node classes, so custom-node loaders work without a table to maintain.
+- Every probe is best-effort with a 2 s timeout: a backend that is down is a normal state,
+  not an error. Tested against fake servers in `tests/test_backends.py` (the real ones need
+  the GPU).

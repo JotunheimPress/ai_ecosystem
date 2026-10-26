@@ -21,7 +21,7 @@ import json
 import os
 import threading
 
-from .stackctl import ECO
+from services.stackctl import ECO
 
 STORE = ECO / "model-sources.json"
 

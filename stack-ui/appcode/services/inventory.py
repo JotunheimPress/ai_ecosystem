@@ -19,8 +19,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import provenance
-from .stackctl import ECO
+from services import provenance
+from services.stackctl import ECO
 
 KOBOLD_MODELS = ECO / "koboldcpp" / "models"
 MODEL_ENV = ECO / "koboldcpp" / "model.env"
@@ -189,22 +189,35 @@ def comfyui() -> dict:
     return _cached("comfyui", build)
 
 
-def checkpoints() -> list[dict]:
-    """Individual checkpoint files — the ones you pick between in the other frontends."""
+def comfy_files(kind: str) -> list[dict]:
+    """Individual files of one writable ComfyUI collection (checkpoint/lora/vae).
+
+    Top level only: the write path (`_safe_target`) refuses names with separators, so a
+    file in a subfolder could be listed but never deleted — better not to offer it. The
+    per-kind totals in `comfyui()` still count subfolders.
+    """
+    if kind not in WRITABLE or kind == "kobold":
+        raise InventoryError(f"unknown collection: {kind!r}")
+
     def build():
-        p = COMFY_MODELS / "checkpoints"
-        sources = provenance.urls("checkpoint")
+        p, exts = WRITABLE[kind]
+        sources = provenance.urls(kind)
         out = []
         if p.is_dir():
             for f in sorted(p.iterdir()):
-                if f.suffix in (".safetensors", ".ckpt"):
+                if f.suffix in exts and f.is_file():
                     try:
-                        out.append({"name": f.name, "size": f.stat().st_size,
+                        out.append({"name": f.name, "size": f.stat().st_size, "kind": kind,
                                     "url": sources.get(f.name)})
                     except OSError:
                         pass
         return out
-    return _cached("checkpoints", build)
+    return _cached(f"files:{kind}", build)
+
+
+def checkpoints() -> list[dict]:
+    """Individual checkpoint files — the ones you pick between in the other frontends."""
+    return comfy_files("checkpoint")
 
 
 # =============================================================================

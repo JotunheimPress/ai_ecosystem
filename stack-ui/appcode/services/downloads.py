@@ -27,8 +27,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import civitai, inventory, provenance
-from .hub import UA, HubError
+from services import civitai, inventory, provenance
+from services.hub import UA, HubError
 
 # A download only ever fetches from these hosts. The URL is built or looked up server-side
 # (never sent by the browser), and this is the belt to that braces: if a resolver is ever

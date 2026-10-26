@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import stackctl
+from services import stackctl
 
 _counter = itertools.count(1)
 

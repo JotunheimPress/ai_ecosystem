@@ -40,7 +40,7 @@ into your models dirs, and pull files off the internet. Security section below i
 
 ```
 stack-ui/                      # in this repo, beside the koboldcpp and comfyui recipes
-  server.py                    # FastAPI — command layer + catalog layer + job layer
+  appcode/services/*_api.py    # BFF classes — command layer + catalog layer + job layer
   services/
     stackctl.py                # allowlisted `stack` invocations   [built]
     jobs.py                    # single-slot action runner          [built]
@@ -49,8 +49,9 @@ stack-ui/                      # in this repo, beside the koboldcpp and comfyui 
     downloads.py               # transfers, progress, resume        [built]
     civitai.py                 # Civitai search                     [built]
   shim/systemctl               # systemctl -> D-Bus, so `stack on/off` works in a container
-  static/ templates/           # vanilla JS SPA, no build step (house style)
-  run.py                       # uvicorn on 127.0.0.1:7863
+  appcode/                     # pytincture + wapyt page (Python in the browser) since 2026-10-26;
+                               #   was a vanilla JS SPA — see stack-ui/CLAUDE.md
+  service.py                   # pytincture create_app + event streams, 127.0.0.1:7863
   Containerfile · run-podman.sh · entrypoint.sh
 ```
 

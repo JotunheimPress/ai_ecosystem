@@ -25,8 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
-BASE = Path(__file__).resolve().parent.parent
-ECO = Path(os.environ.get("AI_ECOSYSTEM") or BASE.parent)
+# stack-ui/appcode/services/stackctl.py -> parents[2] is stack-ui, parents[4] the ecosystem.
+BASE = Path(__file__).resolve().parents[2]
+ECO = Path(os.environ.get("AI_ECOSYSTEM") or BASE.parent.parent)
 STACK = ECO / "ai-stack" / "stack"
 
 # This app's own name in the registry. It is never a legal target: `down stackui` or

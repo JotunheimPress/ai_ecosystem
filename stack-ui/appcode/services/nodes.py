@@ -15,8 +15,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from .inventory import COMFY_MODELS
-from .stackctl import ECO, STACK, _env
+from services.inventory import COMFY_MODELS
+from services.stackctl import ECO, STACK, _env
 
 NODES_DIR = COMFY_MODELS.parent / "custom_nodes"
 

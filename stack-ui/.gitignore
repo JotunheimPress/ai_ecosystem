@@ -3,3 +3,7 @@ __pycache__/
 venv/
 .venv/
 *.log
+# The browser's wapyt wheel: built by dev_wheel.sh locally, by the Containerfile in the image.
+appcode/wapyt-*.whl
+.pytest_cache/
+tests/shots/

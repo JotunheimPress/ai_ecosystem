@@ -1,8 +1,52 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim
+# AI Ecosystem (stack-ui) — pytincture + wapyt since 2026-10-26.
+#
+# pytincture needs Python 3.13+. wapyt, the widgetset, is not on PyPI, so the first stages
+# fetch it from GitHub at a pinned commit and build the two wheels a pytincture app needs
+# (same recipe as ~/Development/Pytinc/basilisk_wapyt):
+#   * wapyt 0.2.0    — installed into the server's Python, where pytincture's widgetset
+#                      discovery reads it;
+#   * wapyt 99.99.99 — the development wheel the BROWSER installs from appcode/, with its
+#                      asset manifest regenerated for that version (pytincture hash-checks
+#                      every widget asset).
+#
+# To build against a local wapyt checkout instead:
+#   podman build --format docker --build-context wapyt-src=../../Pytinc/wa_pytincture_widgetset .
+
+ARG PYTHON_IMAGE=docker.io/library/python:3.13-slim
+
+# ── wapyt source, from GitHub ────────────────────────────────────────────────
+FROM ${PYTHON_IMAGE} AS wapyt-git
+ARG WAPYT_REPO=https://github.com/WAwesome-AI/wa_pytincture_widgetset.git
+# wapyt 0.2.0 + #75 (pytincture 1.0.0) — the commit Basilisk pins too. Bump deliberately.
+ARG WAPYT_REF=0457960bca1481ffee0c4e778128e5e4a4f295b5
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --filter=blob:none "$WAPYT_REPO" /src \
+    && git -C /src checkout --quiet "$WAPYT_REF" \
+    && rm -rf /src/.git
+
+FROM scratch AS wapyt-src
+COPY --from=wapyt-git /src /
+
+# ── the two wapyt wheels ─────────────────────────────────────────────────────
+FROM ${PYTHON_IMAGE} AS wapyt-wheels
+COPY --from=wapyt-src / /wapyt
+RUN set -eu; \
+    pip wheel --no-cache-dir --no-deps /wapyt -w /wheels/server; \
+    cp -r /wapyt /dev-src; \
+    sed -i 's/^version = ".*"$/version = "99.99.99"/' /dev-src/pyproject.toml; \
+    grep -q "pytincture-assets.json" /dev-src/MANIFEST.in \
+        || sed -i '1i include wapyt/pytincture-assets.json' /dev-src/MANIFEST.in; \
+    python /wapyt/scripts/generate_assets_manifest.py /dev-src; \
+    pip wheel --no-cache-dir --no-deps /dev-src -w /wheels/browser; \
+    ls /wheels/server/wapyt-*.whl /wheels/browser/wapyt-99.99.99-py3-none-any.whl
+
+# ── the app ──────────────────────────────────────────────────────────────────
+FROM ${PYTHON_IMAGE}
 
 LABEL org.opencontainers.image.title="stack-ui"
-LABEL org.opencontainers.image.description="Control dashboard for the local AI stack"
+LABEL org.opencontainers.image.description="AI Ecosystem — control dashboard for the local AI stack"
 
 # What `stack` shells out to, and therefore what has to exist in here:
 #   podman     — talks to the HOST engine over the mounted socket (client only, below)
@@ -30,24 +74,25 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY --from=wapyt-wheels /wheels/server/ /tmp/wapyt/
+RUN pip install --no-cache-dir /tmp/wapyt/wapyt-*.whl && rm -rf /tmp/wapyt
+
 # The systemctl shim shadows Debian's real one via PATH order (/usr/local/bin first).
 # See shim/systemctl for why the real one cannot work from in here.
 COPY shim/systemctl /usr/local/bin/systemctl
 RUN chmod 0755 /usr/local/bin/systemctl
 
-COPY server.py run.py ./
-COPY services/ ./services/
-COPY templates/ ./templates/
-COPY static/ ./static/
+COPY service.py ./
+COPY appcode/ appcode/
+COPY --from=wapyt-wheels /wheels/browser/wapyt-99.99.99-py3-none-any.whl appcode/
 
 # NOTE: the ecosystem is bind-mounted at its REAL host path, and AI_ECOSYSTEM is set to
 # that same path at run time (see run-podman.sh) — deliberately NOT a tidy /eco. With a
 # remote podman client, -v and build-context paths are resolved by the HOST engine, so
 # any path that exists only inside this container silently produces a broken mount on
 # whatever it starts. Identical paths on both sides is what makes `stack <app>` work.
-# Where the host podman socket and session bus get mounted (see run-podman.sh).
-ENV CONTAINER_HOST=unix:///run/podman/podman.sock
-# Set by run-podman.sh to the host runtime dir (kept identical under keep-id).
+ENV CONTAINER_HOST=unix:///run/podman/podman.sock \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 7863
 
@@ -55,11 +100,11 @@ EXPOSE 7863
 # for it and podman drops it with a warning at build time. Both build sites therefore pass
 # --format docker (run-podman.sh and `stack install stackui`) — without that flag this
 # block is silently inert.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fs http://127.0.0.1:7863/api/health || exit 1
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["python3", "run.py"]
+CMD ["python3", "service.py"]
