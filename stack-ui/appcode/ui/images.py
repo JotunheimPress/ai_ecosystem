@@ -1,4 +1,5 @@
-"""Image models: what ComfyUI loads (checkpoints, LoRAs, VAEs), and Civitai search.
+"""Image models: what ComfyUI loads (checkpoints, LoRAs, VAEs, diffusion models, text
+encoders), and Civitai + HuggingFace search.
 
 **Installed** — one row per file in the three collections this app can write, plus a
 summary of every folder under ComfyUI/models (the ~70 GB walk is cached 30 s server-side).
@@ -7,8 +8,17 @@ summary of every folder under ComfyUI/models (the ~70 GB walk is cached 30 s ser
 (SD 1.5 vs SDXL, v1.8 vs v2) is the real decision, so the file list shows the version and
 its base model on every row rather than flattening them away. The browser sends a version
 id and a filename; the download URL is looked up server-side.
+
+**Find on HuggingFace** — repo → .safetensors files. HuggingFace repos are not laid out
+for ComfyUI: each file gets a suggested folder (sure when the repo's own folder names it,
+a guess from the filename otherwise) that "Save into" can change, and diffusers parts,
+shards and generic names are shown but refused, with the reason (hub.image_file).
+Selecting a file reads its tensor index (one byte-range request, hub.inspect), which
+replaces the filename guess with what the file actually holds.
 """
 from __future__ import annotations
+
+from urllib.parse import quote
 
 import js
 
@@ -31,8 +41,11 @@ from services.models_api import ModelsApi
 from ui.common import Listeners, by_id, container_of, esc, failed, fmt_bytes, link, search_url, spawn, toast
 from ui.llms import _div
 
-_KINDS = {"checkpoint": "Checkpoint", "lora": "LoRA", "vae": "VAE"}
-_KIND_ICON = {"checkpoint": "mdi-cube-outline", "lora": "mdi-tune-variant", "vae": "mdi-palette-swatch-outline"}
+_KINDS = {"checkpoint": "Checkpoint", "lora": "LoRA", "vae": "VAE",
+          "diffusion_model": "Diffusion model", "text_encoder": "Text encoder"}
+_KIND_ICON = {"checkpoint": "mdi-cube-outline", "lora": "mdi-tune-variant", "vae": "mdi-palette-swatch-outline",
+              "diffusion_model": "mdi-blur", "text_encoder": "mdi-format-text"}
+_TABS = ("installed", "find", "hf")
 # Civitai type -> our collection key
 _CIVITAI = {"Checkpoint": "checkpoint", "LORA": "lora", "VAE": "vae"}
 _BASES = ["", "SD 1.5", "SDXL 1.0", "Pony", "Illustrious", "Flux.1 D", "Flux.1 S", "SD 3.5"]
@@ -44,21 +57,25 @@ class ImagesView:
         self.listeners = Listeners()
         self.results: dict = {}
         self.model = None
+        self.hf_repo = ""
+        self.hf_seen: dict = {}            # path -> hub.inspect() result for this repo
         self._first_tab = tab
 
     def mount(self, root) -> None:
         page = _div(root, "su-page su-fill")
         _div(page, "su-page-head",
              '<h1>Image models</h1>'
-             '<span class="su-dim" id="img-dir">Checkpoints, LoRAs and VAEs for ComfyUI</span>')
+             '<span class="su-dim" id="img-dir">Model files for ComfyUI</span>')
         host = _div(page, "su-tabs-host")
         self.tabs = TabWidget(TabWidgetConfig(tabs=[
             TabConfig(id="installed", title="Installed", icon="mdi-harddisk"),
             TabConfig(id="find", title="Find on Civitai", icon="mdi-magnify"),
-        ], active=self._first_tab if self._first_tab in ("installed", "find") else "installed"),
+            TabConfig(id="hf", title="Find on HuggingFace", icon="mdi-magnify-scan"),
+        ], active=self._first_tab if self._first_tab in _TABS else "installed"),
             container=host)
         self._mount_installed(container_of(self.tabs.get_cell("installed")))
         self._mount_find(container_of(self.tabs.get_cell("find")))
+        self._mount_hf(container_of(self.tabs.get_cell("hf")))
         spawn(self.load(), "load images")
 
     def unmount(self) -> None:
@@ -94,7 +111,7 @@ class ImagesView:
             ],
             id_field="rid", selection="single", sort_by="kind_text",
             filterable=True, filter_placeholder="Filter files…",
-            empty_text="No checkpoints, LoRAs or VAEs yet — find some on Civitai.",
+            empty_text="No image models yet — find some on Civitai or HuggingFace.",
             context_actions=[
                 TableAction(id="page", label="Source page", icon="mdi-open-in-new"),
                 TableAction(separator=True),
@@ -111,7 +128,7 @@ class ImagesView:
         if failed(r, "list the image models"):
             return
         c = r.get("comfyui") or {}
-        by_id("img-dir").textContent = f"Checkpoints, LoRAs and VAEs for ComfyUI · {c.get('dir')}"
+        by_id("img-dir").textContent = f"Model files for ComfyUI · {c.get('dir')}"
         chips = "".join(
             f'<span class="su-chip"><b>{esc(k["kind"])}</b> {int(k["count"])} · '
             f'{fmt_bytes(k["size"])}</span>' for k in c.get("kinds") or [])
@@ -301,6 +318,211 @@ class ImagesView:
             return
         r = await ModelsApi().download_civitai_async(int(row["version_id"]), row["name"], kind)
         # Civitai gates many files behind an account now (CIVITAI_TOKEN); the error says so.
+        if failed(r, "start the download"):
+            return
+        self.app.watch_download(r["download"])
+
+    # --- find on HuggingFace ------------------------------------------------------
+    def _mount_hf(self, cell) -> None:
+        col = _div(cell, "su-col")
+        tasks = "".join(f'<option value="{v}">{label}</option>' for v, label in
+                        (("", "Any"), ("comfyui", "Tagged for ComfyUI"),
+                         ("text-to-image", "Text-to-image"), ("image-to-image", "Image-to-image")))
+        _div(col, "su-searchbar",
+             '<i class="mdi mdi-magnify"></i>'
+             f'<select id="hfi-task">{tasks}</select>'
+             '<input id="hfi-q" type="search" autocomplete="off" '
+             'placeholder="Search HuggingFace — Comfy-Org/flux, sdxl vae, wan 2.2, a repo id…">'
+             '<button class="su-btn su-primary" id="hfi-go">Search</button>')
+        self.listeners.on(by_id("hfi-go"), "click", lambda _e: self._hf_search())
+        self.listeners.on(by_id("hfi-q"), "keydown",
+                          lambda e: self._hf_search() if e.key == "Enter" else None)
+
+        split = _div(col, "su-split")
+        left = _div(split, "su-split-left")
+        self.hf_repos = DataTable(DataTableConfig(
+            columns=[
+                ColumnConfig(id="id", header="Repository", icon_by="icon", width="66%"),
+                ColumnConfig(id="dl_text", header="Downloads", sort_by="downloads",
+                             align="right", width="20%"),
+                ColumnConfig(id="likes", header="Likes", align="right", width="14%"),
+            ],
+            id_field="id", selection="single", sort_by="downloads", sort_dir="desc",
+            empty_text="Search for a model to see image repos.",
+        ), container=_div(left, "su-table-host"))
+        self.hf_repos.on_select(lambda p: self._hf_pick((p or {}).get("id")))
+
+        right = _div(split, "su-split-right")
+        _div(right, "su-status",
+             '<span class="su-dim">Pick a repository to see its files.</span>').id = "hfi-repo"
+        kinds = "".join(f'<option value="{k}">{v}</option>' for k, v in _KINDS.items())
+        _div(right, "su-status",
+             f'<label>Save into <select id="hfi-kind" disabled>{kinds}</select></label>'
+             '<span class="su-dim" id="hfi-why">Pick a file.</span>')
+        self.hftb = Toolbar(ToolbarConfig(label="Files", items=[
+            ToolbarButton(id="dl", label="Download", icon="mdi-download", variant="primary",
+                          disabled=True),
+        ]), container=_div(right, "su-toolbar-host"))
+        self.hftb.on_click(lambda p: self._hf_action((p or {}).get("id")))
+        self.hf_files = DataTable(DataTableConfig(
+            columns=[
+                ColumnConfig(id="path", header="File", icon_by="icon", width="54%"),
+                ColumnConfig(id="kind_text", header="Goes into", width="26%"),
+                ColumnConfig(id="size_text", header="Size", sort_by="size", align="right",
+                             width="20%"),
+            ],
+            id_field="path", selection="single", sort_by="size",
+            empty_text="No files yet.",
+            context_actions=[TableAction(id="dl", label="Download", icon="mdi-download")],
+        ), container=_div(right, "su-table-host"))
+        self.hf_files.on_select(lambda _p: self._hf_sync())
+        self.hf_files.on_action(lambda p: self._hf_action((p or {}).get("action"),
+                                                          (p or {}).get("id")))
+
+    def _hf_search(self) -> None:
+        q = str(by_id("hfi-q").value or "").strip()
+        if q:
+            spawn(self._hf_run_search(q, str(by_id("hfi-task").value)), "hf image search")
+
+    async def _hf_run_search(self, q: str, task: str) -> None:
+        self.hf_repos.set_busy(True)
+        r = await ModelsApi().hf_image_search_async(q, task)
+        self.hf_repos.set_busy(False)
+        if failed(r, "search HuggingFace"):
+            return
+        self.hf_repos.set_empty_text("Nothing found.")
+        self.hf_repos.set_rows([{
+            **x,
+            "icon": "mdi-lock-outline" if x.get("gated") else "mdi-source-repository",
+            "icon_title": "gated — needs HF_TOKEN and accepting the licence" if x.get("gated") else "",
+            "dl_text": f"{int(x['downloads']):,}" if x.get("downloads") else "—",
+            "likes": x.get("likes") or 0,
+        } for x in r.get("results") or []])
+        self.hf_files.set_rows([])
+        self.hf_repo = ""
+        self._hf_sync()
+
+    def _hf_pick(self, repo) -> None:
+        if repo and repo != self.hf_repo:
+            self.hf_repo = repo
+            self.hf_seen = {}
+            spawn(self._hf_load_files(repo), "hf image files")
+
+    async def _hf_load_files(self, repo: str) -> None:
+        page = "https://huggingface.co/" + "/".join(quote(p) for p in repo.split("/"))
+        by_id("hfi-repo").innerHTML = (f'<b>{esc(repo)}</b> {link(page, "model card")} '
+                                       '<span class="su-dim">licence, base model and the '
+                                       'ComfyUI workflow are on its page</span>')
+        self.hf_files.set_rows([])
+        self.hf_files.set_busy(True)
+        r = await ModelsApi().hf_image_files_async(repo)
+        self.hf_files.set_busy(False)
+        if repo != self.hf_repo:
+            return                                   # a later pick won the race
+        if failed(r, f"list {repo}"):
+            return
+        if r.get("gated"):
+            by_id("hfi-repo").innerHTML += (' <span class="su-warn"><i class="mdi mdi-lock-outline">'
+                                            '</i> gated — needs HF_TOKEN and the licence accepted '
+                                            'on its page</span>')
+        rows = []
+        for f in r.get("files") or []:
+            blocked = f.get("blocked")
+            kind = f.get("kind")
+            rows.append({
+                **f,
+                "size_text": fmt_bytes(f.get("size")),
+                "kind_text": ("can't use — see note" if blocked else
+                              _KINDS.get(kind, kind) + ("" if f.get("sure") else " (guess)")),
+                "icon": "mdi-cancel" if blocked else _KIND_ICON.get(kind, "mdi-file-outline"),
+                "icon_title": blocked or "",
+            })
+        self.hf_files.set_empty_text(
+            "No .safetensors files in this repo." + (" It may be diffusers-only or GGUF."
+                                                     if r.get("diffusers") else ""))
+        self.hf_files.set_rows(rows)
+        self._hf_sync()
+
+    def _hf_row(self, path=None):
+        return self.hf_files.get_row(path) if path else (
+            (self.hf_files.get_selected_rows() or [None])[0])
+
+    def _hf_sync(self) -> None:
+        row = self._hf_row()
+        sel, why = by_id("hfi-kind"), by_id("hfi-why")
+        if not row:
+            sel.disabled = True
+            why.textContent = "Pick a file."
+            self.hftb.set_disabled("dl", True)
+            return
+        if row.get("blocked"):
+            sel.disabled = True
+            why.textContent = row["blocked"]
+        elif row.get("disk_ok") is False:
+            sel.disabled = True
+            why.textContent = "Not enough free disk for this file."
+        else:
+            sel.disabled = False
+            seen = self.hf_seen.get(row["path"])
+            if seen and seen.get("kind"):
+                sel.value = seen["kind"]
+                why.textContent = f"read from the file: {seen['reason']}"
+            else:
+                sel.value = row.get("kind") or "checkpoint"
+                why.textContent = ("from the repo's folder layout" if row.get("sure") else
+                                   "a guess from the file name — check the model card")
+                if seen is None:
+                    self.hf_seen[row["path"]] = {}          # one look per file
+                    why.textContent += " · reading the file's header…"
+                    spawn(self._hf_inspect(self.hf_repo, row["path"]), "hf inspect")
+        self.hftb.set_disabled("dl", bool(row.get("blocked")) or row.get("disk_ok") is False)
+
+    async def _hf_inspect(self, repo: str, path: str) -> None:
+        r = await ModelsApi().hf_image_inspect_async(repo, path)
+        if repo != self.hf_repo:
+            return
+        if not r or not r.get("ok") or not r.get("kind"):
+            # Gated without a token, or a layout we don't know: keep the guess, quietly.
+            self.hf_seen[path] = {"kind": None, "reason": (r or {}).get("error") or
+                                  (r or {}).get("reason") or "unreadable"}
+        else:
+            self.hf_seen[path] = r
+            self.hf_files.set_cell(path, "kind_text", _KINDS.get(r["kind"], r["kind"]))
+        cur = self._hf_row()
+        if cur and cur["path"] == path:
+            self._hf_sync()
+            if not self.hf_seen[path].get("kind"):
+                by_id("hfi-why").textContent = (
+                    "a guess from the file name — couldn't read the file "
+                    f"({self.hf_seen[path]['reason']})")
+
+    def _hf_action(self, action, path=None) -> None:
+        if action != "dl":
+            return
+        row = self._hf_row(path)
+        if not row or not self.hf_repo:
+            return
+        if row.get("blocked"):
+            toast(row["blocked"], "error")
+            return
+        if row.get("disk_ok") is False:
+            toast("Not enough free disk for that file.", "error")
+            return
+        # The selected row uses "Save into"; a context-menu row that isn't selected uses
+        # what its header said, else its filename guess.
+        if not path or path == (self._hf_row() or {}).get("path"):
+            kind = str(by_id("hfi-kind").value)
+        else:
+            kind = (self.hf_seen.get(row["path"]) or {}).get("kind") or row.get("kind") or "checkpoint"
+        spawn(self._hf_download(row, kind), "hf image download")
+
+    async def _hf_download(self, row: dict, kind: str) -> None:
+        if not await message.confirm(
+                f"Download {row['name']} ({fmt_bytes(row.get('size'))}) from {self.hf_repo} "
+                f"into ComfyUI's {_KINDS.get(kind, kind)} folder?",
+                title="Download model", ok_text="Download"):
+            return
+        r = await ModelsApi().download_hf_async(self.hf_repo, row["path"], False, kind)
         if failed(r, "start the download"):
             return
         self.app.watch_download(r["download"])

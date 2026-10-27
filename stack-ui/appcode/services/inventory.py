@@ -32,7 +32,8 @@ START_SH = ECO / "ai-stack" / "koboldcpp" / "start.sh"
 COMFY_MODELS = Path(os.environ.get("COMFYUI_STATE") or (ECO / "ComfyUI")) / "models"
 
 # Subtrees worth showing separately. Anything else under models/ is rolled up as "other".
-COMFY_KINDS = ["checkpoints", "loras", "vae", "photomaker", "insightface", "unet", "clip"]
+COMFY_KINDS = ["checkpoints", "loras", "vae", "diffusion_models", "text_encoders",
+               "photomaker", "insightface", "unet", "clip"]
 
 _CACHE: dict[str, tuple[float, object]] = {}
 _TTL = 30.0  # the ComfyUI tree is ~70 GB; walk it at most twice a minute
@@ -190,7 +191,7 @@ def comfyui() -> dict:
 
 
 def comfy_files(kind: str) -> list[dict]:
-    """Individual files of one writable ComfyUI collection (checkpoint/lora/vae).
+    """Individual files of one writable ComfyUI collection (see IMAGE_KINDS).
 
     Top level only: the write path (`_safe_target`) refuses names with separators, so a
     file in a subfolder could be listed but never deleted — better not to offer it. The
@@ -234,7 +235,14 @@ WRITABLE: dict[str, tuple[Path, tuple[str, ...]]] = {
     "checkpoint": (COMFY_MODELS / "checkpoints", CKPT_EXTS),
     "lora": (COMFY_MODELS / "loras", CKPT_EXTS),
     "vae": (COMFY_MODELS / "vae", CKPT_EXTS),
+    # Split models (Flux, SD3.5, Wan…): ComfyUI loads the diffusion model, its text
+    # encoders and the VAE from separate folders. Current names, not the legacy
+    # unet/ and clip/ aliases, which ComfyUI still reads but new guides don't use.
+    "diffusion_model": (COMFY_MODELS / "diffusion_models", CKPT_EXTS),
+    "text_encoder": (COMFY_MODELS / "text_encoders", CKPT_EXTS),
 }
+# The image-side collections, in display order.
+IMAGE_KINDS = ("checkpoint", "lora", "vae", "diffusion_model", "text_encoder")
 
 MAX_GPU_LAYERS = 200      # far above any real model; catches typos and nonsense, not use
 

@@ -101,7 +101,7 @@ appcode/               # pytincture modules_path
     common.py          #   spawn, esc, toast, failed(), Stream (EventSource), Listeners
     dashboard.py       #   home: backend cards (loaded models) + frontend cards
     llms.py            #   Language models: Installed + Find on HuggingFace
-    images.py          #   Image models: Installed + Find on Civitai
+    images.py          #   Image models: Installed + Find on Civitai + Find on HuggingFace
     vramview.py        #   VRAM planner
     system.py          #   Logs, Custom nodes, Doctor
   static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load)
@@ -113,7 +113,7 @@ appcode/services/
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
   jobs.py              # single-slot action runner (one mutation at a time)
   inventory.py         # models on disk, selection, delete, per-model layer presets
-  hub.py               # HuggingFace search + fit hints
+  hub.py               # HuggingFace search + fit hints; image-file classifier + header inspect
   civitai.py           # Civitai search (checkpoints / LoRAs / VAEs)
   downloads.py         # transfers: progress, resume, host allowlist
   provenance.py        # where each downloaded model came from (model-sources.json)
@@ -347,6 +347,32 @@ and `inventory.kobold()` / `inventory.checkpoints()` join on the filename.
 - The store is a cache of provenance, not a source of truth about what exists: missing,
   unreadable or corrupt degrades to "no entry" and never blocks a listing, and a failed
   write never turns a finished 7 GB download into an error.
+
+## HuggingFace image models
+
+The Images screen's third tab: HuggingFace repos → `.safetensors` files → a ComfyUI folder.
+Same downloader as the LLM side (`downloads.start_hf`), with a destination `kind`.
+
+- **Five image collections now** (`inventory.IMAGE_KINDS`): checkpoint, lora, vae, plus
+  `diffusion_model` → `diffusion_models/` and `text_encoder` → `text_encoders/` for split
+  models (Flux, SD3.5, Wan…). The legacy `unet/`/`clip/` aliases are listed, never written.
+- **Search is unfiltered by default.** ComfyUI repacks (`Comfy-Org/…`, the text-encoder
+  repos) carry no pipeline tag and no `safetensors` library tag — measured: every filter
+  returned 0 for `Comfy-Org/flux1` — so a filter hides exactly the repos that suit ComfyUI.
+  "Tagged for ComfyUI" (`filter=comfyui`) and the pipeline tags are opt-in narrowers.
+- **`hub.image_file()` refuses** diffusers parts (a top-level folder of a repo with
+  `model_index.json`), shards (`-0000N-of-0000M`) and generic names
+  (`model*.safetensors`, `diffusion_pytorch_model*`), which would be meaningless once
+  basenamed and collide across repos. `download_hf` re-checks this server-side.
+- **The filename can't tell a checkpoint from a bare diffusion model** — BFL's and
+  Comfy-Org's `flux1-schnell.safetensors` share name and size. So selecting a file runs
+  `hub.inspect()`: two byte-range requests for the safetensors header (8-byte length +
+  JSON tensor index, capped at 16 MB; a server answering 200 instead of 206 is refused
+  rather than streamed), then `kind_from_tensors()` on the key prefixes
+  (`model.diffusion_model.` + `first_stage_model.`/`conditioner.` = all-in-one, bare
+  `double_blocks.` etc. = diffusion model, any "lora" in a key = LoRA…). Cached per
+  (repo, path). Gated without `HF_TOKEN` → 401 → the filename guess stays, marked "(guess)".
+- **No VRAM hint** for image files — size says little about what an image model needs.
 
 ## Civitai (phase 4)
 

@@ -61,7 +61,7 @@ class ModelsApi:
         from services import inventory, stackctl
 
         files = []
-        for kind in ("checkpoint", "lora", "vae"):
+        for kind in inventory.IMAGE_KINDS:
             files.extend(inventory.comfy_files(kind))
         return {"ok": True, "files": files, "comfyui": inventory.comfyui(),
                 "disk": stackctl.disk()}
@@ -140,6 +140,51 @@ class ModelsApi:
             f["fit"] = hub.fit(f["size"], total, free)
         return {"ok": True, **data, "vram_total": total, "free_disk": free}
 
+    # --- HuggingFace, image side -------------------------------------------------
+    def hf_image_search(self, query: str, scope: str = "", limit: int = 30) -> dict:
+        """Image repos. Unfiltered by default: the ComfyUI repacks (Comfy-Org/…, the
+        text-encoder repos) carry neither a pipeline tag nor the safetensors library tag,
+        so either filter hides exactly the repos that suit ComfyUI best. `scope` narrows
+        on request: "comfyui" (the tag), or a pipeline tag."""
+        from services import hub
+
+        if not (query or "").strip():
+            return {"ok": True, "results": []}
+        if scope not in ("", "comfyui", "text-to-image", "image-to-image"):
+            return {"ok": False, "error": f"unknown scope: {scope!r}"}
+        kind = "comfyui" if scope == "comfyui" else ""
+        task = scope if scope not in ("", "comfyui") else ""
+        try:
+            return {"ok": True, "results": hub.search(query.strip(), kind=kind,
+                                                      limit=int(limit or 30), task=task)}
+        except hub.HubError as exc:
+            return _err(exc)
+
+    def hf_image_files(self, repo: str) -> dict:
+        """A repo's .safetensors, each with a suggested ComfyUI folder or a reason it
+        can't be used on its own. No VRAM hint: for image models file size says little."""
+        from services import hub, stackctl
+
+        try:
+            data = hub.files(repo or "", (".safetensors",))
+        except hub.HubError as exc:
+            return _err(exc)
+        free = stackctl.disk()["free"]
+        for f in data["files"]:
+            f.update(hub.image_file(f["path"], data["repo"], data["diffusers"]))
+            f["disk_ok"] = free > f["size"] * 1.05
+        return {"ok": True, **data, "free_disk": free}
+
+    def hf_image_inspect(self, repo: str, path: str) -> dict:
+        """Read one file's tensor index (a byte-range request, never the weights) to say
+        for certain which ComfyUI folder it belongs in."""
+        from services import hub
+
+        try:
+            return {"ok": True, **hub.inspect(repo or "", path or "")}
+        except hub.HubError as exc:
+            return _err(exc)
+
     # --- Civitai ----------------------------------------------------------------
     def civitai_search(self, query: str, model_type: str = "Checkpoint",
                        base: str = "") -> dict:
@@ -160,11 +205,23 @@ class ModelsApi:
         return {"ok": True, "results": items, "free_disk": free}
 
     # --- downloads --------------------------------------------------------------
-    def download_hf(self, repo: str, path: str, activate: bool = False) -> dict:
-        from services import downloads, inventory
+    def download_hf(self, repo: str, path: str, activate: bool = False,
+                    kind: str = "kobold") -> dict:
+        """`kind` is the destination collection: "kobold" for GGUFs, or one of
+        inventory.IMAGE_KINDS. Activation only means something for Kobold."""
+        from services import downloads, hub, inventory
 
+        kind = kind or "kobold"
+        if kind != "kobold":
+            if kind not in inventory.IMAGE_KINDS:
+                return {"ok": False, "error": f"unknown collection: {kind!r}"}
+            # Re-check here: the browser's list said so, but the request is what counts.
+            why = hub.image_file(path or "", repo or "").get("blocked")
+            if why:
+                return {"ok": False, "error": why}
+            activate = False
         try:
-            d = downloads.start_hf(repo or "", path or "", "kobold", bool(activate))
+            d = downloads.start_hf(repo or "", path or "", kind, bool(activate))
         except downloads.Busy as exc:
             return {**_err(exc), "busy": True}
         except (inventory.InventoryError, ValueError) as exc:
