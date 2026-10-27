@@ -63,7 +63,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 |------------|-----------|------|------------------|---------------|
 | koboldcpp  | container | 5001 | —                | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
-| companion  | container | 7861 | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **Pantheon** |
+| companion  | container | 7861 (127.0.0.1 only) | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **Pantheon**; health `/api/health` |
 | story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` — **Rhapsode** |
 | iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI by name at `comfyui:8188`) |
 

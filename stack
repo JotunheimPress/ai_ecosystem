@@ -45,7 +45,7 @@ declare -A PORT HEALTH DESC KIND CNAME
 reg() { local k=$1; PORT[$k]=$2; HEALTH[$k]=$3; DESC[$k]=$4; KIND[$k]=$5; CNAME[$k]=${6:-}; }
 reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp
 reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI)"          container comfyui
-reg companion 7861 "http://localhost:7861/"              "Character-card AI companion"               container companion
+reg companion 7861 "http://127.0.0.1:7861/api/health"   "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "The Narrative Engine"                      container ai-story-maker
 reg iguana    7862 "http://localhost:7862/"              "iguana_studio ComfyUI GUI"                 container iguana
 # /api/health, not /, and it stays 200 with ComfyUI down: this probe asks whether
