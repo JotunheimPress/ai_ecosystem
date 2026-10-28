@@ -138,8 +138,10 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 
 ## Notes / gotchas
 
-- `koboldcpp/start.sh` now runs **detached** (`podman run -d`) so the stack can start-and-forget it;
-  it still loads the ChatML adapter (`chatml.json`). Model reload after a restart takes ~20–30 s.
+- `koboldcpp/start.sh` runs the container **detached** (`podman run -d`) but returns only once the
+  model has loaded (or failed): it waits for the old container's VRAM, asks ComfyUI to unload its
+  cache, and on a GPU out-of-memory retries with fewer layers — see `koboldcpp/CLAUDE.md`. It still
+  loads the ChatML adapter (`chatml.json`). A swap takes ~25 s; a layer fallback ~50 s.
 - **Both backends run with `--restart=on-failure:5`, not `--rm`.** Before this, a crashed backend
   vanished without a trace while the switch still said ON (found 2026-09-24: both gone, no container,
   no logs). Podman now restarts a crash up to 5 times; `podman stop` (`stack down`/`stack off`) is a

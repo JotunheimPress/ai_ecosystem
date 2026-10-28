@@ -86,7 +86,9 @@ wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && retur
 
 start_app() {
   case "$1" in
-    koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null 2>&1 ;;
+    # stderr stays visible: start.sh reports a layer fallback or a load failure there,
+    # and `stack restart` is what the dashboard streams.
+    koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null ;;
     companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
     # Canonical recipe lives in the ai-stack checkout, not in the upstream ComfyUI

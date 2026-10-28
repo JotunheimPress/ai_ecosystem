@@ -22,6 +22,21 @@ Containerized KoboldCPP LLM inference server with NVIDIA CUDA support, managed v
 
 Runs at http://localhost:5001. The container runs with `--restart=on-failure:5`: podman restarts it after a crash, but not after `podman stop`. A stopped container lingers (logs intact) until the script runs again and replaces it.
 
+### What a (re)start does — hardened 2026-10-28 after a model swap failed to load
+
+1. Stops the old container cleanly and **waits for its VRAM to be released** (it frees after
+   `podman rm` returns, not by it).
+2. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
+   Measured on this box: memory another process holds shrinks what a new process can allocate by
+   about twice its size — 8.7 GB reported free, only 5.4 GB allocatable with ComfyUI holding 2.3 GB,
+   9.5 GB once it let go. That is why Rocinante 12B (needs ~7 GB at 33 layers) failed after a swap
+   while `nvidia-smi` showed plenty free. `KOBOLDCPP_FREE_COMFY=0` skips this.
+3. **Waits for the load** (`Load Text Model OK: True`, up to `KOBOLDCPP_LOAD_TIMEOUT`=300 s) instead
+   of returning at once. On an out-of-memory failure it retries with `KOBOLDCPP_LAYER_STEP`=4 fewer
+   GPU layers, up to 4 times, and prints a warning naming the layer count that worked (stderr, which
+   `stack restart` shows). Before this, the restart policy repeated the identical OOM five times and
+   `stack` only said "did not come up". A non-memory failure exits 1 with the last log lines.
+
 ## Configuration
 
 Resolved by `start.sh` as **env var → `model.env` → built-in default**:
