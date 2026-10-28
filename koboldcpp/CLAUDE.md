@@ -26,16 +26,27 @@ Runs at http://localhost:5001. The container runs with `--restart=on-failure:5`:
 
 1. Stops the old container cleanly and **waits for its VRAM to be released** (it frees after
    `podman rm` returns, not by it).
-2. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
+2. **Unloads Orpheus TTS** if Pantheon's voice has it loaded (~3 GB; Pantheon reloads it on the
+   next spoken line) and waits until that memory is actually back — the unload call returns before
+   the server frees it.
+3. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
    Measured on this box: memory another process holds shrinks what a new process can allocate by
    about twice its size — 8.7 GB reported free, only 5.4 GB allocatable with ComfyUI holding 2.3 GB,
    9.5 GB once it let go. That is why Rocinante 12B (needs ~7 GB at 33 layers) failed after a swap
    while `nvidia-smi` showed plenty free. `KOBOLDCPP_FREE_COMFY=0` skips this.
-3. **Waits for the load** (`Load Text Model OK: True`, up to `KOBOLDCPP_LOAD_TIMEOUT`=300 s) instead
-   of returning at once. On an out-of-memory failure it retries with `KOBOLDCPP_LAYER_STEP`=4 fewer
-   GPU layers, up to 4 times, and prints a warning naming the layer count that worked (stderr, which
-   `stack restart` shows). Before this, the restart policy repeated the identical OOM five times and
-   `stack` only said "did not come up". A non-memory failure exits 1 with the last log lines.
+4. **Waits for the load** (`Load Text Model OK: True`, up to `KOBOLDCPP_LOAD_TIMEOUT`=300 s) instead
+   of returning at once. On an out-of-memory failure:
+   - **Fragmented VRAM → same layers in CUDA unified memory.** The desktop apps' small GPU buffers
+     sit in the middle of VRAM, so "free" can be large while no single block is: measured 10.4 GB
+     free, largest block ~5 GB, and 33-layer Rocinante wants one 5.5 GB weights buffer.
+     `GGML_CUDA_ENABLE_UNIFIED_MEMORY=1` doesn't need one block — it loaded at 33 layers, 23–32
+     tok/s, vs 14–17 tok/s after dropping to 29. Used **only** when the failed attempt's log shows
+     `free >= weights buffer + KOBOLDCPP_UM_MARGIN` (2500 MiB): unified memory never fails on a
+     real shortage, it spills to system RAM and crawls.
+   - **Real shortage → `KOBOLDCPP_LAYER_STEP`=4 fewer GPU layers** per retry, with a warning naming
+     the count that worked (stderr, which `stack restart` shows).
+   Before this, the restart policy repeated the identical OOM five times and `stack` only said "did
+   not come up". A non-memory failure exits 1 with the last log lines.
 
 ## Configuration
 

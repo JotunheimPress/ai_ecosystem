@@ -27,6 +27,9 @@ shared across every app; frontends run side-by-side on their own ports.
   part of the stack rather than a consumer of it, so `stack install` can build it and `start_app`
   reaches it via `$SELF` like the comfyui recipe. Was briefly a standalone repo
   (`github.com/El-Iguana/stack-ui`), imported here with its history via `git subtree`.
+- `orpheus-tts/` — Orpheus TTS for Pantheon's voice: a `start.sh` that runs the **koboldcpp image**
+  in admin mode with no model, so it costs nothing until Pantheon loads it. State in
+  `$ECO/orpheus-tts/` (models/, config/). See `orpheus-tts/CLAUDE.md`.
 - `comfyui/` — the **canonical** ComfyUI recipe, same shape as `koboldcpp/`: `Containerfile`
   (ubuntu:24.04 + cu130 torch + ComfyUI cloned at a pinned tag), `start.sh`, `.containerignore`,
   `INSTALL.md`, `CLAUDE.md`, and two lock files — `requirements.lock.v0.31.1.txt` (current, COPYed
@@ -44,7 +47,7 @@ stack on / stack off  # SINGLE SWITCH for the AI backend (the one to remember):
 stack              # interactive: show status, offer to start backends, then pick a frontend
 stack up           # start backends now WITHOUT changing the boot toggle
 stack status       # what's up (+ shows the ON/OFF switch state)
-stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui)
+stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui|orpheus-tts)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
@@ -63,6 +66,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 |------------|-----------|------|------------------|---------------|
 | koboldcpp  | container | 5001 | —                | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
+| orpheus-tts | container | 5005 (127.0.0.1) | — | `ai-stack/orpheus-tts/start.sh` — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
 | companion  | container | 7861 (127.0.0.1 only) | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **Pantheon**; health `/api/health` |
 | story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` — **Rhapsode** |
 | iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI by name at `comfyui:8188`) |
@@ -140,8 +144,9 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 
 - `koboldcpp/start.sh` runs the container **detached** (`podman run -d`) but returns only once the
   model has loaded (or failed): it waits for the old container's VRAM, asks ComfyUI to unload its
-  cache, and on a GPU out-of-memory retries with fewer layers — see `koboldcpp/CLAUDE.md`. It still
-  loads the ChatML adapter (`chatml.json`). A swap takes ~25 s; a layer fallback ~50 s.
+  cache and Orpheus TTS, retries in CUDA unified memory when VRAM is merely fragmented, and on a
+  real shortage retries with fewer layers — see `koboldcpp/CLAUDE.md`. It still loads the ChatML
+  adapter (`chatml.json`). A swap takes ~25 s; a fallback ~35–50 s.
 - **Both backends run with `--restart=on-failure:5`, not `--rm`.** Before this, a crashed backend
   vanished without a trace while the switch still said ON (found 2026-09-24: both gone, no container,
   no logs). Podman now restarts a crash up to 5 times; `podman stop` (`stack down`/`stack off`) is a

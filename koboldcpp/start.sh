@@ -82,6 +82,28 @@ if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
     exit 1
 fi
 
+# Orpheus TTS (Pantheon's voice) holds ~3 GB while voice is on. Unload it so the chat
+# model gets the room; Pantheon reloads it on the next spoken line. Only when it is
+# actually loaded, and then wait for the memory itself: the unload call returns at once
+# and the server frees its VRAM a second or two later, when its process restarts —
+# wait_vram_settled alone returned before that and the chat model fell back to fewer
+# layers (measured: 29 instead of 33).
+ORPHEUS="${ORPHEUS_URL:-http://localhost:5005}"
+if curl -fsS -m 3 "${ORPHEUS}/api/v1/model" 2>/dev/null | grep -qi orpheus; then
+    before="$(vram_used)"
+    if curl -fsS -m 5 -X POST "${ORPHEUS}/api/admin/reload_config" \
+            -H 'Content-Type: application/json' -d '{"filename":"unload_model"}' >/dev/null 2>&1; then
+        echo "Unloaded Orpheus TTS to make room (Pantheon reloads it when it next speaks)"
+        for _ in $(seq 1 40); do                 # <= 20 s
+            sleep 0.5
+            now="$(vram_used)"
+            [ -n "${before}" ] && [ -n "${now}" ] && [ $(( before - now )) -ge 1000 ] && break
+            [ -z "${before}" ] && break
+        done
+        wait_vram_settled
+    fi
+fi
+
 # ComfyUI keeps its last models cached in VRAM between jobs, and on this box memory
 # another process holds costs a new process about twice its size in allocatable VRAM
 # (measured 2026-10-28: 8.7 GB reported free, 5.4 GB allocatable with ComfyUI holding
@@ -102,9 +124,13 @@ fi
 # `stack down`/`stack off` use — counts as a deliberate stop and is never restarted.
 # Without --rm a dead container also keeps its logs for `stack logs` post-mortem;
 # the `podman rm -f` above clears it before the next start.
+# $1 = GPU layers, $2 = 1 for CUDA unified memory (see the fragmentation note below).
 launch() {
+    local um=()
+    [ "${2:-0}" = 1 ] && um=(-e GGML_CUDA_ENABLE_UNIFIED_MEMORY=1)
     podman run -d \
         --name "${CONTAINER_NAME}" \
+        "${um[@]}" \
         --restart=on-failure:5 \
         --privileged \
         --device nvidia.com/gpu=all \
@@ -142,17 +168,44 @@ await_load() {
     echo timeout
 }
 
+# Fragmentation: on this box the desktop apps' small GPU allocations land in the middle of
+# VRAM, so "free" can be large while no single block is. Measured 2026-10-28: 10.4 GB
+# free, largest single block ~5 GB, and the 33-layer Rocinante load asks for one 5.5 GB
+# weights buffer — it failed while 256 MB pieces summing to 9.5 GB succeeded. CUDA
+# unified memory (GGML_CUDA_ENABLE_UNIFIED_MEMORY=1) doesn't need one contiguous block:
+# same model, same state, it loaded at 33 layers and generated 26-32 tok/s, against
+# 14-17 tok/s after falling back to 29 layers in normal mode.
+# It is used ONLY when the failed attempt's own log shows the room was there (free >=
+# its weights buffer + UM_MARGIN). Unified memory never fails when VRAM is truly short —
+# it spills into system RAM and crawls — so a real shortage must still drop layers.
+UM_MARGIN="${KOBOLDCPP_UM_MARGIN:-2500}"     # MiB for KV cache + compute buffers
+fragmented() {   # 0 if the last attempt failed with room to spare
+    local logs free buf
+    logs="$(podman logs "${CONTAINER_NAME}" 2>&1 || true)"
+    free="$(grep -oP '\d+(?= MiB free)' <<<"${logs}" | tail -1)"
+    buf="$(grep -oP 'CUDA0 model buffer size = +\K\d+' <<<"${logs}" | tail -1)"
+    [ -n "${buf}" ] || buf="$(grep -oP 'allocating \K\d+(?=\.\d+ MiB on device 0: cudaMalloc failed)' <<<"${logs}" | head -1)"
+    [ -n "${free}" ] && [ -n "${buf}" ] || return 1
+    echo "${free} ${buf}" > "${FRAG_NOTE}"
+    [ "${free}" -ge $(( buf + UM_MARGIN )) ]
+}
+FRAG_NOTE="$(mktemp)"; trap 'rm -f "${FRAG_NOTE}"' EXIT
+
 EXTRA_ARGS=("$@")
 LAYERS="${GPU_LAYERS}"
+UNIFIED=0
 # Out of memory -> retry with fewer layers on the GPU (the rest run on the CPU: slower,
 # but it answers). KOBOLDCPP_LAYER_STEP layers per retry, at most 4 retries.
 STEP="${KOBOLDCPP_LAYER_STEP:-4}"
-for attempt in 1 2 3 4 5; do
-    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, gpu layers: ${LAYERS}, free VRAM: $(vram_free) MiB)"
-    launch "${LAYERS}"
+for attempt in 1 2 3 4 5 6; do
+    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
+    launch "${LAYERS}" "${UNIFIED}"
     result="$(await_load)"
     case "${result}" in
         ok)
+            if [ "${UNIFIED}" = 1 ]; then
+                echo "Note: loaded with CUDA unified memory — GPU memory was fragmented." >&2
+            fi
             if [ "${LAYERS}" != "${GPU_LAYERS}" ]; then
                 echo "WARNING: ${MODEL} did not fit at ${GPU_LAYERS} GPU layers; running at ${LAYERS}." >&2
                 echo "         To skip the retries next time, set its layers to ${LAYERS} in stack-ui" >&2
@@ -164,9 +217,18 @@ for attempt in 1 2 3 4 5; do
             echo "==> KoboldCPP started but still loading after ${KOBOLDCPP_LOAD_TIMEOUT:-300}s. Logs: podman logs -f ${CONTAINER_NAME}"
             exit 0 ;;
         oom)
+            if [ "${UNIFIED}" = 0 ] && fragmented; then
+                read -r f b < "${FRAG_NOTE}"
+                podman rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+                wait_vram_settled
+                echo "GPU memory is fragmented (${f} MiB free, but no single ${b} MiB block) — retrying ${LAYERS} layers with unified memory" >&2
+                UNIFIED=1
+                continue
+            fi
             podman rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true   # stop the restart loop
             wait_vram_settled
-            if [ "${LAYERS}" -le 0 ] || [ "${attempt}" -eq 5 ]; then break; fi
+            UNIFIED=0
+            if [ "${LAYERS}" -le 0 ] || [ "${attempt}" -eq 6 ]; then break; fi
             next=$(( LAYERS - STEP )); [ "${next}" -lt 0 ] && next=0
             echo "Out of GPU memory at ${LAYERS} layers — retrying with ${next}" >&2
             LAYERS="${next}" ;;
