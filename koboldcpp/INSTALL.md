@@ -1,6 +1,6 @@
 # Installing the KoboldCPP backend
 
-The full recipe lives in this folder — `Containerfile`, `start.sh`, `chatml.json`,
+The full recipe lives in this folder — `Containerfile`, `start.sh`, `chatml.json`, `mistral-nemo.json`,
 `.containerignore`. Unlike ComfyUI (an upstream checkout you build yourself), **KoboldCPP here is a
 self-contained container recipe**: point `start.sh` at a directory with a GGUF model in `models/` and
 it builds the image on first run and starts the server on `:5001`.
@@ -30,6 +30,7 @@ koboldcpp/
 ├── Containerfile        # from this folder
 ├── start.sh             # from this folder
 ├── chatml.json          # from this folder
+├── mistral-nemo.json    # from this folder
 ├── .containerignore     # from this folder — see the warning below
 └── models/              # YOUR GGUF files (not vendored)
 ```
@@ -120,18 +121,17 @@ through its restart budget and `stack up` would only say "did not come up".
 `--usecublas` is always passed. If a model won't fit, reduce `KOBOLDCPP_GPU_LAYERS` rather than
 switching off CUDA — partial offload is much faster than pure CPU.
 
-## 5. The ChatML adapter
+## 5. The chat format (adapter)
 
-`chatml.json` is mounted at `/chatml.json` and passed via `--chatcompletionsadapter`, which makes
-`/v1/chat/completions` emit **ChatML** (`<|im_start|>…<|im_end|>`) deterministically instead of
-relying on KoboldCPP's AutoGuess. It matters for two reasons:
+`/v1/chat/completions` has to be formatted the way each model was trained, so `start.sh` picks the
+adapter from the model file itself and mounts it at `/adapter.json`: **`chatml.json`** for ChatML
+models (Qwen — `<|im_start|>…<|im_end|>`), **`mistral-nemo.json`** for Mistral Nemo models such as
+Rocinante (`[INST]…[/INST]`, instructions inside the user turn), and KoboldCPP's built-in **AutoGuess**
+for anything else. `--jinja` stays off: strict templates (Qwen's, Nemo's) mishandle or reject the
+companion's late `system` turns, which the adapters render cleanly.
 
-- The Qwen3.5 model expects ChatML, and AutoGuess is not reliable enough to depend on.
-- Per-role tags render the companion's trailing post-history `system` message cleanly. `--jinja` was
-  deliberately avoided: a strict Qwen template can mishandle a late system turn.
-
-Using a model with a different prompt format? Replace `chatml.json` or drop the
-`--chatcompletionsadapter` flag from `start.sh`.
+Using a model the detection gets wrong? Set `KOBOLDCPP_ADAPTER` (env or `model.env`) to a file in
+this folder or a built-in adapter name.
 
 > **Thinking models:** the current Qwen3.5 build is a heavy `<think>` reasoner. Clients are expected
 > to strip `<think>…</think>` — the companion does this client-side. Budget for the extra tokens.

@@ -7,12 +7,23 @@ Containerized KoboldCPP LLM inference server with NVIDIA CUDA support, managed v
 - `Containerfile` — builds the image from the official KoboldCPP Linux binary on CUDA 12.4 base
 - `start.sh` — launches the container; handles image build and cleanup automatically
 - `models/` — GGUF model files mounted into the container at `/models`
-- `chatml.json` — ChatCompletions adapter (per-role `<|im_start|>…<|im_end|>` tags) passed via
-  `--chatcompletionsadapter /chatml.json`, so `/v1/chat/completions` formats **ChatML** deterministically
-  (the current Qwen3.5 model expects it) instead of relying on AutoGuess. Per-role tags render the
-  companion's trailing `system` (post-history) message cleanly; `--jinja` was avoided because a strict
-  Qwen template can mishandle a late system turn. Note: this model is a heavy `<think>` reasoner — the
-  companion strips `<think>…</think>` client-side.
+- **Chat format is picked per model** by `start.sh` from the GGUF's own vocabulary/template (first
+  64 MB), mounted at `/adapter.json` (2026-10-28 — a fixed `chatml.json` was wrong for Rocinante):
+  | model file contains | adapter |
+  |---|---|
+  | `<|im_start|>` (Qwen, other ChatML) | `chatml.json` — per-role `<|im_start|>…<|im_end|>` |
+  | `[SYSTEM_PROMPT]` (newer Mistral) | KoboldCPP's built-in `AutoGuess` |
+  | `[INST]` only (Mistral **Nemo**, e.g. Rocinante) | `mistral-nemo.json` |
+  | none of these | `AutoGuess` |
+  `mistral-nemo.json` follows Nemo's template (`[INST]{system}\n\n{user}[/INST]{reply}</s>`, no spaces,
+  no system tokens): system text joins the surrounding `[INST]` block, so the companion's trailing
+  `system` notes land inside the last user turn right before `[/INST]`. Nemo's jinja template rejects
+  any system message but the first, which is why `--jinja` stays off; KoboldCPP's own Mistral
+  adapters don't fit Nemo either (`Mistral-Tekken` = V7 `[SYSTEM_PROMPT]` tokens Nemo lacks,
+  `Mistral-NonTekken` = old spaced format). Under ChatML, Rocinante — which has no ChatML tokens —
+  occasionally wrote `<|im_end|>` as text and then a turn for the user. Override with
+  `KOBOLDCPP_ADAPTER` (a file here or a built-in name). Qwen models are heavy `<think>` reasoners —
+  the companion strips `<think>…</think>` client-side.
 
 ## Starting the server
 
@@ -56,6 +67,7 @@ Resolved by `start.sh` as **env var → `model.env` → built-in default**:
 |---|---|---|
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | Model file in `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | Number of layers to offload to GPU |
+| `KOBOLDCPP_ADAPTER` | picked from the model file | chat format: `chatml.json`, `mistral-nemo.json`, or a KoboldCPP built-in (`AutoGuess`, `Llama-3`, …) |
 
 ```bash
 # one-off (doesn't persist)

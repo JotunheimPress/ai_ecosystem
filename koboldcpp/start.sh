@@ -53,13 +53,14 @@ fi
 # Parsed strictly, never sourced: this file gets written from model names that came off
 # the internet, and `.` would execute whatever ended up in it.
 MODEL_ENV="${SCRIPT_DIR}/model.env"
-FILE_MODEL=""; FILE_LAYERS=""
+FILE_MODEL=""; FILE_LAYERS=""; FILE_ADAPTER=""
 if [ -f "${MODEL_ENV}" ]; then
     while IFS='=' read -r k v; do
         v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"      # tolerate quoting
         case "$k" in
             KOBOLDCPP_MODEL)      FILE_MODEL="$v" ;;
             KOBOLDCPP_GPU_LAYERS) FILE_LAYERS="$v" ;;
+            KOBOLDCPP_ADAPTER)    FILE_ADAPTER="$v" ;;
         esac
     done < "${MODEL_ENV}"
 fi
@@ -80,6 +81,42 @@ if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
     find "${MODELS_DIR}" -maxdepth 1 -name '*.gguf' -printf '  %f\n' 2>/dev/null | sort >&2 \
         || echo "  (none — see ai-stack/koboldcpp/INSTALL.md §2)" >&2
     exit 1
+fi
+
+# ---- chat format ------------------------------------------------------------------
+# /v1/chat/completions has to be formatted the way the MODEL was trained, and that differs
+# per model — a fixed adapter breaks the moment the model is swapped. chatml.json was right
+# for Qwen and wrong for Rocinante (Mistral Nemo: [INST]…[/INST], no ChatML tokens in its
+# vocabulary at all), which then occasionally wrote "<|im_end|>" as text and carried on
+# with an invented user turn. Picked from the model file's own metadata (the vocabulary
+# and chat template sit in its first few MB):
+#   <|im_start|>      -> chatml.json         (Qwen and other ChatML models)
+#   [SYSTEM_PROMPT]   -> AutoGuess           (newer Mistral, which has real system tokens)
+#   [INST]            -> mistral-nemo.json   (Nemo-style: instructions inside [INST])
+#   anything else     -> AutoGuess           (KoboldCPP reads the template itself)
+# KOBOLDCPP_ADAPTER (env or model.env) overrides: a file in this folder or a built-in name.
+pick_adapter() {
+    local seen
+    seen="$(head -c 67108864 "${MODELS_DIR}/${MODEL}" 2>/dev/null \
+        | LC_ALL=C grep -a -o -e '<|im_start|>' -e '\[SYSTEM_PROMPT\]' -e '\[INST\]' 2>/dev/null \
+        | sort -u | tr '\n' ' ')"
+    case "${seen}" in
+        *'<|im_start|>'*)     echo chatml.json ;;
+        *'[SYSTEM_PROMPT]'*)  echo AutoGuess ;;
+        *'[INST]'*)           echo mistral-nemo.json ;;
+        *)                    echo AutoGuess ;;
+    esac
+}
+ADAPTER="${KOBOLDCPP_ADAPTER:-${FILE_ADAPTER:-$(pick_adapter)}}"
+ADAPTER_ARGS=(--chatcompletionsadapter "${ADAPTER}")
+ADAPTER_MOUNT=()
+if [[ "${ADAPTER}" == *.json ]]; then
+    if [ ! -f "${SCRIPT_DIR}/${ADAPTER}" ]; then
+        echo "Chat adapter not found: ${SCRIPT_DIR}/${ADAPTER} (run: stack install koboldcpp)" >&2
+        exit 1
+    fi
+    ADAPTER_MOUNT=(-v "${SCRIPT_DIR}/${ADAPTER}:/adapter.json:z")
+    ADAPTER_ARGS=(--chatcompletionsadapter /adapter.json)
 fi
 
 # Orpheus TTS (Pantheon's voice) holds ~3 GB while voice is on. Unload it so the chat
@@ -137,14 +174,14 @@ launch() {
         --network ai-net \
         -p 5001:5001 \
         -v "${MODELS_DIR}:/models:z" \
-        -v "${SCRIPT_DIR}/chatml.json:/chatml.json:z" \
+        "${ADAPTER_MOUNT[@]}" \
         "${IMAGE}" \
         --host 0.0.0.0 \
         --port 5001 \
         --usecublas \
         --gpulayers "$1" \
         --model "/models/${MODEL}" \
-        --chatcompletionsadapter /chatml.json \
+        "${ADAPTER_ARGS[@]}" \
         "${EXTRA_ARGS[@]}" >/dev/null
 }
 
@@ -198,7 +235,7 @@ UNIFIED=0
 # but it answers). KOBOLDCPP_LAYER_STEP layers per retry, at most 4 retries.
 STEP="${KOBOLDCPP_LAYER_STEP:-4}"
 for attempt in 1 2 3 4 5 6; do
-    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
+    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, chat format: ${ADAPTER}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
     launch "${LAYERS}" "${UNIFIED}"
     result="$(await_load)"
     case "${result}" in

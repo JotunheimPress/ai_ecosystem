@@ -13,7 +13,7 @@ shared across every app; frontends run side-by-side on their own ports.
   itself (resolved the same way), used to reach the in-repo `comfyui/start.sh` recipe.
 - `ai-stack-backends.service` — systemd user unit **template** (`@SELF@` → the checkout path);
   rendered into `~/.config/systemd/user/` by `stack install service`.
-- `koboldcpp/` — the **canonical** KoboldCPP recipe: `Containerfile`, `start.sh`, `chatml.json`,
+- `koboldcpp/` — the **canonical** KoboldCPP recipe: `Containerfile`, `start.sh`, the chat adapters (`chatml.json`, `mistral-nemo.json`),
   `.containerignore`, plus `INSTALL.md` / `CLAUDE.md`. The working tree at
   `~/Development/ai_ecosystem/koboldcpp/` symlinks back to these, so the running stack and the
   published recipe can't drift; only `models/` (~15 GB) stays out there, uncommitted.
@@ -145,8 +145,9 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 - `koboldcpp/start.sh` runs the container **detached** (`podman run -d`) but returns only once the
   model has loaded (or failed): it waits for the old container's VRAM, asks ComfyUI to unload its
   cache and Orpheus TTS, retries in CUDA unified memory when VRAM is merely fragmented, and on a
-  real shortage retries with fewer layers — see `koboldcpp/CLAUDE.md`. It still loads the ChatML
-  adapter (`chatml.json`). A swap takes ~25 s; a fallback ~35–50 s.
+  real shortage retries with fewer layers — see `koboldcpp/CLAUDE.md`. It picks the chat format
+  (adapter) from the model file: ChatML for Qwen, `mistral-nemo.json` for Rocinante, AutoGuess
+  otherwise. A swap takes ~25 s; a fallback ~35–50 s.
 - **Both backends run with `--restart=on-failure:5`, not `--rm`.** Before this, a crashed backend
   vanished without a trace while the switch still said ON (found 2026-09-24: both gone, no container,
   no logs). Podman now restarts a crash up to 5 times; `podman stop` (`stack down`/`stack off`) is a

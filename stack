@@ -326,7 +326,7 @@ link_koboldcpp_recipe() {
     cp "$src/.containerignore" "$dir/.containerignore" \
       && ok "copied .containerignore (podman ignores a symlinked one)"
   fi
-  for f in Containerfile start.sh chatml.json CLAUDE.md; do
+  for f in Containerfile start.sh chatml.json mistral-nemo.json CLAUDE.md; do
     if [ -e "$dir/$f" ]; then
       # Resolved targets, not literal ones: the existing farm uses relative links,
       # which are just as correct as the absolute ones made here.
