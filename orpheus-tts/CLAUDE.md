@@ -38,7 +38,9 @@ curl -X POST localhost:5005/api/admin/reload_config -H 'Content-Type: applicatio
   A line requested while unloaded loads it first. A failed load (out of VRAM) is detected from the
   admin API (idle → down → idle) in ~5 s; lines then fall back to a Kokoro voice for 60 s.
 - **`koboldcpp/start.sh`** unloads it before loading the chat model and waits for the memory.
-- **The idle timeout** covers a closed browser tab.
+- **The idle timeout** covers a closed browser tab. Note it counts from the last *generate request*,
+  not from a load — Pantheon sends a 1-token request before and after each load, or a server idle
+  past the timeout unloads the model a second after loading it.
 
 ## Format (Canopy's engine)
 
