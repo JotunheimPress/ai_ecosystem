@@ -60,7 +60,8 @@ fi
 podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/dev/null
 
 echo "Starting Orpheus TTS at http://localhost:${PORT} (idle; loads ${MODEL} on demand, unloads after ${IDLE_UNLOAD}s idle)"
-# Same restart policy and GPU flags as koboldcpp (see ai-stack/CLAUDE.md). Published on
+# Same restart policy and GPU flags as koboldcpp (see ai-stack/CLAUDE.md). Its own health
+# check: the image's probes :5001 (the chat server), which marked this one unhealthy. Published on
 # loopback only: the admin API has no password, and only Pantheon (over ai-net) and
 # koboldcpp/start.sh (to free VRAM before a model swap) need it.
 podman run -d \
@@ -72,6 +73,8 @@ podman run -d \
     -p "127.0.0.1:${PORT}:${PORT}" \
     -v "${MODELS_DIR}:/models:z" \
     -v "${CONFIG_DIR}:/config:z" \
+    --health-cmd "curl -fs http://localhost:${PORT}/api/v1/model || exit 1" \
+    --health-interval 30s --health-timeout 10s --health-start-period 30s --health-retries 3 \
     "${IMAGE}" \
     --host 0.0.0.0 \
     --port "${PORT}" \
