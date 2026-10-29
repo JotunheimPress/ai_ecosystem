@@ -14,6 +14,7 @@
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
+#   stack route [local|halo]  show / set where text + voice are served (backend router)
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|koboldcpp|comfyui|stackui|service|path|desktop
@@ -33,7 +34,9 @@ ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
 
-BACKENDS=(koboldcpp comfyui orpheus-tts)
+# router first: koboldcpp and orpheus-tts are health-probed THROUGH it, so without it
+# they read as down and `stack up` would reload a model that was already serving.
+BACKENDS=(router koboldcpp comfyui orpheus-tts)
 FRONTENDS=(companion story iguana nocturne)
 # Control apps are shown and startable like the rest, but deliberately excluded from
 # `down all` / `down frontends`: stack-ui is the thing you're clicking in, and having a
@@ -43,10 +46,13 @@ CONTROL=(stackui)
 declare -A PORT HEALTH DESC KIND CNAME
 #           port  health-url                              description                              kind       container-name
 reg() { local k=$1; PORT[$k]=$2; HEALTH[$k]=$3; DESC[$k]=$4; KIND[$k]=$5; CNAME[$k]=${6:-}; }
-reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp
+# The router owns the names `koboldcpp`/`orpheus-tts` on ai-net and host ports 5001/5005;
+# the local 4070 copies run as `*-local` behind it (router/, HALO_PLAN.md).
+reg router    5001 "http://localhost:5001/__router/health" "Routes text + voice to where they run"   container backend-router
+reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp-local
 reg comfyui   8188 "http://localhost:8188/system_stats"  "Image/video generation (ComfyUI)"          container comfyui
 # Up = the server answers; the voice model itself loads only while Pantheon's voice is on.
-reg orpheus-tts 5005 "http://localhost:5005/api/v1/model" "Expressive voice (Orpheus TTS, loads on demand)" container orpheus-tts
+reg orpheus-tts 5005 "http://localhost:5005/api/v1/model" "Expressive voice (Orpheus TTS, loads on demand)" container orpheus-tts-local
 reg companion 7861 "http://127.0.0.1:7861/api/health"   "Character-card AI companion"               container companion
 reg story     7860 "http://localhost:7860/"              "The Narrative Engine"                      container ai-story-maker
 reg iguana    7862 "http://localhost:7862/api/health"    "iguana_studio ComfyUI GUI"                 container iguana
@@ -64,6 +70,7 @@ reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Control dashboard for 
 # key need no row. stack-ui reads this out of the script the same way it reads CUSTOM_NODES:
 # one registry, so the dashboard cannot disagree with the CLI about what a thing is called.
 declare -A LABEL=(
+  [router]="Router"
   [koboldcpp]="Oracle"
   [comfyui]="Morpheus"
   [orpheus-tts]="Orpheus TTS"
@@ -91,6 +98,7 @@ start_app() {
   case "$1" in
     # stderr stays visible: start.sh reports a layer fallback or a load failure there,
     # and `stack restart` is what the dashboard streams.
+    router)    "$SELF/router/start.sh" >/dev/null ;;
     koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null ;;
     companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
     story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
@@ -127,6 +135,7 @@ cmd_status() {
     if svc_enabled; then echo "AI backend switch: ${C_GREEN}ON${C_OFF}  (auto-starts at boot)"
     else                 echo "AI backend switch: ${C_RED}OFF${C_OFF} (gaming mode — won't start at boot)"; fi
   fi
+  DESC[router]="Routes text + voice → $(route_name)"
   echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
   echo "${C_B}Control${C_OFF}";                 for a in "${CONTROL[@]}"; do row "$a"; done
@@ -134,6 +143,8 @@ cmd_status() {
 
 start_one() {
   local a=$1
+  # Reached through the router, so it has to be up first (see BACKENDS).
+  if [[ $a == koboldcpp || $a == orpheus-tts ]] && ! is_up router; then start_one router || return 1; fi
   if is_up "$a"; then echo "  $a already up (:${PORT[$a]})"; return 0; fi
   # Health says down, but for a `proc` app the port may still be held — by an instance
   # that's mid-startup, or wedged. Starting now would just lose the port race, and the
@@ -158,6 +169,42 @@ start_one() {
     [[ "${KIND[$a]}" == container ]] && podman logs --tail 3 "${CNAME[$a]}" 2>&1 | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
     return 1
   fi
+}
+
+# ---- backend router: where text + voice are served -------------------------------------
+# route.conf is nginx text the router includes; written here and only from fixed values or
+# a validated host name, never from free-form input.
+ROUTE_FILE="$ECO/router/route.conf"
+route_now() { grep -oP 'set \$kobold_up \K[^;]+' "$ROUTE_FILE" 2>/dev/null || echo "koboldcpp-local:5001"; }
+route_name() { case "$(route_now)" in koboldcpp-local:*) echo "local (4070)" ;; *) echo "halo ($(route_now | cut -d: -f1))" ;; esac; }
+halo_host() {   # HALO_HOST from ai-stack/halo.env (git-ignored), parsed, never sourced
+  local v; v=$(grep -oP '^HALO_HOST=\K.*' "$SELF/halo.env" 2>/dev/null | tr -d "\"'" | head -1)
+  [[ "$v" =~ ^[A-Za-z0-9.-]+$ ]] && echo "$v"
+}
+cmd_route() {
+  local t=${1:-} k o
+  case "$t" in
+    "")    echo "text  → $(route_now)"; echo "voice → $(grep -oP 'set \$orpheus_up \K[^;]+' "$ROUTE_FILE" 2>/dev/null || echo orpheus-tts-local:5005)"; return 0 ;;
+    local) k="koboldcpp-local:5001"; o="orpheus-tts-local:5005" ;;
+    halo)  local h; h=$(halo_host) || { echo "no valid HALO_HOST in $SELF/halo.env (HALO_PLAN.md Phase 2)"; return 1; }
+           k="$h:5001"; o="$h:5005" ;;
+    *)     echo "usage: stack route [local|halo]"; return 1 ;;
+  esac
+  mkdir -p "$(dirname "$ROUTE_FILE")"
+  printf 'set $kobold_up %s;\nset $orpheus_up %s;\n' "$k" "$o" > "$ROUTE_FILE.tmp" && mv "$ROUTE_FILE.tmp" "$ROUTE_FILE"
+  if podman container exists "${CNAME[router]}" 2>/dev/null \
+     && [[ "$(podman inspect -f '{{.State.Status}}' "${CNAME[router]}" 2>/dev/null)" == running ]]; then
+    podman exec "${CNAME[router]}" nginx -s reload >/dev/null 2>&1 \
+      || { echo "  ${C_RED}✗${C_OFF} router rejected the new route — check: stack logs router"; return 1; }
+    # Reload is graceful: new workers take new requests a few hundred ms later, and replies
+    # already streaming finish on the old route. Return once the new route is live.
+    local i
+    for i in $(seq 1 20); do
+      curl -sf -m 1 "http://localhost:${PORT[router]}/__router/route" 2>/dev/null | grep -qF "text $k" && break
+      sleep 0.25
+    done
+  fi
+  echo "  ${C_GREEN}✓${C_OFF} text → $k, voice → $o"
 }
 
 cmd_up() { ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done; }
@@ -620,6 +667,7 @@ case "${1:-}" in
   down)      cmd_down "${2:-all}" ;;
   restart)   a=${2:?usage: stack restart <app>}; stop_app "$a"; sleep 1; ensure_net; start_one "$a" ;;
   logs)      cmd_logs "${2:-}" ;;
+  route)     cmd_route "${2:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   desktop)   shift; [[ "${1:-}" == "stop" ]] && cmd_desktop_stop || cmd_desktop "$@" ;;

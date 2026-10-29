@@ -6,8 +6,9 @@ switched on, and gives the ~3 GB back when voice is switched off.
 
 ## Structure
 
-- `start.sh` — starts container `orpheus-tts` from the **koboldcpp image** (no image of its own) on
-  `ai-net`, port `5005` published on **127.0.0.1 only**. Exports `config/orpheus.kcpps` with
+- `start.sh` — starts container **`orpheus-tts-local`** from the **koboldcpp image** (no image of its
+  own) on `ai-net`, with no host port. The backend router (`ai-stack/router/`) answers as
+  `orpheus-tts` on ai-net and on **127.0.0.1:5005** and forwards here while voice is routed local. Exports `config/orpheus.kcpps` with
   KoboldCPP's own `--exportconfig` on first run or when the model changes.
 - State (never committed) lives in **`~/Development/ai_ecosystem/orpheus-tts/`**:
   `models/orpheus-3b-0.1-ft-q4_k_m.gguf` (2.4 GB, from
@@ -28,7 +29,7 @@ curl -X POST localhost:5005/api/admin/reload_config -H 'Content-Type: applicatio
 |---|---|---|
 | `ORPHEUS_STATE` | `$ECO/orpheus-tts` | models/ + config/ |
 | `ORPHEUS_MODEL` | `orpheus-3b-0.1-ft-q4_k_m.gguf` | GGUF in `models/` |
-| `ORPHEUS_PORT` | `5005` | listen + loopback publish |
+| `ORPHEUS_PORT` | `5005` | listen port inside the container (the router publishes localhost:5005) |
 | `ORPHEUS_IDLE_UNLOAD` | `600` | s without a request before KoboldCPP unloads by itself |
 
 ## Who loads and unloads it
@@ -36,8 +37,10 @@ curl -X POST localhost:5005/api/admin/reload_config -H 'Content-Type: applicatio
 - **Pantheon** (`companion/services/orpheus.py`): `voice.js` asks for a load when the speaker or
   hands-free is on for a card whose voice is `orpheus:<name>`, and a release 20 s after that stops.
   A line requested while unloaded loads it first. A failed load (out of VRAM) is detected from the
-  admin API (idle → down → idle) in ~5 s; lines then fall back to a Kokoro voice for 60 s.
-- **`koboldcpp/start.sh`** unloads it before loading the chat model and waits for the memory.
+  admin API (idle → down → idle) in ~5 s — through the router "down" is a 502, which Pantheon treats
+  the same as a refused connection; lines then fall back to a Kokoro voice for 60 s.
+- **`koboldcpp/start.sh`** unloads it before loading the chat model and waits for the memory. It asks
+  `orpheus-tts-local` through `podman exec`, not the router, so it only ever touches the copy on the 4070.
 - **The idle timeout** covers a closed browser tab. Note it counts from the last *generate request*,
   not from a load — Pantheon sends a 1-token request before and after each load, or a server idle
   past the timeout unloads the model a second after loading it.

@@ -31,13 +31,13 @@ Containerized KoboldCPP LLM inference server with NVIDIA CUDA support, managed v
 ~/Development/ai_ecosystem/koboldcpp/start.sh
 ```
 
-Runs at http://localhost:5001. The container runs with `--restart=on-failure:5`: podman restarts it after a crash, but not after `podman stop`. A stopped container lingers (logs intact) until the script runs again and replaces it.
+The container is **`koboldcpp-local`** and publishes no host port: the backend router (`ai-stack/router/`) answers at http://localhost:5001 and as `koboldcpp` on ai-net, and forwards here while text is routed local (`stack route`). The container runs with `--restart=on-failure:5`: podman restarts it after a crash, but not after `podman stop`. A stopped container lingers (logs intact) until the script runs again and replaces it.
 
 ### What a (re)start does — hardened 2026-10-28 after a model swap failed to load
 
 1. Stops the old container cleanly and **waits for its VRAM to be released** (it frees after
    `podman rm` returns, not by it).
-2. **Unloads Orpheus TTS** if Pantheon's voice has it loaded (~3 GB; Pantheon reloads it on the
+2. **Unloads the local Orpheus TTS** (`orpheus-tts-local`, asked through `podman exec`, never the router, which may point at the Halo box) if Pantheon's voice has it loaded (~3 GB; Pantheon reloads it on the
    next spoken line) and waits until that memory is actually back — the unload call returns before
    the server frees it.
 3. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
@@ -86,7 +86,9 @@ instead of crash-looping inside the container. Full rationale: [`INSTALL.md`](IN
 ## Networking
 
 Connected to the **`ai-net`** Podman network (renamed from the legacy `sillytavern-net`), so the
-frontends — companion, story, iguana — reach it by name at `http://koboldcpp:5001`.
+frontends — companion, story, iguana — reach it by name at `http://koboldcpp:5001`. That name is
+the **backend router's** network alias; the router forwards to this container (`koboldcpp-local`)
+or, later, to the Halo box (`HALO_PLAN.md`).
 
 ## Install
 

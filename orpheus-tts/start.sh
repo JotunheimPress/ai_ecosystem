@@ -2,7 +2,8 @@
 # Orpheus TTS (Canopy Labs, 3B) for Pantheon's voice — served by KoboldCPP, loaded on demand.
 #
 # Usage:
-#   ./start.sh            start the (idle) server on :5005, on ai-net as `orpheus-tts`
+#   ./start.sh            start the (idle) server on ai-net as `orpheus-tts-local`; the backend
+#                         router answers as `orpheus-tts` / localhost:5005 and forwards here
 #
 # The server starts with NO model loaded and costs no VRAM. Pantheon loads the model when
 # a voice is switched on (POST /api/admin/reload_config {"filename":"orpheus.kcpps"}) and
@@ -22,7 +23,7 @@ MODELS_DIR="${STATE}/models"
 CONFIG_DIR="${STATE}/config"
 
 IMAGE="localhost/koboldcpp:latest"
-CONTAINER_NAME="orpheus-tts"
+CONTAINER_NAME="orpheus-tts-local"     # `orpheus-tts` is the router's name now
 PORT="${ORPHEUS_PORT:-5005}"
 NET="ai-net"
 MODEL="${ORPHEUS_MODEL:-orpheus-3b-0.1-ft-q4_k_m.gguf}"
@@ -54,23 +55,23 @@ if [ ! -f "${KCPPS}" ] || [ "$(cat "${STAMP}" 2>/dev/null)" != "${MODEL}" ]; the
     echo "${MODEL}" > "${STAMP}"
 fi
 
-if podman container exists "${CONTAINER_NAME}" 2>/dev/null; then
-    podman rm -f "${CONTAINER_NAME}" >/dev/null
-fi
+# Also the pre-router `orpheus-tts` container, which would still hold :5005.
+for c in "${CONTAINER_NAME}" orpheus-tts; do
+    if podman container exists "${c}" 2>/dev/null; then podman rm -f "${c}" >/dev/null; fi
+done
 podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/dev/null
 
 echo "Starting Orpheus TTS at http://localhost:${PORT} (idle; loads ${MODEL} on demand, unloads after ${IDLE_UNLOAD}s idle)"
 # Same restart policy and GPU flags as koboldcpp (see ai-stack/CLAUDE.md). Its own health
-# check: the image's probes :5001 (the chat server), which marked this one unhealthy. Published on
-# loopback only: the admin API has no password, and only Pantheon (over ai-net) and
-# koboldcpp/start.sh (to free VRAM before a model swap) need it.
+# check: the image's probes :5001 (the chat server), which marked this one unhealthy. No host
+# port: the router publishes localhost:5005 (loopback only — the admin API has no password)
+# and Pantheon reaches it over ai-net through the router.
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
     --privileged \
     --device nvidia.com/gpu=all \
     --network "${NET}" \
-    -p "127.0.0.1:${PORT}:${PORT}" \
     -v "${MODELS_DIR}:/models:z" \
     -v "${CONFIG_DIR}:/config:z" \
     --health-cmd "curl -fs http://localhost:${PORT}/api/v1/model || exit 1" \
@@ -83,7 +84,7 @@ podman run -d \
     "$@" >/dev/null
 
 for _ in $(seq 1 30); do
-    curl -sf -m 2 -o /dev/null "http://localhost:${PORT}/api/v1/model" && {
+    podman exec "${CONTAINER_NAME}" curl -sf -m 2 -o /dev/null "http://localhost:${PORT}/api/v1/model" 2>/dev/null && {
         echo "==> Orpheus TTS up (idle). Logs: podman logs -f ${CONTAINER_NAME}"; exit 0; }
     sleep 1
 done

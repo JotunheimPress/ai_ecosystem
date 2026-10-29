@@ -27,6 +27,12 @@ shared across every app; frontends run side-by-side on their own ports.
   part of the stack rather than a consumer of it, so `stack install` can build it and `start_app`
   reaches it via `$SELF` like the comfyui recipe. Was briefly a standalone repo
   (`github.com/El-Iguana/stack-ui`), imported here with its history via `git subtree`.
+- `router/` — the **backend router**: one nginx container (`backend-router`, stock
+  `nginx:1.28-alpine` + `router.conf.template`) that owns the names `koboldcpp` and `orpheus-tts` on
+  ai-net and host ports **5001** (all interfaces) and **127.0.0.1:5005**, and forwards each to where
+  that backend runs. The local copies run as `koboldcpp-local` / `orpheus-tts-local` with no host
+  ports. Route state is `$ECO/router/route.conf`, written only by `stack route`. Groundwork for the
+  Halo box (`HALO_PLAN.md`). See `router/CLAUDE.md`.
 - `orpheus-tts/` — Orpheus TTS for Pantheon's voice: a `start.sh` that runs the **koboldcpp image**
   in admin mode with no model, so it costs nothing until Pantheon loads it. State in
   `$ECO/orpheus-tts/` (models/, config/). See `orpheus-tts/CLAUDE.md`.
@@ -51,6 +57,7 @@ stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui|orp
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
+stack route [local|halo]  # show / set where text + voice are served (halo needs HALO_HOST in halo.env)
 
 stack install      # one-time setup, idempotent: build backend images, create ai-net,
                    #   install the systemd unit, link onto PATH.
@@ -64,9 +71,10 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 
 | App        | Kind      | Port | Backend it needs | How it starts |
 |------------|-----------|------|------------------|---------------|
-| koboldcpp  | container | 5001 | —                | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`) |
+| router     | container | 5001, 5005 (127.0.0.1) | — | `ai-stack/router/start.sh` — container `backend-router`; started first, since the two below are health-probed through it |
+| koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
-| orpheus-tts | container | 5005 (127.0.0.1) | — | `ai-stack/orpheus-tts/start.sh` — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
+| orpheus-tts | container | (via router) | — | `ai-stack/orpheus-tts/start.sh` (container `orpheus-tts-local`) — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
 | companion  | container | 7861 (127.0.0.1 only) | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **Pantheon**; health `/api/health` |
 | story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` — **Rhapsode** |
 | iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI by name at `comfyui:8188`) |

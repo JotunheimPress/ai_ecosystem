@@ -1,3 +1,4 @@
 *.log
 koboldcpp/model.env
 koboldcpp/model-presets.json
+halo.env

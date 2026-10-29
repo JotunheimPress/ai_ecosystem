@@ -8,7 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="${SCRIPT_DIR}/models"
 IMAGE="localhost/koboldcpp:latest"
-CONTAINER_NAME="koboldcpp"
+# `-local`: the name `koboldcpp` belongs to the backend router (ai-stack/router), which
+# forwards to this container or to the Halo box. Frontends keep http://koboldcpp:5001.
+CONTAINER_NAME="koboldcpp-local"
 
 # Build image if it doesn't exist yet
 if ! podman image exists "${IMAGE}"; then
@@ -39,13 +41,16 @@ wait_vram_settled() {
     done
 }
 
-# Remove any previous container with the same name. Stop it first so it shuts down
-# cleanly, then wait for its VRAM to actually come back.
-if podman container exists "${CONTAINER_NAME}" 2>/dev/null; then
-    podman stop -t 10 "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-    podman rm -f "${CONTAINER_NAME}" >/dev/null
-    wait_vram_settled
-fi
+# Remove any previous container with the same name, plus the pre-router `koboldcpp` one
+# (it would still hold :5001 and its VRAM). Stop it first so it shuts down cleanly, then
+# wait for its VRAM to actually come back.
+for c in "${CONTAINER_NAME}" koboldcpp; do
+    if podman container exists "${c}" 2>/dev/null; then
+        podman stop -t 10 "${c}" >/dev/null 2>&1 || true
+        podman rm -f "${c}" >/dev/null
+        wait_vram_settled
+    fi
+done
 
 # Persisted model selection: models/model.env's sibling, written by tooling (and by
 # hand) so a chosen model survives `stack up`, a restart, and a reboot. Without it the
@@ -127,10 +132,13 @@ fi
 # and the server frees its VRAM a second or two later, when its process restarts —
 # wait_vram_settled alone returned before that and the chat model fell back to fewer
 # layers (measured: 29 instead of 33).
-ORPHEUS="${ORPHEUS_URL:-http://localhost:5005}"
-if curl -fsS -m 3 "${ORPHEUS}/api/v1/model" 2>/dev/null | grep -qi orpheus; then
+# Asked through `podman exec`, not the router: this is about the copy sharing THIS GPU.
+# Through the router it would unload whichever Orpheus is serving, the Halo box's included.
+ORPHEUS_LOCAL="orpheus-tts-local"
+orpheus_local() { podman exec "${ORPHEUS_LOCAL}" curl "$@" 2>/dev/null; }
+if orpheus_local -fsS -m 3 "http://localhost:5005/api/v1/model" | grep -qi orpheus; then
     before="$(vram_used)"
-    if curl -fsS -m 5 -X POST "${ORPHEUS}/api/admin/reload_config" \
+    if orpheus_local -fsS -m 5 -X POST "http://localhost:5005/api/admin/reload_config" \
             -H 'Content-Type: application/json' -d '{"filename":"unload_model"}' >/dev/null 2>&1; then
         echo "Unloaded Orpheus TTS to make room (Pantheon reloads it when it next speaks)"
         for _ in $(seq 1 40); do                 # <= 20 s
@@ -174,7 +182,6 @@ launch() {
         --privileged \
         --device nvidia.com/gpu=all \
         --network ai-net \
-        -p 5001:5001 \
         -v "${MODELS_DIR}:/models:z" \
         "${ADAPTER_MOUNT[@]}" \
         "${IMAGE}" \
