@@ -18,9 +18,11 @@ fi
 
 # ---- VRAM helpers -------------------------------------------------------------
 # Best-effort throughout: no nvidia-smi (or a GPU it can't see) just skips the waits.
-vram_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; }
+# `|| true`: under pipefail a missing nvidia-smi (e.g. run from the stack-ui container,
+# which has none) failed the assignment and set -e killed the script without a word.
+vram_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true; }
 vram_free() {   # "?" when unknown
-    local f; f="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')"
+    local f; f="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true)"
     echo "${f:-?}"
 }
 
