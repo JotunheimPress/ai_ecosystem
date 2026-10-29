@@ -90,6 +90,18 @@ for var in CIVITAI_TOKEN HF_TOKEN; do
   if [[ -n "${!var:-}" ]]; then TOKEN_ARGS+=(-e "$var"); fi
 done
 
+# nvidia-smi, injected from the HOST by the NVIDIA CDI spec rather than installed in the
+# image: it has to match the host driver exactly, and the driver moves with Bazzite
+# updates. koboldcpp/start.sh reads free VRAM through it to wait for a swapped-out model's
+# memory to come back, and `stack doctor` checks it. No CUDA context is created, so it
+# costs no VRAM. Optional: without the CDI spec the dashboard runs and those waits skip.
+GPU_ARGS=()
+if command -v nvidia-ctk >/dev/null 2>&1 && nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
+  GPU_ARGS=(--device nvidia.com/gpu=all)
+else
+  echo "!! no CDI device nvidia.com/gpu=all — nvidia-smi won't be available in $CONTAINER" >&2
+fi
+
 echo "==> Starting $CONTAINER on http://127.0.0.1:${PORT} …"
 podman run -d \
   --name "$CONTAINER" \
@@ -105,6 +117,7 @@ podman run -d \
   -v "$(dirname "$SOCK"):/run/podman" \
   "${BUS_ARGS[@]}" \
   "${TOKEN_ARGS[@]}" \
+  "${GPU_ARGS[@]}" \
   -v "$ECO:$ECO" \
   "$IMAGE"
 

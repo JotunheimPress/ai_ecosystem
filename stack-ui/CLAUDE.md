@@ -36,6 +36,7 @@ three mounts are load-bearing (all in `run-podman.sh`):
 | session bus (`$XDG_RUNTIME_DIR/bus`) | `stack on`/`off` are `systemctl --user`. Without it the switch can't work. |
 | `--network=host` | `stack` health-probes `http://localhost:5001`. In its own netns those are the *container's* ports and everything reads down. It also makes uvicorn's `127.0.0.1` bind the host loopback, so no port is published. |
 | `--userns=keep-id` | The session bus authenticates EXTERNAL against the uid the **host** sees. Under the default rootless mapping the process is uid 0 inside and 1000 outside, they disagree, and the bus answers `REJECTED`. |
+| `--device nvidia.com/gpu=all` | Injects the **host's** `nvidia-smi` via the CDI spec (it must match the host driver, so it isn't installed in the image). `koboldcpp/start.sh` reads free VRAM with it to wait out a model swap; without it those waits silently skip. Creates no CUDA context, so no VRAM cost. Skipped with a warning if the CDI spec is missing. |
 
 Consequence: it is the most privileged app in the ecosystem — it can control the host's
 containers and user services. That is the same authority the earlier host-side version
@@ -233,8 +234,8 @@ Deliberate, not incidental:
   exists only inside this container produces containers with broken mounts — and it fails
   quietly: `stack iguana` returned exit 0 while starting nothing usable. Identical paths on
   both sides is what makes starting other apps work at all.
-- **Three `stack doctor` checks can't pass from in here** and are not real failures:
-  `nvidia-smi` and the CDI spec need host NVIDIA tooling, and the systemd-unit check looks
+- **Two `stack doctor` checks can't pass from in here** and are not real failures:
+  the CDI spec needs host `nvidia-ctk`, and the systemd-unit check looks
   for a *file* under `$HOME`. Run `stack doctor` in a terminal for those; the rest (images,
   network, custom-node pins) are accurate.
 - **The podman client is version-pinned** to the host engine (`PODMAN_VERSION` in the
@@ -439,7 +440,7 @@ the whole verb would offer two buttons that quietly do nothing useful.
 - **`not_git` is excluded from the fix.** `stack install` reports a directory that isn't a
   git checkout and leaves it alone, so offering a button there would be a lie.
 - **Expect a non-zero exit.** `stack install` runs its prerequisite check first, and
-  `nvidia-smi` + the CDI spec cannot pass from inside this container, so the command exits
+  the CDI spec check (host `nvidia-ctk`) cannot pass from inside this container, so the command exits
   1 *even when the node work succeeded*. The console appends a note saying so — otherwise a
   successful re-pin sits under the words "install failed".
 - **Python deps are not covered.** A node arriving via a re-pin may still need a ComfyUI

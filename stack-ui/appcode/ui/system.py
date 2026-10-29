@@ -230,8 +230,8 @@ class DoctorView:
         _div(page, "su-panel",
              '<div class="su-panel-head"><h2>stack doctor</h2>'
              '<button class="su-btn su-primary" id="dr-run"><i class="mdi mdi-stethoscope"></i>Run</button></div>'
-             '<p class="su-dim">Three checks always fail from inside this container and are not '
-             'real: <code>nvidia-smi</code> and the CDI spec need host GPU tooling, and the '
+             '<p class="su-dim">Two checks always fail from inside this container and are not '
+             'real: the CDI spec needs host <code>nvidia-ctk</code>, and the '
              'systemd-unit check looks for a file under <code>$HOME</code>. Run '
              '<code>stack doctor</code> in a terminal for those.</p>'
              '<div id="dr-out"></div>')

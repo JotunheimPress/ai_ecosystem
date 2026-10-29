@@ -64,8 +64,8 @@ SCREENS = {
     "doctor": DoctorView,
 }
 
-# `stack install` runs its prerequisite check first, and nvidia-smi + the CDI spec cannot
-# pass from inside this container — so it exits 1 even when the node work succeeded.
+# `stack install` runs its prerequisite check first, and the CDI spec check (nvidia-ctk)
+# cannot pass from inside this container — so it exits 1 even when the node work succeeded.
 _INSTALL_NOTE = (
     "note: the non-zero exit is the GPU prerequisite check, which cannot pass from inside "
     "this container. The node work above it did run — check the lines above, or run "
