@@ -22,7 +22,7 @@ Running on Halo frees the 4070 for games.
 | Halo OS | **Preinstalled: AMD's "Rex"** (Ryzen AI Developer Platform 1), based on Debian 13 (Trixie). Reported in its Sept 2026 update to ship Linux 7.2.7 and ROCm 10.0 (one source, not yet confirmed with AMD). Kept if `stack doctor` passes on it. Replaces the earlier Ubuntu 24.04 choice. |
 | GPU runtime | **ROCm for ComfyUI** (PyTorch has no other path). **KoboldCPP and Orpheus: build both ROCm and Vulkan, benchmark, keep the winner as default** and the other switchable. |
 | How Halo is run | **Its own `stack`**: a clone of ai-stack on the Halo box, driven locally there (CLI + its own dashboard). Replaces the 2026-10-29 plan of driving a remote podman over SSH from the workstation, which only made sense while the frontends stayed here. |
-| Access from the workstation | **SSH tunnel** (`stack tunnel`, Phase D). Pantheon and Iguana only sign in or serve on loopback, and a tunnel makes the browser's address `127.0.0.1` again, so they work unchanged. TLS (Pantheon's PYTINCTURE_PLAN Phase 8) can replace it later. |
+| Access from the workstation | **Directly over the LAN**, `http://<halo>.local:<port>`. Every app answers on all interfaces over plain HTTP (2026-10-30: a local product, no TLS or tunnel). |
 | Network | Wired LAN, DHCP reservation, hostname `halo`, SSH key auth only (2026-10-29). |
 | Router | **Kept** (Phase 1). On Halo it routes `koboldcpp` / `orpheus-tts` to the ROCm or Vulkan copy, which is what makes the runtime switchable without touching the frontends. |
 | NVIDIA install | **Kept as a first-class option** (2026-10-30). Same checkout, NVIDIA profile, unchanged behaviour. Switching between hosts is choosing which stack you run and which data copy is current (Phase D). No automatic text failover: with the frontends on Halo, "Halo is down" means the apps are down too. |
@@ -147,10 +147,9 @@ Make the stack portable before the box arrives, and prove nothing changes on the
 
 ### Phase D: switching between the hosts
 
-1. `stack tunnel` on the workstation: one `ssh -N -L` for 7860–7864, 8188 and 5001 to Halo's
-   loopback, with a systemd user unit so it comes up at login. Bookmarks keep their
-   `127.0.0.1:<port>` addresses.
-2. `stack desktop` uses the tunnelled Pantheon.
+1. Open the apps on the Halo box directly: `http://<halo>.local:<port>` (every port is on the LAN;
+   no tunnel).
+2. `stack desktop` points at the Halo Pantheon.
 3. **Switching**: `stack off` on one host, `stack on` on the other, with the tunnel up when
    Halo is the one in use. The data has a single home at a time; a `stack sync` (rsync of the
    app data dirs in the direction you're switching) keeps the copies from drifting. Models stay

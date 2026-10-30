@@ -127,27 +127,18 @@ stack down        # stop everything    (also: down backends | down frontends | d
                   #   — leaves stackui alone; stop that with `down stackui`
 stack restart <app>
 stack logs <app>
-stack lan on             # use the apps from phones and other computers (HTTPS; see below)
 stack install [target]   # one-time setup, idempotent
 stack doctor             # check prerequisites + what's installed
 ```
 
 ## Other devices on the LAN
 
-Every app listens on this computer only. `stack lan on` starts one HTTPS proxy that serves them
-to the local network, at `<hostname>.local` (or `stack lan on <ip>` for devices that can't resolve
-`.local`):
-
-1. `stack lan on`, then `stack lan` prints the addresses, the password and the certificate fingerprint.
-2. On each phone or computer, open `http://<hostname>.local:8780/`, download the certificate, and
-   install it as trusted (the page says how on iOS, Android and desktops). Check that its fingerprint
-   matches the one `stack lan` printed.
-3. Open an app from that page. Pantheon uses its own accounts. Rhapsode, Iguana and Nocturne ask
-   for the proxy password (user `stack`).
-
-While it's on, Pantheon is used at its HTTPS address on this computer too. `stack lan off`
-turns it all back to loopback-only. The dashboard is never served on the LAN. Details:
-`lan-proxy/CLAUDE.md`.
+Every app answers on the whole local network over plain HTTP, no extra setup:
+`http://<hostname>.local:7861` (Pantheon), `:7860` (Rhapsode), `:7862` (Iguana Studio), `:7864`
+(Nocturne). Pantheon asks for its own accounts; the others have no login. It is a local product
+for whoever installs it. Browsers allow the microphone only on this computer or over HTTPS, so
+Pantheon's voice input works here but not from a phone. The dashboard (`:7863`) stays on this
+computer.
 
 ## The on/off switch (game ⇄ AI)
 

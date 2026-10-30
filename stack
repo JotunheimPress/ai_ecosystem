@@ -15,9 +15,6 @@
 #   stack restart <app>
 #   stack logs <app>
 #   stack route [local|halo]  show / set where text + voice are served (backend router)
-#   stack lan [on [NAME]|off|password]  other devices: HTTPS proxy on the LAN (lan-proxy/)
-#                           on   = serve the apps at https://NAME:876x (default <hostname>.local)
-#                           off  = loopback only again (the default)
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|koboldcpp|comfyui|stackui|service|path|desktop
@@ -40,17 +37,6 @@ SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off sw
 # is reported, not fatal, so `stack doctor` can still run and say what's wrong.
 . "$SELF/lib/host.sh"
 host_profile_load || HOST_PROFILE_BAD=1
-# LAN mode (lan.env, git-ignored; `stack lan`). Read here, at the top, so every way an app
-# gets started — the CLI, `stack up` at boot, the dashboard — hands Pantheon and Iguana the
-# proxy's name, and a restart can never silently drop them back to loopback-only.
-LAN_ENV="$SELF/lan.env"
-lan_get() { grep -oP "^$1=\K.*" "$LAN_ENV" 2>/dev/null | tr -d "\"'" | head -1; }   # parsed, never sourced
-lan_valid() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$ ]]; }
-LAN_NAME=""
-if [[ "$(lan_get LAN)" == on ]] && lan_valid "$(lan_get LAN_NAME)"; then
-  LAN_NAME=$(lan_get LAN_NAME)
-  export PANTHEON_PUBLIC_ORIGIN="https://$LAN_NAME:8761" IGUANA_ALLOWED_HOSTS="$LAN_NAME"
-fi
 
 # router first: koboldcpp and orpheus-tts are health-probed THROUGH it, so without it
 # they read as down and `stack up` would reload a model that was already serving.
@@ -157,10 +143,6 @@ cmd_status() {
   echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
   echo "${C_B}Control${C_OFF}";                 for a in "${CONTROL[@]}"; do row "$a"; done
-  if [[ -n "$LAN_NAME" ]]; then
-    local st="${C_GREEN}up  ${C_OFF}"; lan_proxy_up || st="${C_RED}down${C_OFF}"
-    printf "  %-11s [%b]  %bhttps://%s:876x%b  %bthe apps on the LAN (stack lan)%b\n" lan-proxy "$st" "$C_DIM" "$LAN_NAME" "$C_OFF" "$C_DIM" "$C_OFF"
-  fi
 }
 
 start_one() {
@@ -229,71 +211,7 @@ cmd_route() {
   echo "  ${C_GREEN}✓${C_OFF} text → $k, voice → $o"
 }
 
-cmd_up() {
-  ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done
-  [[ -n "$LAN_NAME" ]] && ! lan_proxy_up && { echo "==> starting lan-proxy …"; "$SELF/lan-proxy/start.sh" "$LAN_NAME" >/dev/null; }
-  return 0
-}
-
-# ---- LAN: the HTTPS proxy (lan-proxy/) -------------------------------------------------
-LAN_STATE="$ECO/lan-proxy"
-lan_proxy_up() { [[ "$(podman inspect -f '{{.State.Status}}' lan-proxy 2>/dev/null)" == running ]]; }
-lan_ip() { ip -4 -o route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[0-9.]+'; }
-# Pantheon and Iguana read the LAN name at start, so the running ones are restarted.
-lan_restart_apps() {
-  local a
-  for a in companion iguana; do
-    is_up "$a" || continue
-    echo "==> restarting $a for the new address"; stop_app "$a"; podman rm -f "${CNAME[$a]}" >/dev/null 2>&1; start_one "$a"
-  done
-}
-lan_show() {
-  if [[ -z "$LAN_NAME" ]]; then
-    echo "LAN: ${C_RED}off${C_OFF} — every app is reachable from this computer only."
-    echo "  ${C_DIM}stack lan on [NAME]   NAME defaults to $(hostname -s).local${C_OFF}"
-    return 0
-  fi
-  local state="${C_GREEN}on${C_OFF}"; lan_proxy_up || state="${C_RED}on, but lan-proxy is down${C_OFF} (stack up)"
-  echo "LAN: $state"
-  echo "  Start page   http://$LAN_NAME:8780/   ${C_DIM}(install the certificate from here first)${C_OFF}"
-  echo "  Pantheon     https://$LAN_NAME:8761/   ${C_DIM}its own accounts${C_OFF}"
-  echo "  Rhapsode     https://$LAN_NAME:8760/   ${C_DIM}stack password${C_OFF}"
-  echo "  Iguana       https://$LAN_NAME:8762/   ${C_DIM}stack password${C_OFF}"
-  echo "  Nocturne     https://$LAN_NAME:8764/   ${C_DIM}stack password${C_OFF}"
-  [[ -s "$LAN_STATE/password" ]] && echo "  Password     user ${C_B}stack${C_OFF}, password ${C_B}$(cat "$LAN_STATE/password")${C_OFF}"
-  local crt="$LAN_STATE/data/caddy/pki/authorities/local/root.crt"
-  [[ -s "$crt" ]] && echo "  Certificate  SHA-256 $(openssl x509 -in "$crt" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)"
-  echo "  ${C_DIM}Pantheon now signs in at its HTTPS address on this computer too; 127.0.0.1:7861 redirects there.${C_OFF}"
-  if command -v qrencode >/dev/null; then qrencode -t ANSIUTF8 -m 1 "http://$LAN_NAME:8780/"; fi
-  if [[ "$LAN_NAME" == *.local ]]; then
-    echo "  ${C_DIM}A phone that can't open $LAN_NAME: stack lan on $(lan_ip)${C_OFF}"
-  fi
-}
-cmd_lan() {
-  case "${1:-}" in
-    "") lan_show ;;
-    on)
-      local name=${2:-$(lan_get LAN_NAME)}; name=${name:-$(hostname -s).local}
-      lan_valid "$name" || { echo "not a host name or IPv4 address: $name"; return 1; }
-      printf 'LAN=on\nLAN_NAME=%s\n' "$name" > "$LAN_ENV.tmp" && mv "$LAN_ENV.tmp" "$LAN_ENV"
-      LAN_NAME=$name; export PANTHEON_PUBLIC_ORIGIN="https://$name:8761" IGUANA_ALLOWED_HOSTS="$name"
-      ensure_net
-      "$SELF/lan-proxy/start.sh" "$name" || return 1
-      lan_restart_apps
-      echo; lan_show ;;
-    off)
-      printf 'LAN=off\nLAN_NAME=%s\n' "$(lan_get LAN_NAME)" > "$LAN_ENV.tmp" && mv "$LAN_ENV.tmp" "$LAN_ENV"
-      LAN_NAME=""; unset PANTHEON_PUBLIC_ORIGIN IGUANA_ALLOWED_HOSTS
-      podman rm -f lan-proxy >/dev/null 2>&1 && echo "==> lan-proxy stopped"
-      lan_restart_apps
-      echo; lan_show ;;
-    password)
-      rm -f "$LAN_STATE/password" "$LAN_STATE/password.hash"
-      echo "==> password cleared; a new one is made on the next start"
-      if [[ -n "$LAN_NAME" ]]; then "$SELF/lan-proxy/start.sh" "$LAN_NAME" >/dev/null && lan_show; fi ;;
-    *) echo "usage: stack lan [on [NAME]|off|password]"; return 1 ;;
-  esac
-}
+cmd_up() { ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done; }
 
 cmd_down() {
   local t=${1:-all} list=()
@@ -798,7 +716,6 @@ case "${1:-}" in
   restart)   a=${2:?usage: stack restart <app>}; stop_app "$a"; sleep 1; ensure_net; start_one "$a" ;;
   logs)      cmd_logs "${2:-}" ;;
   route)     cmd_route "${2:-}" ;;
-  lan)       cmd_lan "${2:-}" "${3:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   desktop)   shift; [[ "${1:-}" == "stop" ]] && cmd_desktop_stop || cmd_desktop "$@" ;;
