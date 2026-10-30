@@ -274,6 +274,25 @@ def _safe_target(kind: str, name: str) -> Path:
     return p
 
 
+# model.env keys stack-ui doesn't write but must not drop when it rewrites the file.
+_KEPT_KEYS = ("KOBOLDCPP_CONTEXT",)   # not the adapter: it belongs to the model
+
+
+def _kept_model_env() -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        text = MODEL_ENV.read_text()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        k, sep, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        # Same character rule as the written values: one line, no quotes or shell syntax.
+        if sep and k in _KEPT_KEYS and v and all(c.isalnum() or c in "._-" for c in v):
+            out[k] = v
+    return out
+
+
 def select_kobold(model: str, gpu_layers: int | None) -> dict:
     """Pin the model KoboldCPP boots, by writing koboldcpp/model.env.
 
@@ -299,6 +318,8 @@ def select_kobold(model: str, gpu_layers: int | None) -> dict:
     ]
     if gpu_layers is not None:
         lines.append(f"KOBOLDCPP_GPU_LAYERS={gpu_layers}")
+    # Settings this screen doesn't edit (set by hand) survive a model change.
+    lines += [f"{k}={v}" for k, v in _kept_model_env().items()]
 
     tmp = MODEL_ENV.with_name(MODEL_ENV.name + ".tmp")
     tmp.write_text("\n".join(lines) + "\n")

@@ -60,7 +60,7 @@ done
 # Parsed strictly, never sourced: this file gets written from model names that came off
 # the internet, and `.` would execute whatever ended up in it.
 MODEL_ENV="${SCRIPT_DIR}/model.env"
-FILE_MODEL=""; FILE_LAYERS=""; FILE_ADAPTER=""
+FILE_MODEL=""; FILE_LAYERS=""; FILE_ADAPTER=""; FILE_CONTEXT=""
 if [ -f "${MODEL_ENV}" ]; then
     while IFS='=' read -r k v; do
         v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"      # tolerate quoting
@@ -68,6 +68,7 @@ if [ -f "${MODEL_ENV}" ]; then
             KOBOLDCPP_MODEL)      FILE_MODEL="$v" ;;
             KOBOLDCPP_GPU_LAYERS) FILE_LAYERS="$v" ;;
             KOBOLDCPP_ADAPTER)    FILE_ADAPTER="$v" ;;
+            KOBOLDCPP_CONTEXT)    FILE_CONTEXT="$v" ;;
         esac
     done < "${MODEL_ENV}"
 fi
@@ -79,6 +80,20 @@ GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-${FILE_LAYERS:-33}}"
 case "${GPU_LAYERS}" in
     ''|*[!0-9]*) echo "KOBOLDCPP_GPU_LAYERS must be a whole number, got '${GPU_LAYERS}'" >&2; exit 1 ;;
 esac
+
+# Context window (tokens). Unset = KoboldCPP's own default (8192), exactly as before.
+# Standard sizes only, so a typo can't ask for a window that eats the card: the KV cache
+# grows with it (a 9B Q4_K_M at 16384 is affordable on 12 GB; 32768 may cost GPU layers).
+# Apps read the real value from /api/extra/true_max_context_length, so nothing else to set.
+CONTEXT="${KOBOLDCPP_CONTEXT:-${FILE_CONTEXT:-}}"
+CONTEXT_ARGS=()
+if [ -n "${CONTEXT}" ]; then
+    case "${CONTEXT}" in
+        4096|6144|8192|12288|16384|24576|32768) CONTEXT_ARGS=(--contextsize "${CONTEXT}") ;;
+        *) echo "KOBOLDCPP_CONTEXT must be one of 4096 6144 8192 12288 16384 24576 32768, got '${CONTEXT}'" >&2
+           exit 1 ;;
+    esac
+fi
 
 # Fail here rather than inside the container: it runs detached, so a bad model name would
 # otherwise burn through the restart budget and `stack up` would just report "did not come up".
@@ -191,6 +206,7 @@ launch() {
         --gpulayers "$1" \
         --model "/models/${MODEL}" \
         "${ADAPTER_ARGS[@]}" \
+        "${CONTEXT_ARGS[@]}" \
         "${EXTRA_ARGS[@]}" >/dev/null
 }
 
@@ -244,7 +260,7 @@ UNIFIED=0
 # but it answers). KOBOLDCPP_LAYER_STEP layers per retry, at most 4 retries.
 STEP="${KOBOLDCPP_LAYER_STEP:-4}"
 for attempt in 1 2 3 4 5 6; do
-    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, chat format: ${ADAPTER}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
+    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, chat format: ${ADAPTER}, context: ${CONTEXT:-default}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
     launch "${LAYERS}" "${UNIFIED}"
     result="$(await_load)"
     case "${result}" in

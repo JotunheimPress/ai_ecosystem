@@ -88,6 +88,7 @@ built-in default**:
 |---|---|---|
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | filename inside `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | layers offloaded to GPU; lower it if you OOM |
+| `KOBOLDCPP_CONTEXT` | unset (8192) | context window: 4096, 6144, 8192, 12288, 16384, 24576 or 32768 tokens. Bigger remembers more per reply but costs VRAM |
 
 ```bash
 KOBOLDCPP_MODEL=other.gguf KOBOLDCPP_GPU_LAYERS=20 ./start.sh   # one-off, changes nothing
@@ -109,7 +110,7 @@ without the file the built-in default is the only model the stack can boot — a
 shell doesn't survive a reboot, or even a `stack off`/`stack on`. Set `GPU_LAYERS` per model: the
 right value differs by quant, and a heavier one needs fewer layers to fit 12 GB.
 
-The file is parsed strictly (`KOBOLDCPP_MODEL` and `KOBOLDCPP_GPU_LAYERS` only, quotes and `#`
+The file is parsed strictly (`KOBOLDCPP_MODEL`, `KOBOLDCPP_GPU_LAYERS`, `KOBOLDCPP_ADAPTER` and `KOBOLDCPP_CONTEXT` only, quotes and `#`
 comments tolerated), never `source`d — it's meant to be machine-written from model names fetched off
 the internet, and sourcing would execute whatever landed in it. It's runtime state, so it isn't
 committed.
