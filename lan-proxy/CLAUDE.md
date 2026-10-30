@@ -67,6 +67,10 @@ Iguana and Nocturne 200; certificate SAN `DNS:myhost.local`, issuer `AI Stack LA
 Intermediate`; `/root.key` and `..` paths 404. Pantheon (a throwaway instance with a seeded admin):
 login page 200, wrong password 401, right password 303, then `__Host-pantheon-session` + csrf cookies,
 both `Secure`, and the signed-in page 200. Loopback mode afterwards unchanged.
+Live the same day (`stack lan on`, all interfaces): every address answers by its mDNS name and
+via 192.168.1.50 (401s for the locked apps until the password is given). The first real start had
+exited silently: the password pipe (`tr </dev/urandom | head`) dies of SIGPIPE, which `set -e` +
+`pipefail` turn into an exit — the dry runs never hit it because the password file already existed.
 **Not yet tried from a phone**, and the desktop avatar (`stack desktop`) in LAN mode is untested:
 it loads `127.0.0.1:7861/desktop`, which redirects to the HTTPS address, so its browser has to trust
 the CA.

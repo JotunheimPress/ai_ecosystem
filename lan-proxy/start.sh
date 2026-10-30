@@ -41,7 +41,11 @@ chmod 700 "$STATE"
 
 # The password for the locked apps: made once, kept until `stack lan password` deletes it.
 if [[ ! -s "$STATE/password" ]]; then
-    ( umask 077; tr -dc 'a-km-z2-9' </dev/urandom | head -c 20 > "$STATE/password" )
+    # `|| true`: tr is killed by SIGPIPE once head has its 20 characters, and under
+    # pipefail + set -e that would end this script silently (it did, on the first start).
+    pw=$(LC_ALL=C tr -dc 'a-km-z2-9' </dev/urandom | head -c 20 || true)
+    [[ ${#pw} -eq 20 ]] || { echo "could not make a password" >&2; exit 1; }
+    ( umask 077; printf '%s' "$pw" > "$STATE/password" )
     rm -f "$STATE/password.hash"
 fi
 if [[ ! -s "$STATE/password.hash" ]]; then
