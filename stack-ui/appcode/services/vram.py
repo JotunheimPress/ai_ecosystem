@@ -66,8 +66,19 @@ def _skip_value(f, vtype: int) -> None:
         f.seek(_FIXED.get(vtype, 1), 1)
 
 
+# Attention shape, for the KV-cache estimate (kv_cache_bytes). Scalars only: a model with
+# per-layer arrays here just gets no estimate rather than a wrong one.
+_ATTN = {".attention.head_count": "n_heads", ".attention.head_count_kv": "n_kv_heads",
+         ".attention.key_length": "key_len", ".attention.value_length": "value_len",
+         ".embedding_length": "n_embd", ".context_length": "train_ctx",
+         # Hybrid models (Qwen3.5): only every Nth layer is attention and keeps a cache.
+         ".full_attention_interval": "attn_interval"}
+_INT_TYPES = (4, 5, 10, 11)
+
+
 def gguf_meta(path: Path) -> dict:
-    """{arch, n_layers} from the header, or {} if it isn't readable. Cached by path+mtime."""
+    """{arch, n_layers, n_heads, n_kv_heads, key_len, value_len, n_embd, train_ctx} — the
+    ones present — from the header, or {} if it isn't readable. Cached by path+mtime."""
     try:
         key = f"{path}:{path.stat().st_mtime_ns}"
     except OSError:
@@ -86,21 +97,40 @@ def gguf_meta(path: Path) -> dict:
             arch = None
             for _ in range(min(n_kv, 512)):                   # headers are small; cap anyway
                 key_name = _read_str(f)
+                # The tokenizer's vocab arrays follow the model keys and are megabytes;
+                # everything wanted here comes before them.
+                if key_name.startswith("tokenizer.") and "n_layers" in meta:
+                    break
                 vtype, = struct.unpack("<I", f.read(4))
                 if key_name == "general.architecture" and vtype == _STR:
                     arch = _read_str(f)
                     meta["arch"] = arch
-                elif key_name.endswith(".block_count") and vtype in (4, 5, 10, 11):
-                    raw = f.read(_FIXED[vtype])
-                    meta["n_layers"] = int.from_bytes(raw, "little")
+                elif key_name.endswith(".block_count") and vtype in _INT_TYPES:
+                    meta["n_layers"] = int.from_bytes(f.read(_FIXED[vtype]), "little")
+                elif vtype in _INT_TYPES and arch and key_name.startswith(arch + ".") \
+                        and key_name[len(arch):] in _ATTN:
+                    meta[_ATTN[key_name[len(arch):]]] = int.from_bytes(f.read(_FIXED[vtype]), "little")
                 else:
                     _skip_value(f, vtype)
-                if "n_layers" in meta and "arch" in meta:
-                    break
     except (OSError, struct.error, ValueError):
         return {}
     _GGUF_CACHE[key] = meta
     return meta
+
+
+def kv_cache_bytes(meta: dict, context: int) -> int | None:
+    """KV cache for `context` tokens at f16 (KoboldCPP's default), or None if the header
+    lacks the attention shape. Hybrid models that declare full_attention_interval count
+    only their attention layers; other hybrids get an upper bound."""
+    n_layers, n_kv = meta.get("n_layers"), meta.get("n_kv_heads") or meta.get("n_heads")
+    if n_layers and (meta.get("attn_interval") or 0) > 1:
+        n_layers = max(1, n_layers // meta["attn_interval"])
+    head = meta.get("key_len") or (meta["n_embd"] // meta["n_heads"]
+                                   if meta.get("n_embd") and meta.get("n_heads") else None)
+    if not (n_layers and n_kv and head):
+        return None
+    k_len, v_len = head, meta.get("value_len") or head
+    return n_layers * context * n_kv * (k_len + v_len) * 2
 
 
 # --- live figures ------------------------------------------------------------

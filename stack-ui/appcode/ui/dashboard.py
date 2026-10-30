@@ -181,8 +181,10 @@ class DashboardView:
             rows.append(
                 '<div class="su-banner">'
                 '<i class="mdi mdi-information-outline"></i>'
-                f'<span>Selected <b>{esc(sel)}</b> — restart KoboldCPP to load it.</span>'
-                f'<button class="su-btn su-primary" data-act="restart" data-target="koboldcpp"{dis}>'
+                + (f'<span>Selected <b>{esc(sel)}</b> — restart KoboldCPP to load it.</span>'
+                   if "model" in (k.get("restart_for") or ["model"]) else
+                   '<span>New context window — restart KoboldCPP to apply it.</span>')
+                + f'<button class="su-btn su-primary" data-act="restart" data-target="koboldcpp"{dis}>'
                 'Restart</button></div>')
         return "".join(rows)
 

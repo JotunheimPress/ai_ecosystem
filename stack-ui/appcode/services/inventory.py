@@ -80,12 +80,12 @@ def _builtin_default() -> str | None:
 
 
 def _read_model_env() -> dict[str, str]:
-    """Same strict two-key parse as start.sh — never exec, never eval."""
+    """Same strict key-by-key parse as start.sh — never exec, never eval."""
     out: dict[str, str] = {}
     try:
         for line in MODEL_ENV.read_text().splitlines():
             k, _, v = line.partition("=")
-            if k.strip() in ("KOBOLDCPP_MODEL", "KOBOLDCPP_GPU_LAYERS"):
+            if k.strip() in ("KOBOLDCPP_MODEL", "KOBOLDCPP_GPU_LAYERS", "KOBOLDCPP_CONTEXT"):
                 out[k.strip()] = v.strip().strip('"').strip("'")
     except OSError:
         pass
@@ -128,6 +128,43 @@ def running_model() -> str | None:
     return name.split("/", 1)[-1] or None
 
 
+# Context windows start.sh accepts (KOBOLDCPP_CONTEXT); keep the two lists identical.
+# 4K steps to 8K, then half-steps between powers of two: each size is 1.33–1.5x the last.
+CONTEXT_SIZES = (4096, 6144, 8192, 12288, 16384, 24576, 32768)
+DEFAULT_CONTEXT = 8192          # KoboldCPP's own, used when model.env sets none
+
+
+def running_context() -> int | None:
+    """The context window KoboldCPP was started with, from its own API."""
+    try:
+        with urllib.request.urlopen(
+                "http://localhost:5001/api/extra/true_max_context_length", timeout=2) as r:
+            return int(json.load(r).get("value") or 0) or None
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+
+
+def set_kobold_context(size: int | None) -> dict:
+    """Set KOBOLDCPP_CONTEXT in model.env (None = remove it: KoboldCPP's default).
+
+    Every other line is kept exactly as it is. Like a model change, it applies on the
+    next start and never restarts by itself.
+    """
+    if size is not None and size not in CONTEXT_SIZES:
+        raise InventoryError(f"context must be one of {', '.join(map(str, CONTEXT_SIZES))}")
+    try:
+        lines = MODEL_ENV.read_text().splitlines()
+    except FileNotFoundError:
+        lines = ["# Written by stack-ui. Parsed (never sourced) by koboldcpp/start.sh."]
+    lines = [ln for ln in lines if ln.partition("=")[0].strip() != "KOBOLDCPP_CONTEXT"]
+    if size is not None:
+        lines.append(f"KOBOLDCPP_CONTEXT={size}")
+    tmp = MODEL_ENV.with_name(MODEL_ENV.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.replace(tmp, MODEL_ENV)
+    return kobold()
+
+
 def kobold() -> dict:
     env = _read_model_env()
     selected = env.get("KOBOLDCPP_MODEL")
@@ -145,6 +182,11 @@ def kobold() -> dict:
             files.append({"name": f.name, "size": size, "active": f.name == active,
                           "path": str(f), "url": sources.get(f.name)})
     running = running_model()
+    ctx = env.get("KOBOLDCPP_CONTEXT")
+    context = int(ctx) if ctx and ctx.isdigit() else None
+    running_ctx = running_context() if running else None
+    model_pending = bool(running) and bool(active) and Path(active).stem != running
+    context_pending = bool(running_ctx) and running_ctx != (context or DEFAULT_CONTEXT)
     for f in files:
         # Kobold strips the .gguf when reporting, so compare on the stem.
         f["running"] = bool(running) and Path(f["name"]).stem == running
@@ -162,7 +204,14 @@ def kobold() -> dict:
         "presets": read_presets(),
         # The selection only reaches VRAM on a restart; the UI needs to say so plainly
         # rather than showing a green tick over a model that isn't loaded.
-        "restart_needed": bool(running) and bool(active) and Path(active).stem != running,
+        "restart_needed": model_pending or context_pending,
+        "restart_for": [w for w, on in (("model", model_pending), ("context", context_pending)) if on],
+        # Context window: what model.env asks for (None = KoboldCPP's default) and what
+        # the running server actually has.
+        "context": context,
+        "context_default": DEFAULT_CONTEXT,
+        "context_sizes": list(CONTEXT_SIZES),
+        "running_context": running_ctx,
     }
 
 

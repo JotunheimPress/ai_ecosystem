@@ -55,6 +55,7 @@ def kobold() -> dict:
         "selected_present": inv.get("active_present"),
         "gpu_layers": inv.get("gpu_layers"),
         "restart_needed": inv.get("restart_needed"),
+        "restart_for": inv.get("restart_for") or [],
     }
     if not running:
         return out

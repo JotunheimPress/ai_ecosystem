@@ -56,6 +56,31 @@ class ModelsApi:
         except (inventory.InventoryError, TypeError, ValueError) as exc:
             return _err(exc)
 
+    def llm_context(self) -> dict:
+        """The context-window choices for the selected model, each with its KV-cache cost."""
+        from services import inventory, vram
+
+        k = inventory.kobold()
+        meta = {}
+        if k.get("active_present"):
+            meta = vram.gguf_meta(inventory.KOBOLD_MODELS / k["active"])
+        sizes = [{"size": n, "kv": vram.kv_cache_bytes(meta, n),
+                  "past_training": bool(meta.get("train_ctx")) and n > meta["train_ctx"]}
+                 for n in k["context_sizes"]]
+        return {"ok": True, "model": k.get("active"), "context": k.get("context"),
+                "default": k.get("context_default"), "running": k.get("running_context"),
+                "train_ctx": meta.get("train_ctx"), "sizes": sizes}
+
+    def set_llm_context(self, size: int = 0) -> dict:
+        """Set KoboldCPP's context window (0 = its default). Applies on its next start."""
+        from services import inventory
+
+        try:
+            value = int(size or 0)
+            return {"ok": True, "kobold": inventory.set_kobold_context(value or None)}
+        except (inventory.InventoryError, TypeError, ValueError) as exc:
+            return _err(exc)
+
     # --- image models (ComfyUI) -----------------------------------------------
     def images(self) -> dict:
         from services import inventory, stackctl

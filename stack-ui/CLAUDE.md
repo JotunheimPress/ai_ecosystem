@@ -271,6 +271,18 @@ UI shows a pending banner (on the dashboard's Oracle card and the Language model
 whose button fires the ordinary `restart koboldcpp` action. Selecting from the Language
 models screen *offers* the restart in a confirm dialog; it still never happens by itself.
 
+**Context window** (Language models → Installed, the combobox under the status line):
+`ModelsApi.set_llm_context` writes `KOBOLDCPP_CONTEXT` into `model.env` (removing the line =
+KoboldCPP's default, 8192), keeping every other line as it is; `select_llm` carries it over
+on a model change. Sizes are `inventory.CONTEXT_SIZES` — 4K, 6K, 8K, 12K, 16K, 24K, 32K —
+and must match the `case` in `koboldcpp/start.sh` (`tests/test_context.py` checks). Each
+option shows the KV-cache cost for the selected model (`vram.kv_cache_bytes`, f16, from the
+GGUF header's attention shape; hybrid models count only every `full_attention_interval`th
+layer, so Qwen3.5 is a quarter of a dense model) and is flagged past the model's trained
+`context_length`. Like a model change it never restarts: `restart_needed` is also set when
+the running context (`/api/extra/true_max_context_length`) differs from the selection, and
+`restart_for` says which (`model`/`context`), so the banners name the right reason.
+
 **Deleting refuses two cases**: the currently *selected* model (start.sh hard-fails on a
 missing selection, so it would break the backend at the next start rather than now) and
 the currently *loaded* one. `model.env` is written atomically — a torn write would be

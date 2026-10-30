@@ -156,6 +156,9 @@ body { background: var(--su-bg); }
 .su-searchbar input, .su-searchbar select, .su-planner select {
   font: inherit; font-size: 13.5px; padding: 6px 9px; border-radius: 7px;
   border: 1px solid var(--su-border); background: var(--su-bg); color: var(--su-text); }
+.su-ctxbar { font-size: 13px; }
+.su-ctxbar label { font-weight: 600; }
+.su-ctxbar select { min-width: 300px; }
 .su-check { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--su-dim); }
 
 .su-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);

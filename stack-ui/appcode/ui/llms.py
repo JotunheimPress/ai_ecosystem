@@ -5,7 +5,8 @@ Two tabs.
 **Installed** — every .gguf in koboldcpp/models with its size, architecture and layer
 count (read from the file header), the one selected to boot and the one actually loaded.
 Use writes model.env and never restarts on its own: a restart drops what is loaded and
-costs 20–30 s, so it is offered, not done. Delete refuses the selected and the loaded
+costs 20–30 s, so it is offered, not done. The Context window box sets KOBOLDCPP_CONTEXT
+the same way, each size labelled with its KV-cache cost for the selected model. Delete refuses the selected and the loaded
 model server-side.
 
 **Find on HuggingFace** — search (GGUF repos only), pick a repo, pick a quant. Each file
@@ -106,6 +107,12 @@ class LlmsView:
     def _mount_installed(self, cell) -> None:
         col = _div(cell, "su-col")
         _div(col, "su-status", '<span class="su-dim">loading…</span>').id = "llm-status"
+        _div(col, "su-searchbar su-ctxbar",
+             '<i class="mdi mdi-text-box-multiple-outline"></i>'
+             '<label for="llm-ctx">Context window</label>'
+             '<select id="llm-ctx" disabled><option>loading…</option></select>'
+             '<span class="su-dim" id="llm-ctx-note"></span>')
+        self.listeners.on(by_id("llm-ctx"), "change", lambda _e: spawn(self._set_context(), "context"))
         self.tb = Toolbar(ToolbarConfig(label="Installed models", items=[
             ToolbarButton(id="use", label="Use for KoboldCPP", icon="mdi-check-bold",
                           variant="primary", disabled=True,
@@ -189,6 +196,62 @@ class LlmsView:
         self.table.set_rows(rows)
         self._render_status()
         self._sync_toolbar()
+        await self._load_context()
+
+    # --- context window ----------------------------------------------------------
+    async def _load_context(self) -> None:
+        r = await ModelsApi().llm_context_async()
+        sel = by_id("llm-ctx")
+        if not sel or failed(r, "read the context window"):
+            return
+        self.ctx = r
+        current = r.get("context") or 0
+        default = r.get("default") or 8192
+        opts = [(0, f"Default — {default // 1024}K ({default:,} tokens, KoboldCPP's own)")]
+        for x in r.get("sizes") or []:
+            n = x["size"]
+            label = f"{n // 1024}K — {n:,} tokens"
+            if x.get("kv"):
+                label += f" · ~{fmt_bytes(x['kv'])} KV cache"
+            if x.get("past_training"):
+                label += " · past what the model was trained on"
+            opts.append((n, label))
+        sel.innerHTML = "".join(
+            f'<option value="{n}"{" selected" if n == current else ""}>{esc(t)}</option>'
+            for n, t in opts)
+        sel.disabled = bool(self.app.busy)
+        self._context_note()
+
+    def _context_note(self) -> None:
+        r = getattr(self, "ctx", None) or {}
+        running, want = r.get("running"), r.get("context") or r.get("default")
+        bits = []
+        if running:
+            bits.append(f"running at {running:,}")
+        if running and want and running != want:
+            bits.append(f"restart to switch to {want:,}")
+        bits.append("KV cache estimate is for the selected model, on top of its weights")
+        by_id("llm-ctx-note").textContent = " · ".join(bits)
+
+    async def _set_context(self) -> None:
+        sel = by_id("llm-ctx")
+        size = int(str(sel.value) or 0)
+        r = await ModelsApi().set_llm_context_async(size)
+        if failed(r, "set the context window"):
+            await self._load_context()
+            return
+        k = r.get("kobold") or {}
+        await self.load()
+        shown = f"{size:,} tokens" if size else "KoboldCPP's default"
+        if "context" in (k.get("restart_for") or []):
+            if await message.confirm(
+                    f"KoboldCPP will use {shown}. It is running at {k.get('running_context'):,} "
+                    "now.\n\nRestart it now? Loading takes 20–30 seconds.",
+                    title="Restart KoboldCPP?", ok_text="Restart now", cancel_text="Later"):
+                self.app.act("restart", "koboldcpp")
+        else:
+            toast(f"Context window set to {shown}"
+                  + ("." if k.get("running_context") else " — applies when KoboldCPP starts."), "success")
 
     def _render_status(self) -> None:
         r = self.state
@@ -209,7 +272,9 @@ class LlmsView:
         if d:
             parts.append(f'<span class="su-dim">{fmt_bytes(d.get("free"))} free on disk</span>')
         if r.get("restart_needed"):
-            parts.append('<span class="su-warn">Restart KoboldCPP to load the selected model.</span>')
+            what = {"model": "the selected model", "context": "the new context window"}
+            why = " and ".join(what[w] for w in r.get("restart_for") or ["model"])
+            parts.append(f'<span class="su-warn">Restart KoboldCPP to load {why}.</span>')
         by_id("llm-status").innerHTML = " ".join(parts)
         self.tb.set_hidden("restart", not r.get("restart_needed"))
         self.tb.set_disabled("restart", self.app.busy)
@@ -227,6 +292,11 @@ class LlmsView:
 
     def on_busy(self, busy: bool) -> None:
         self.tb.set_disabled("restart", busy)
+        sel = by_id("llm-ctx")
+        if sel:
+            sel.disabled = bool(busy)
+        if not busy:
+            spawn(self.load(), "reload llms")     # a restart just finished: show what loaded
 
     def on_overview(self, _ov) -> None:
         pass
