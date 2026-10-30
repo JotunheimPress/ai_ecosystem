@@ -34,7 +34,7 @@ three mounts are load-bearing (all in `run-podman.sh`):
 |---|---|
 | `podman.sock` | `stack` drives podman; this is the host engine. The image ships the **podman client only** (static `podman-remote`, pinned to the host version) — this container must never run containers itself. |
 | session bus (`$XDG_RUNTIME_DIR/bus`) | `stack on`/`off` are `systemctl --user`. Without it the switch can't work. |
-| `--network=host` | `stack` health-probes `http://localhost:5001`. In its own netns those are the *container's* ports and everything reads down. It also makes uvicorn's `127.0.0.1` bind the host loopback, so no port is published. |
+| `--network=host` | `stack` health-probes `http://localhost:5001`. In its own netns those are the *container's* ports and everything reads down. It also means uvicorn binds the host's own interfaces (`0.0.0.0`, the whole LAN), so no port is published. |
 | `--userns=keep-id` | The session bus authenticates EXTERNAL against the uid the **host** sees. Under the default rootless mapping the process is uid 0 inside and 1000 outside, they disagree, and the bus answers `REJECTED`. |
 | `--device nvidia.com/gpu=all` | Injects the **host's** `nvidia-smi` via the CDI spec (it must match the host driver, so it isn't installed in the image). `koboldcpp/start.sh` reads free VRAM with it to wait out a model swap; without it those waits silently skip. Creates no CUDA context, so no VRAM cost. Skipped with a warning if the CDI spec is missing. |
 
@@ -67,7 +67,7 @@ stack down stackui         # stop
 stack logs stackui         # podman logs -f
 ```
 
-Then http://localhost:7863 (redirects to `/stackui/`). `stack status` lists it under **Control**.
+Then http://localhost:7863 (redirects to `/stackui/`), or `http://<host>.local:7863` from any device on the LAN. `stack status` lists it under **Control**.
 The image clones wapyt from GitHub at the pinned `WAPYT_REF` (the Containerfile header says
 how to build against the local checkout instead).
 
@@ -91,7 +91,7 @@ search; `STACKUI_OFFLINE=1` skips it).
 ## Structure
 
 ```
-service.py             # ASGI entry: create_app + the GET event streams; REFUSES a non-loopback bind
+service.py             # ASGI entry: create_app + the GET event streams; binds 0.0.0.0 (STACK_UI_HOST)
 Containerfile          # python 3.13 + wapyt wheels + podman CLIENT + the systemctl shim
 run-podman.sh          # the run flags, each one load-bearing — read the header
 shim/systemctl         # systemctl -> D-Bus translation (see above)
@@ -171,20 +171,19 @@ the console panel at the bottom.
 
 Deliberate, not incidental:
 
-- **Loopback only.** `service.py` exits rather than bind a non-loopback address. There's no
-  auth, and that's only tolerable while it can't be reached off-box. (Companion binds
-  `0.0.0.0`; that pattern must not be copied here.) If remote access is ever wanted, it
-  needs auth in front first — companion's `services/auth.py` drops in.
-- **Host + Origin guards on every write.** Without auth the browser is a confused deputy:
-  any page you have open can POST to localhost. Since the pytincture port these come from
-  pytincture itself rather than our middleware: `allowed_hosts` (127.0.0.1/localhost/::1)
-  answers any other Host with 400, which blocks DNS rebinding; a BFF write must be
+- **The whole LAN, no auth** (since 2026-10-30). The stack is a local product for whoever
+  installs it, so the dashboard answers on `0.0.0.0:7863` like every app; anyone on the home
+  network can drive it. The frontend cards link to `http://<the page's own host name>:<port>`,
+  so a phone's links point at the stack's host, not at the phone.
+- **Origin guards on every write.** Without auth the browser is a confused deputy: any page
+  you have open can POST to the dashboard. These come from pytincture itself rather than our
+  middleware (there is no `allowed_hosts` list any more): a BFF write must be
   `application/json` (a cross-origin form can't send that, and anything that can is forced
   through a CORS preflight nobody answers) and must carry a same-origin `Origin` /
   `Sec-Fetch-Site`. That replaces the old `X-Stack-UI: 1` header, which gave the same
   guarantee. Verified 2026-10-26: cross-origin JSON → 403 "Origin validation failed", a
-  form post → 415. The event-stream routes are GET-only and read-only. Not a substitute for
-  auth — it's what makes loopback-only defensible.
+  form post → 415; re-checked 2026-10-30 from the LAN address (cross-origin → 403). The
+  event-stream routes are GET-only and read-only.
 - **No shell.** Every `stack` call is a list argv to `subprocess`, never a string.
 - **Allowlist, not validation.** `stackctl.VERBS` maps a key to a fixed argv. A verb that
   isn't in that dict cannot be run. **This table is the security boundary** — a new entry

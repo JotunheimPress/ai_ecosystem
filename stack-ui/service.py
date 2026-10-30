@@ -15,10 +15,10 @@ the server two ways:
   action's output (``stack up`` can take minutes), a container's log, a download's
   progress. They only read; closing one kills what it follows.
 
-**Loopback only, no auth.** This app can stop the backends, write into the model dirs and
-fetch files off the internet; it refuses to bind anything but loopback, and
-``allowed_hosts`` rejects any other Host header (DNS rebinding). If remote access is ever
-wanted, it needs auth in front first.
+**Any device on the LAN, no auth.** The stack is a local product for whoever installs it, so
+the dashboard answers on every interface like the apps do (``STACK_UI_HOST``, default
+``0.0.0.0``). pytincture still refuses a BFF write that isn't same-origin JSON, so another
+web page open in the browser can't drive it.
 """
 from __future__ import annotations
 
@@ -44,9 +44,8 @@ from pytincture import PytinctureConfig, create_app  # noqa: E402
 from services import downloads, jobs, stackctl  # noqa: E402
 
 APPLICATION = "stackui"
-HOST = os.environ.get("STACK_UI_HOST", "127.0.0.1")
+HOST = os.environ.get("STACK_UI_HOST", "0.0.0.0")
 PORT = int(os.environ.get("STACK_UI_PORT", "7863"))
-LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
 def build_app():
@@ -54,9 +53,6 @@ def build_app():
         PytinctureConfig(
             modules_path=str(APPCODE),
             default_application=APPLICATION,
-            # Hostnames only; Starlette strips the port. Anything else — a rebinding
-            # domain that resolves to 127.0.0.1 — gets a 400 before it reaches a route.
-            allowed_hosts=("127.0.0.1", "localhost", "::1"),
             cookie_namespace="stackui",
         )
     )
@@ -157,11 +153,8 @@ app = build_app()
 
 
 if __name__ == "__main__":
-    if HOST not in LOOPBACK:
-        print(f"!! refusing to bind {HOST}: stack-ui is loopback-only until it has auth")
-        raise SystemExit(1)
     import uvicorn
 
-    print(f"AI Ecosystem on http://{'127.0.0.1' if HOST == 'localhost' else HOST}:{PORT}/",
+    print(f"AI Ecosystem on http://{'127.0.0.1' if HOST in ('0.0.0.0', 'localhost') else HOST}:{PORT}/",
           flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")

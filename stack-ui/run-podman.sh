@@ -6,8 +6,8 @@
 #
 #   --network=host   `stack` health-probes http://localhost:5001 etc. In its own netns
 #                    those are the CONTAINER's ports and everything reads as down. Host
-#                    netns also means uvicorn's 127.0.0.1 bind IS the host loopback, so
-#                    the service stays unreachable from the network — no -p needed.
+#                    netns also means uvicorn binds the host's own interfaces directly
+#                    (0.0.0.0: the whole LAN) — no -p needed.
 #   podman.sock      the host container engine. `stack` drives podman; this is how.
 #                    Its DIRECTORY is mounted, not the socket file: a file bind-mount pins
 #                    the inode, so when podman.socket re-creates the socket (it did on
@@ -132,6 +132,6 @@ podman run -d \
 
 echo ""
 echo "✓  AI Ecosystem is running."
-echo "   Open: http://localhost:${PORT}"
+echo "   Open: http://localhost:${PORT}   (other devices: http://$(hostname -s).local:${PORT})"
 echo "   Logs: podman logs -f $CONTAINER"
 echo "   Stop: podman stop $CONTAINER"

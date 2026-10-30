@@ -108,7 +108,11 @@ class DashboardView:
         icon = _ICONS.get(a["name"], "mdi-application-outline")
         title = esc(a.get("label") or a["name"])
         if up and a.get("group") == "frontends":
-            title = (f'<a href="http://localhost:{int(a["port"])}/" target="_blank" '
+            # The name this page was opened with, so a phone's links point at the stack's
+            # host and not at the phone itself.
+            import js
+            host = str(js.window.location.hostname) or "localhost"
+            title = (f'<a href="http://{esc(host)}:{int(a["port"])}/" target="_blank" '
                      f'rel="noreferrer">{title}<i class="mdi mdi-open-in-new"></i></a>')
         return (
             '<div class="su-card-head">'

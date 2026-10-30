@@ -137,8 +137,8 @@ Every app answers on the whole local network over plain HTTP, no extra setup:
 `http://<hostname>.local:7861` (Pantheon), `:7860` (Rhapsode), `:7862` (Iguana Studio), `:7864`
 (Nocturne). Pantheon asks for its own accounts; the others have no login. It is a local product
 for whoever installs it. Browsers allow the microphone only on this computer or over HTTPS, so
-Pantheon's voice input works here but not from a phone. The dashboard (`:7863`) stays on this
-computer.
+Pantheon's voice input works here but not from a phone. The dashboard is on the LAN too, at
+`:7863`.
 
 ## The on/off switch (game ⇄ AI)
 
