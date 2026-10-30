@@ -7,24 +7,52 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODELS_DIR="${SCRIPT_DIR}/models"
-IMAGE="localhost/koboldcpp:latest"
+# Host profile (ai-stack/lib/host.sh): NVIDIA workstation or AMD Halo box. Found through
+# the real path, since this script is usually reached via the $ECO/koboldcpp link farm.
+RECIPE_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# shellcheck source=../lib/host.sh
+. "${RECIPE_DIR}/../lib/host.sh"
+host_profile_load
+IMAGE="$(kobold_image)"
+GPU_FLAG="$(kobold_gpu_flag)"
 # `-local`: the name `koboldcpp` belongs to the backend router (ai-stack/router), which
 # forwards to this container or to the Halo box. Frontends keep http://koboldcpp:5001.
 CONTAINER_NAME="koboldcpp-local"
 
 # Build image if it doesn't exist yet
 if ! podman image exists "${IMAGE}"; then
-    echo "Image not found — building from Containerfile..."
-    podman build --format docker -t "${IMAGE}" "${SCRIPT_DIR}"
+    echo "Image not found — building from $(kobold_containerfile)..."
+    podman build --format docker -t "${IMAGE}" -f "${RECIPE_DIR}/$(kobold_containerfile)" "${SCRIPT_DIR}"
 fi
 
 # ---- VRAM helpers -------------------------------------------------------------
 # Best-effort throughout: no nvidia-smi (or a GPU it can't see) just skips the waits.
 # `|| true`: under pipefail a missing nvidia-smi (e.g. run from the stack-ui container,
 # which has none) failed the assignment and set -e killed the script without a word.
-vram_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true; }
+# AMD: amdgpu's sysfs counters, VRAM carve-out + GTT (the unified pool the iGPU borrows
+# from system RAM), in MiB. Readable without root, and from inside the stack-ui container.
+amd_mem() {   # $1 = used|total
+    local d sum=0 n=0 f
+    for d in /sys/class/drm/card*/device; do
+        for f in "$d/mem_info_vram_$1" "$d/mem_info_gtt_$1"; do
+            [ -r "$f" ] && { sum=$((sum + $(cat "$f"))); n=1; }
+        done
+    done
+    ((n)) && echo $((sum / 1048576))
+}
+vram_used() {
+    case "${HOST_GPU}" in
+        nvidia) nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true ;;
+        amd)    amd_mem used || true ;;
+    esac
+}
 vram_free() {   # "?" when unknown
-    local f; f="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true)"
+    local f="" u t
+    case "${HOST_GPU}" in
+        nvidia) f="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || true)" ;;
+        amd)    u="$(amd_mem used || true)"; t="$(amd_mem total || true)"
+                [ -n "$u" ] && [ -n "$t" ] && f=$((t - u)) ;;
+    esac
     echo "${f:-?}"
 }
 
@@ -76,7 +104,9 @@ fi
 # Precedence: explicit env var > model.env > built-in default. A one-off
 # `KOBOLDCPP_MODEL=other.gguf ./start.sh` still wins, and doesn't rewrite the selection.
 MODEL="${KOBOLDCPP_MODEL:-${FILE_MODEL:-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf}}"
-GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-${FILE_LAYERS:-33}}"
+# 33 was chosen for 12 GB; on the AMD box's unified memory every layer fits.
+case "${HOST_GPU}" in amd) DEFAULT_LAYERS=999 ;; *) DEFAULT_LAYERS=33 ;; esac
+GPU_LAYERS="${KOBOLDCPP_GPU_LAYERS:-${FILE_LAYERS:-${DEFAULT_LAYERS}}}"
 case "${GPU_LAYERS}" in
     ''|*[!0-9]*) echo "KOBOLDCPP_GPU_LAYERS must be a whole number, got '${GPU_LAYERS}'" >&2; exit 1 ;;
 esac
@@ -84,13 +114,14 @@ esac
 # Context window (tokens). Unset = KoboldCPP's own default (8192), exactly as before.
 # Standard sizes only, so a typo can't ask for a window that eats the card: the KV cache
 # grows with it (a 9B Q4_K_M at 16384 is affordable on 12 GB; 32768 may cost GPU layers).
+# 48K-128K are for the AMD box's unified memory (Rocinante 12B at 128K: ~20 GB of cache).
 # Apps read the real value from /api/extra/true_max_context_length, so nothing else to set.
 CONTEXT="${KOBOLDCPP_CONTEXT:-${FILE_CONTEXT:-}}"
 CONTEXT_ARGS=()
 if [ -n "${CONTEXT}" ]; then
     case "${CONTEXT}" in
-        4096|6144|8192|12288|16384|24576|32768) CONTEXT_ARGS=(--contextsize "${CONTEXT}") ;;
-        *) echo "KOBOLDCPP_CONTEXT must be one of 4096 6144 8192 12288 16384 24576 32768, got '${CONTEXT}'" >&2
+        4096|6144|8192|12288|16384|24576|32768|49152|65536|98304|131072) CONTEXT_ARGS=(--contextsize "${CONTEXT}") ;;
+        *) echo "KOBOLDCPP_CONTEXT must be one of 4096 6144 8192 12288 16384 24576 32768 49152 65536 98304 131072, got '${CONTEXT}'" >&2
            exit 1 ;;
     esac
 fi
@@ -187,6 +218,11 @@ fi
 # Without --rm a dead container also keeps its logs for `stack logs` post-mortem;
 # the `podman rm -f` above clears it before the next start.
 # $1 = GPU layers, $2 = 1 for CUDA unified memory (see the fragmentation note below).
+# No mmap flag on purpose: mmap is reported to be catastrophic for ROCm loads past half of
+# memory on Strix Halo (HALO_PLAN.md), and this KoboldCPP already loads without it unless
+# given --usemmap. Never add --usemmap here.
+BACKEND_ARGS=()
+gpu_args --privileged     # NVIDIA: --device nvidia.com/gpu=all --privileged, as always
 launch() {
     local um=()
     [ "${2:-0}" = 1 ] && um=(-e GGML_CUDA_ENABLE_UNIFIED_MEMORY=1)
@@ -194,19 +230,19 @@ launch() {
         --name "${CONTAINER_NAME}" \
         "${um[@]}" \
         --restart=on-failure:5 \
-        --privileged \
-        --device nvidia.com/gpu=all \
+        "${GPU_ARGS[@]}" \
         --network ai-net \
         -v "${MODELS_DIR}:/models:z" \
         "${ADAPTER_MOUNT[@]}" \
         "${IMAGE}" \
         --host 0.0.0.0 \
         --port 5001 \
-        --usecublas \
+        "${GPU_FLAG}" \
         --gpulayers "$1" \
         --model "/models/${MODEL}" \
         "${ADAPTER_ARGS[@]}" \
         "${CONTEXT_ARGS[@]}" \
+        "${BACKEND_ARGS[@]}" \
         "${EXTRA_ARGS[@]}" >/dev/null
 }
 
@@ -260,7 +296,7 @@ UNIFIED=0
 # but it answers). KOBOLDCPP_LAYER_STEP layers per retry, at most 4 retries.
 STEP="${KOBOLDCPP_LAYER_STEP:-4}"
 for attempt in 1 2 3 4 5 6; do
-    echo "Starting KoboldCPP at http://localhost:5001 (model: ${MODEL}, chat format: ${ADAPTER}, context: ${CONTEXT:-default}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
+    echo "Starting KoboldCPP at http://localhost:5001 (${HOST_LLM_BACKEND} on ${HOST_GPU}, model: ${MODEL}, chat format: ${ADAPTER}, context: ${CONTEXT:-default}, gpu layers: ${LAYERS}$([ "${UNIFIED}" = 1 ] && echo ', unified memory'), free VRAM: $(vram_free) MiB)"
     launch "${LAYERS}" "${UNIFIED}"
     result="$(await_load)"
     case "${result}" in
@@ -279,7 +315,8 @@ for attempt in 1 2 3 4 5 6; do
             echo "==> KoboldCPP started but still loading after ${KOBOLDCPP_LOAD_TIMEOUT:-300}s. Logs: podman logs -f ${CONTAINER_NAME}"
             exit 0 ;;
         oom)
-            if [ "${UNIFIED}" = 0 ] && fragmented; then
+            # CUDA unified memory is an NVIDIA fix; AMD's memory is unified already.
+            if [ "${HOST_GPU}" = nvidia ] && [ "${UNIFIED}" = 0 ] && fragmented; then
                 read -r f b < "${FRAG_NOTE}"
                 podman rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
                 wait_vram_settled

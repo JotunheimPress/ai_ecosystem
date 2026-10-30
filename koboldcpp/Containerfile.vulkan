@@ -1,0 +1,44 @@
+# KoboldCPP — Vulkan build, for the AMD Halo box (Radeon 8060S, gfx1151) or any GPU with a
+# Vulkan driver. Same release and API as the CUDA image (Containerfile); only the GPU path
+# differs. Selected by LLM_BACKEND=vulkan in ai-stack/host.env (lib/host.sh), tagged
+# localhost/koboldcpp:vulkan.
+#
+# The official "-nocuda" Linux binary carries the Vulkan and CPU backends. The GPU driver
+# is Mesa's RADV, installed here, so the image needs only /dev/dri from the host.
+# Keep KOBOLDCPP_VERSION in step with Containerfile.
+ARG KOBOLDCPP_VERSION=1.111.2
+
+FROM docker.io/library/ubuntu:24.04 AS base
+
+ARG KOBOLDCPP_VERSION
+ENV DEBIAN_FRONTEND=noninteractive
+
+# mesa-vulkan-drivers = RADV (AMD) among others; noble-updates carries the 24.04.4 Mesa
+# (25.2), which knows RDNA 3.5. libvulkan1 is the loader. vulkan-tools gives `vulkaninfo`
+# for checking what the container sees. libxext6 (+ libx11-6) is for NVIDIA: its Vulkan
+# driver, injected by CDI, links them and is silently skipped without them, leaving only
+# llvmpipe (the CPU) — measured on the 4070.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        libgomp1 \
+        libvulkan1 \
+        libxext6 \
+        mesa-vulkan-drivers \
+        vulkan-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL \
+    "https://github.com/LostRuins/koboldcpp/releases/download/v${KOBOLDCPP_VERSION}/koboldcpp-linux-x64-nocuda" \
+    -o /usr/local/bin/koboldcpp \
+    && chmod +x /usr/local/bin/koboldcpp
+
+VOLUME /models
+EXPOSE 5001
+
+# Same probe as the CUDA image; see the notes there (docker format only, long start period).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=5 \
+    CMD curl -fs http://localhost:5001/api/v1/model || exit 1
+
+ENTRYPOINT ["/usr/local/bin/koboldcpp"]
+CMD ["--host", "127.0.0.1", "--port", "5001", "--usevulkan", "--gpulayers", "-1"]

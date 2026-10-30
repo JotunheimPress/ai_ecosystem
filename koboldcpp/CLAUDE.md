@@ -1,10 +1,25 @@
 # KoboldCPP
 
-Containerized KoboldCPP LLM inference server with NVIDIA CUDA support, managed via Podman.
+Containerized KoboldCPP LLM inference server, managed via Podman. NVIDIA CUDA on the
+workstation; Vulkan or ROCm on the AMD Halo box (`../HALO_PLAN.md`). Which one is the **host
+profile** (`../lib/host.sh`, optional `../host.env`): with no `host.env` the 4070 is detected
+and nothing differs from before (verified 2026-10-30: identical `podman run` config).
 
 ## Structure
 
-- `Containerfile` — builds the image from the official KoboldCPP Linux binary on CUDA 12.4 base
+- `Containerfile` — CUDA: the official KoboldCPP Linux binary on CUDA 12.4 → `localhost/koboldcpp:latest`
+- `Containerfile.vulkan` — the official `-nocuda` binary + Mesa RADV → `:vulkan` (0.5 GB). Also
+  carries `libxext6`, without which NVIDIA's CDI-injected Vulkan driver is skipped. On the 4070
+  it still only finds llvmpipe (NVIDIA's ICD wants more libraries than CDI injects); it was
+  smoke-tested end to end on that CPU device. Meant for AMD.
+- `Containerfile.rocm` — **compiles** mainline KoboldCPP at the same tag with
+  `make koboldcpp_hipblas LLAMA_HIPBLAS=1 GPU_TARGETS=gfx1151` on `rocm/dev-ubuntu-24.04:7.14.1-full`
+  (`ROCM_IMAGE` build arg) → `:rocm`, 20.5 GB. Upstream has no Linux ROCm binary. `--usecublas`
+  selects the hipBLAS library. **No `--usemmap` on ROCm** (reported catastrophic on Strix Halo;
+  off by default in this version — `--nommap` does not exist, don't add it).
+- On AMD, `start.sh` uses `GPU_ARGS` from `lib/host.sh` (`/dev/kfd`, `/dev/dri`, keep-groups),
+  defaults GPU layers to 999, reads memory from amdgpu's sysfs (VRAM + GTT) instead of
+  `nvidia-smi`, and skips the CUDA unified-memory retry.
 - `start.sh` — launches the container; handles image build and cleanup automatically
 - `models/` — GGUF model files mounted into the container at `/models`
 - **Chat format is picked per model** by `start.sh` from the GGUF's own vocabulary/template (first
@@ -68,7 +83,7 @@ Resolved by `start.sh` as **env var → `model.env` → built-in default**:
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | Model file in `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | Number of layers to offload to GPU |
 | `KOBOLDCPP_ADAPTER` | picked from the model file | chat format: `chatml.json`, `mistral-nemo.json`, or a KoboldCPP built-in (`AutoGuess`, `Llama-3`, …) |
-| `KOBOLDCPP_CONTEXT` | unset (KoboldCPP default, 8192) | `--contextsize`; one of 4096 6144 8192 12288 16384 24576 32768, anything else refuses to start. KV cache grows with it. Apps read the live value from `/api/extra/true_max_context_length` (Pantheon budgets against it). Set it from AI Ecosystem → Language models → Context window (shows each size's KV-cache cost), or by hand; stack-ui keeps it when it rewrites `model.env` |
+| `KOBOLDCPP_CONTEXT` | unset (KoboldCPP default, 8192) | `--contextsize`; one of 4096 6144 8192 12288 16384 24576 32768 49152 65536 98304 131072 (48K+ sized for the AMD box's unified memory), anything else refuses to start. KV cache grows with it. Apps read the live value from `/api/extra/true_max_context_length` (Pantheon budgets against it). Set it from AI Ecosystem → Language models → Context window (shows each size's KV-cache cost), or by hand; stack-ui keeps it when it rewrites `model.env` |
 
 ```bash
 # one-off (doesn't persist)
@@ -97,7 +112,8 @@ Building this from scratch on a new machine: [`INSTALL.md`](INSTALL.md).
 
 ## Updating KoboldCPP version
 
-Edit the `ARG KOBOLDCPP_VERSION` line in `Containerfile`, then rebuild:
+Edit the `ARG KOBOLDCPP_VERSION` line in `Containerfile` **and** in `Containerfile.vulkan` /
+`Containerfile.rocm` (keep them on one release), then rebuild:
 
 ```bash
 podman rmi localhost/koboldcpp:latest

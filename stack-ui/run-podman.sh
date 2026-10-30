@@ -90,17 +90,25 @@ for var in CIVITAI_TOKEN HF_TOKEN; do
   if [[ -n "${!var:-}" ]]; then TOKEN_ARGS+=(-e "$var"); fi
 done
 
-# nvidia-smi, injected from the HOST by the NVIDIA CDI spec rather than installed in the
-# image: it has to match the host driver exactly, and the driver moves with Bazzite
+# The host's GPU profile (ai-stack/lib/host.sh), decided HERE on the host and handed in as
+# STACK_GPU: the start scripts this dashboard runs detect the GPU with nvidia-ctk and
+# /dev/kfd, neither of which exists in this container, so on their own they would decide
+# "no GPU" and start KoboldCPP without one.
+. "$SCRIPT_DIR/../lib/host.sh"
+host_profile_load
+
+# NVIDIA: nvidia-smi, injected from the HOST by the NVIDIA CDI spec rather than installed
+# in the image: it has to match the host driver exactly, and the driver moves with Bazzite
 # updates. koboldcpp/start.sh reads free VRAM through it to wait for a swapped-out model's
 # memory to come back, and `stack doctor` checks it. No CUDA context is created, so it
-# costs no VRAM. Optional: without the CDI spec the dashboard runs and those waits skip.
+# costs no VRAM. AMD needs nothing: start.sh reads amdgpu's counters in /sys, which the
+# container sees as it is.
 GPU_ARGS=()
-if command -v nvidia-ctk >/dev/null 2>&1 && nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
-  GPU_ARGS=(--device nvidia.com/gpu=all)
-else
-  echo "!! no CDI device nvidia.com/gpu=all — nvidia-smi won't be available in $CONTAINER" >&2
-fi
+case "$HOST_GPU" in
+  nvidia) GPU_ARGS=(--device nvidia.com/gpu=all) ;;
+  amd)    ;;
+  *)      echo "!! no GPU found on this host — the backends will start without one" >&2 ;;
+esac
 
 echo "==> Starting $CONTAINER on http://127.0.0.1:${PORT} …"
 podman run -d \
@@ -118,6 +126,7 @@ podman run -d \
   "${BUS_ARGS[@]}" \
   "${TOKEN_ARGS[@]}" \
   "${GPU_ARGS[@]}" \
+  -e STACK_GPU="$HOST_GPU" \
   -v "$ECO:$ECO" \
   "$IMAGE"
 

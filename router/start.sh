@@ -14,6 +14,9 @@ STATE="${ROUTER_STATE:-$ECO/router}"         # route.conf lives here, never comm
 IMAGE="docker.io/library/nginx:1.28-alpine"
 CONTAINER_NAME="backend-router"
 NET="ai-net"
+# BIND from ai-stack/host.env: the AMD box publishes :5001 on loopback only (HALO_PLAN.md).
+. "${SCRIPT_DIR}/../lib/host.sh"
+host_profile_load
 
 mkdir -p "${STATE}"
 ROUTE="${STATE}/route.conf"
@@ -50,7 +53,7 @@ podman run -d \
     --network "${NET}" \
     --network-alias koboldcpp \
     --network-alias orpheus-tts \
-    -p 5001:5001 \
+    -p "$(publish 5001 5001)" \
     -p 127.0.0.1:5005:5005 \
     -e NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
     -v "${SCRIPT_DIR}/router.conf.template:/etc/nginx/templates/router.conf.template:ro,z" \

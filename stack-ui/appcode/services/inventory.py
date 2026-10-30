@@ -130,7 +130,8 @@ def running_model() -> str | None:
 
 # Context windows start.sh accepts (KOBOLDCPP_CONTEXT); keep the two lists identical.
 # 4K steps to 8K, then half-steps between powers of two: each size is 1.33–1.5x the last.
-CONTEXT_SIZES = (4096, 6144, 8192, 12288, 16384, 24576, 32768)
+# 48K and up are for the AMD box's unified memory; the dropdown shows each one's cost.
+CONTEXT_SIZES = (4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304, 131072)
 DEFAULT_CONTEXT = 8192          # KoboldCPP's own, used when model.env sets none
 
 

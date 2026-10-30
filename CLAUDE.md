@@ -27,6 +27,12 @@ shared across every app; frontends run side-by-side on their own ports.
   part of the stack rather than a consumer of it, so `stack install` can build it and `start_app`
   reaches it via `$SELF` like the comfyui recipe. Was briefly a standalone repo
   (`github.com/El-Iguana/stack-ui`), imported here with its history via `git subtree`.
+- `lib/host.sh` + optional `host.env` (git-ignored; `host.env.example`) — the **host profile**:
+  `GPU=nvidia|amd`, `LLM_BACKEND=cuda|vulkan|rocm`, `BIND`. Sourced by `stack` and every backend
+  script; it supplies the GPU flags, image tags and published-port address. Without `host.env`
+  the GPU is detected — NVIDIA CDI first, since this workstation also has `/dev/kfd` from its
+  CPU's graphics — and the 4070 setup is byte-for-byte what it was. The AMD Halo box is the
+  other profile (`HALO_PLAN.md`); both stay supported.
 - `router/` — the **backend router**: one nginx container (`backend-router`, stock
   `nginx:1.28-alpine` + `router.conf.template`) that owns the names `koboldcpp` and `orpheus-tts` on
   ai-net and host ports **5001** (all interfaces) and **127.0.0.1:5005**, and forwards each to where

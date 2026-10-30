@@ -1,0 +1,82 @@
+# ComfyUI — ROCm build for the AMD Halo box (Radeon 8060S, gfx1151). The NVIDIA image is
+# Containerfile; lib/host.sh picks this one when GPU=amd and tags it localhost/comfyui:rocm.
+#
+# Same ComfyUI tag, same pinned environment and same torch VERSION as the CUDA image
+# (2.11.0), but the torch, torchvision and torchaudio wheels come from AMD's gfx1151 index.
+# Those wheels carry the ROCm runtime with them (rocm-sdk-* packages), so no ROCm base
+# image is needed and the host supplies only the kernel driver and /dev/kfd + /dev/dri.
+ARG COMFYUI_VERSION=v0.31.1
+ARG ROCM_WHEELS=https://repo.amd.com/rocm/whl/gfx1151/
+ARG TORCH_ROCM=2.11.0+rocm7.13.0
+ARG TORCHVISION_ROCM=0.26.0+rocm7.13.0
+ARG TORCHAUDIO_ROCM=2.11.0+rocm7.13.0
+
+FROM docker.io/library/ubuntu:24.04 AS base
+
+ARG COMFYUI_VERSION
+ARG ROCM_WHEELS
+ARG TORCH_ROCM
+ARG TORCHVISION_ROCM
+ARG TORCHAUDIO_ROCM
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# As in Containerfile (OpenCV needs libgl1/libglib2.0-0t64). python3 is 3.12, which is
+# what AMD's gfx1151 wheels are built for (cp312). libatomic1 and libnuma1 are for the ROCm
+# runtime inside the rocm-sdk wheels: without libatomic1 `import torch` fails (measured).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+        python3 \
+        python3-venv \
+        libatomic1 \
+        libnuma1 \
+        libgl1 \
+        libglib2.0-0t64 \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${COMFYUI_VERSION}" \
+        https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI
+
+WORKDIR /opt/ComfyUI
+
+# torch FIRST, from AMD's index, pinned to the exact local version (+rocm…) so pip can never
+# settle for PyPI's CUDA build of the same number. PyPI stays as an extra index for the
+# ordinary dependencies AMD doesn't mirror.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --index-url "${ROCM_WHEELS}" \
+        --extra-index-url https://pypi.org/simple \
+        "torch==${TORCH_ROCM}" "torchvision==${TORCHVISION_ROCM}" "torchaudio==${TORCHAUDIO_ROCM}"
+
+# Then the same pinned environment as the CUDA image, minus what is CUDA's: the nvidia-*
+# and cuda-* runtime wheels, CUDA's triton (ROCm torch brings pytorch-triton-rocm), and the
+# torch trio installed above.
+COPY requirements.lock.v0.31.1.txt /tmp/requirements.lock.txt
+RUN grep -vE '^(nvidia-|cuda-|triton==|torch==|torchvision==|torchaudio==)' \
+        /tmp/requirements.lock.txt > /tmp/requirements.rocm.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.rocm.txt \
+    && rm /tmp/requirements.lock.txt /tmp/requirements.rocm.txt \
+    && python -c "import torch; assert torch.version.hip, 'not a ROCm torch'; print('torch', torch.__version__, 'hip', torch.version.hip)"
+
+# Custom-node dependencies: identical to Containerfile, and CPU-only for the same reasons
+# (insightface's face detector runs on onnxruntime's CPU build; gguf is pure Python).
+# On 128 GB the GGUF node is no longer the only way to run Flux Kontext, but the workflows
+# use it, so it stays.
+RUN pip install --no-cache-dir \
+        insightface==1.0.1 \
+        onnxruntime==1.28.0
+RUN pip install --no-cache-dir \
+        gguf==0.19.0
+
+EXPOSE 8188
+
+# Same probe as Containerfile (docker format only; long start period for torch + nodes).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8188/system_stats', timeout=8)" || exit 1
+
+ENTRYPOINT ["/opt/venv/bin/python3", "main.py"]
+CMD ["--listen", "0.0.0.0", "--port", "8188", "--base-directory", "/data"]

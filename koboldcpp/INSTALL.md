@@ -88,7 +88,7 @@ built-in default**:
 |---|---|---|
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | filename inside `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | layers offloaded to GPU; lower it if you OOM |
-| `KOBOLDCPP_CONTEXT` | unset (8192) | context window: 4096, 6144, 8192, 12288, 16384, 24576 or 32768 tokens. Bigger remembers more per reply but costs VRAM |
+| `KOBOLDCPP_CONTEXT` | unset (8192) | context window: 4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304 or 131072 tokens. Bigger remembers more per reply but costs VRAM |
 
 ```bash
 KOBOLDCPP_MODEL=other.gguf KOBOLDCPP_GPU_LAYERS=20 ./start.sh   # one-off, changes nothing

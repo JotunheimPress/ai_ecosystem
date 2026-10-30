@@ -33,6 +33,10 @@ SELF="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"   # the ai-stack checkout
 ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
+# Host profile: NVIDIA workstation or AMD Halo box (lib/host.sh, host.env). A bad host.env
+# is reported, not fatal, so `stack doctor` can still run and say what's wrong.
+. "$SELF/lib/host.sh"
+host_profile_load || HOST_PROFILE_BAD=1
 
 # router first: koboldcpp and orpheus-tts are health-probed THROUGH it, so without it
 # they read as down and `stack up` would reload a model that was already serving.
@@ -239,7 +243,7 @@ cmd_off() {
     systemctl --user disable --now "$SVC" >/dev/null 2>&1
   fi
   cmd_down backends >/dev/null 2>&1   # belt-and-suspenders: ensure they're really down
-  echo "${C_RED}AI backend OFF${C_OFF} — stopped and will NOT restart at boot. GPU free to game."
+  echo "${C_RED}AI backend OFF${C_OFF} — stopped and will NOT restart at boot.$([ "$HOST_GPU" = nvidia ] && echo " GPU free to game.")"
   echo "  re-enable with: stack on"
 }
 
@@ -275,8 +279,8 @@ cmd_logs() {
 # already in place and does nothing. Model weights are never downloaded — they're
 # third-party and ~73 GB; install only tells you what's missing.
 
-IMG_KOBOLD="localhost/koboldcpp:latest"
-IMG_COMFY="localhost/comfyui:latest"
+IMG_KOBOLD="$(kobold_image)"     # :latest (CUDA), :vulkan or :rocm — lib/host.sh
+IMG_COMFY="$(comfy_image)"       # :latest (CUDA) or :rocm
 IMG_STACKUI="localhost/stackui:latest"
 
 # ComfyUI custom nodes the frontends depend on. Cloned into the bind-mounted
@@ -304,6 +308,20 @@ check_prereqs() {
   local bad=0
   command -v podman >/dev/null 2>&1 && ok "podman $(podman --version | awk '{print $3}')" \
     || { warn "podman not found — required"; bad=1; }
+  if [ -n "${HOST_PROFILE_BAD:-}" ]; then
+    warn "host.env is invalid (see the message above) — fix $HOST_ENV_FILE"; return 1
+  fi
+  ok "host profile: GPU ${HOST_GPU}, LLM runtime ${HOST_LLM_BACKEND}$([ -n "$HOST_BIND" ] && echo ", ports on $HOST_BIND only")$([ -f "$HOST_ENV_FILE" ] || echo " (detected; no host.env)")"
+  case "$HOST_GPU" in
+    nvidia) check_gpu_nvidia || bad=1 ;;
+    amd)    check_gpu_amd || bad=1 ;;
+    *)      warn "no GPU found (no NVIDIA CDI spec, no /dev/kfd) — the backends would run on the CPU"; bad=1 ;;
+  esac
+  return $bad
+}
+
+check_gpu_nvidia() {
+  local bad=0
   if nvidia-smi >/dev/null 2>&1; then
     ok "nvidia driver: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
   else
@@ -313,6 +331,34 @@ check_prereqs() {
     ok "CDI device nvidia.com/gpu=all present"
   else
     warn "no CDI spec — run: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"; bad=1
+  fi
+  return $bad
+}
+
+# The AMD box (HALO_PLAN.md): device nodes and group access, a kernel new enough for
+# gfx1151, and how much of the unified memory the GPU may use.
+check_gpu_amd() {
+  local bad=0 k major minor patch g limit
+  [ -e /dev/kfd ] && ok "/dev/kfd present (ROCm compute)" || { warn "/dev/kfd missing — amdgpu/KFD not loaded"; bad=1; }
+  compgen -G "/dev/dri/renderD*" >/dev/null && ok "render node $(ls /dev/dri/renderD* | head -1)" \
+    || { warn "no /dev/dri/renderD* — no GPU render node"; bad=1; }
+  for g in render video; do
+    if id -nG | tr ' ' '\n' | grep -qx "$g"; then ok "user in group $g"
+    else warn "user not in group $g — run: sudo usermod -aG $g $USER (then log in again)"; bad=1; fi
+  done
+  # Community reports: gfx1151 is unstable under ROCm before 6.18.4 (HALO_PLAN.md).
+  k="$(uname -r)"; IFS=. read -r major minor patch <<<"${k%%[-+]*}"
+  if (( major > 6 || (major == 6 && (minor > 18 || (minor == 18 && ${patch:-0} >= 4))) )); then
+    ok "kernel $k (>= 6.18.4)"
+  else
+    warn "kernel $k is older than 6.18.4 — reported unstable for gfx1151 under ROCm"; bad=1
+  fi
+  # ttm.pages_limit is in 4 KiB pages; unset means the kernel default (about half of RAM).
+  limit="$(cat /sys/module/ttm/parameters/pages_limit 2>/dev/null || true)"
+  if [ -n "$limit" ] && [ "$limit" != 0 ]; then
+    ok "GPU may use up to $(( limit * 4 / 1024 / 1024 )) GiB (ttm.pages_limit)"
+  else
+    warn "ttm.pages_limit not set — ROCm sees about half the memory (HALO_PLAN.md: kernel parameters)"
   fi
   return $bad
 }
@@ -392,8 +438,9 @@ install_koboldcpp() {
   if podman image exists "$IMG_KOBOLD"; then
     ok "image $IMG_KOBOLD built"
   else
-    echo "  building (pulls the CUDA base + KoboldCPP binary; a few minutes)…"
-    podman build --format docker -t "$IMG_KOBOLD" "$ECO/koboldcpp" || { warn "build failed"; return 1; }
+    echo "  building $(kobold_containerfile) for ${HOST_LLM_BACKEND} (a few minutes; ROCm compiles from source, much longer)…"
+    podman build --format docker -t "$IMG_KOBOLD" -f "$SELF/koboldcpp/$(kobold_containerfile)" "$ECO/koboldcpp" \
+      || { warn "build failed"; return 1; }
     ok "image built"
   fi
   local models="$ECO/koboldcpp/models" n=0   # created by link_koboldcpp_recipe
@@ -445,8 +492,9 @@ install_comfyui() {
   if podman image exists "$IMG_COMFY"; then
     ok "image $IMG_COMFY built"
   else
-    echo "  building (torch + CUDA wheels, ~6.9 GB; several minutes)…"
-    podman build --format docker -t "$IMG_COMFY" "$SELF/comfyui" || { warn "build failed"; return 1; }
+    echo "  building $(comfy_containerfile) (torch + GPU wheels, several GB; several minutes)…"
+    podman build --format docker -t "$IMG_COMFY" -f "$SELF/comfyui/$(comfy_containerfile)" "$SELF/comfyui" \
+      || { warn "build failed"; return 1; }
     ok "image built"
   fi
   # Code ships in the image; the host tree only holds state. Create the skeleton so a

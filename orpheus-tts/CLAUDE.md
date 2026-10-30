@@ -6,8 +6,9 @@ switched on, and gives the ~3 GB back when voice is switched off.
 
 ## Structure
 
-- `start.sh` — starts container **`orpheus-tts-local`** from the **koboldcpp image** (no image of its
-  own) on `ai-net`, with no host port. The backend router (`ai-stack/router/`) answers as
+- `start.sh` — starts container **`orpheus-tts-local`** from the **koboldcpp image for this host**
+  (`lib/host.sh`: `:latest` CUDA, `:vulkan` or `:rocm`; the `.kcpps` is re-exported when the
+  model or that runtime changes; no image of its own) on `ai-net`, with no host port. The backend router (`ai-stack/router/`) answers as
   `orpheus-tts` on ai-net and on **127.0.0.1:5005** and forwards here while voice is routed local. Exports `config/orpheus.kcpps` with
   KoboldCPP's own `--exportconfig` on first run or when the model changes.
 - State (never committed) lives in **`~/Development/ai_ecosystem/orpheus-tts/`**:

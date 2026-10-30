@@ -64,7 +64,16 @@ reasoning.
 
 ## GPU
 
-`--device nvidia.com/gpu=all` (CDI) **plus `--security-opt label=disable`** — without the latter,
+**Two images, picked by the host profile** (`../lib/host.sh`): `Containerfile` (cu130 torch) →
+`localhost/comfyui:latest` on NVIDIA, and `Containerfile.rocm` → `localhost/comfyui:rocm` on the
+AMD Halo box. The ROCm one installs **the same torch 2.11.0** from AMD's gfx1151 wheel index
+(`+rocm7.13.0`; the wheels bring the ROCm runtime, no ROCm base image), then the same lock file
+minus `nvidia-*`, `cuda-*`, `triton` and the torch trio. It needs `libatomic1` (+ `libnuma1`)
+or `import torch` fails, and the build ends by asserting `torch.version.hip`. Built and smoke-tested
+on the workstation (CPU), 8.4 GB; untested on the GPU until the box arrives.
+`ComfyUI --quick-test-for-ci` ends with a harmless `sys.meta_path is None` traceback in both images.
+
+On NVIDIA: `--device nvidia.com/gpu=all` (CDI) **plus `--security-opt label=disable`** — without the latter,
 SELinux blocks `/dev/nvidia*` and torch reports `No CUDA GPUs are available` after an otherwise
 healthy-looking startup. Confirm with `curl -s localhost:8188/system_stats | jq '.devices[0]'`.
 

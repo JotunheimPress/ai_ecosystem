@@ -22,7 +22,10 @@ STATE="${ORPHEUS_STATE:-$ECO/orpheus-tts}"     # models/ + config/, never commit
 MODELS_DIR="${STATE}/models"
 CONFIG_DIR="${STATE}/config"
 
-IMAGE="localhost/koboldcpp:latest"
+# Same image and GPU runtime as the chat model (ai-stack/lib/host.sh).
+. "${SCRIPT_DIR}/../lib/host.sh"
+host_profile_load
+IMAGE="$(kobold_image)"
 CONTAINER_NAME="orpheus-tts-local"     # `orpheus-tts` is the router's name now
 PORT="${ORPHEUS_PORT:-5005}"
 NET="ai-net"
@@ -30,7 +33,7 @@ MODEL="${ORPHEUS_MODEL:-orpheus-3b-0.1-ft-q4_k_m.gguf}"
 IDLE_UNLOAD="${ORPHEUS_IDLE_UNLOAD:-600}"
 
 if ! podman image exists "${IMAGE}"; then
-    echo "${IMAGE} not found — run: stack install koboldcpp" >&2
+    echo "${IMAGE} not found (${HOST_LLM_BACKEND}) — run: stack install koboldcpp" >&2
     exit 1
 fi
 if [ ! -f "${MODELS_DIR}/${MODEL}" ]; then
@@ -44,15 +47,17 @@ mkdir -p "${CONFIG_DIR}"
 
 # The load recipe the admin API swaps in. Exported by KoboldCPP itself rather than
 # hand-written, so the .kcpps always matches what this KoboldCPP version expects.
-# Regenerated whenever the model changes. Context 4096 is plenty: one sentence of
-# speech is a few hundred audio tokens.
+# Regenerated whenever the model or the GPU runtime changes (the recipe names the
+# runtime: --usecublas vs --usevulkan). Context 4096 is plenty: one sentence of speech
+# is a few hundred audio tokens.
 KCPPS="${CONFIG_DIR}/orpheus.kcpps"
 STAMP="${CONFIG_DIR}/.model"
-if [ ! -f "${KCPPS}" ] || [ "$(cat "${STAMP}" 2>/dev/null)" != "${MODEL}" ]; then
+WANT="${MODEL} ${HOST_LLM_BACKEND}"
+if [ ! -f "${KCPPS}" ] || [ "$(cat "${STAMP}" 2>/dev/null)" != "${WANT}" ]; then
     podman run --rm -v "${MODELS_DIR}:/models:z" -v "${CONFIG_DIR}:/config:z" "${IMAGE}" \
-        --usecublas --gpulayers 99 --contextsize 4096 \
+        "$(kobold_gpu_flag)" --gpulayers 99 --contextsize 4096 \
         --model "/models/${MODEL}" --exportconfig /config/orpheus.kcpps >/dev/null
-    echo "${MODEL}" > "${STAMP}"
+    echo "${WANT}" > "${STAMP}"
 fi
 
 # Also the pre-router `orpheus-tts` container, which would still hold :5005.
@@ -60,6 +65,7 @@ for c in "${CONTAINER_NAME}" orpheus-tts; do
     if podman container exists "${c}" 2>/dev/null; then podman rm -f "${c}" >/dev/null; fi
 done
 podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/dev/null
+gpu_args --privileged     # NVIDIA: --device nvidia.com/gpu=all --privileged, as always
 
 echo "Starting Orpheus TTS at http://localhost:${PORT} (idle; loads ${MODEL} on demand, unloads after ${IDLE_UNLOAD}s idle)"
 # Same restart policy and GPU flags as koboldcpp (see ai-stack/CLAUDE.md). Its own health
@@ -69,8 +75,7 @@ echo "Starting Orpheus TTS at http://localhost:${PORT} (idle; loads ${MODEL} on 
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
-    --privileged \
-    --device nvidia.com/gpu=all \
+    "${GPU_ARGS[@]}" \
     --network "${NET}" \
     -v "${MODELS_DIR}:/models:z" \
     -v "${CONFIG_DIR}:/config:z" \

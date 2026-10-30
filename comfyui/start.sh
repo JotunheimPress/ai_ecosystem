@@ -12,14 +12,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ECO="${AI_ECOSYSTEM:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
 STATE="${COMFYUI_STATE:-$ECO/ComfyUI}"
 
-IMAGE="localhost/comfyui:latest"
+# NVIDIA (cu130 torch) or AMD (ROCm torch for gfx1151): ai-stack/lib/host.sh.
+. "${SCRIPT_DIR}/../lib/host.sh"
+host_profile_load
+IMAGE="$(comfy_image)"
 CONTAINER_NAME="${COMFYUI_NAME:-comfyui}"   # override to run a second copy side-by-side
 PORT="${COMFYUI_PORT:-8188}"
 NET="${COMFYUI_NET:-ai-net}"
 
 if ! podman image exists "${IMAGE}"; then
-    echo "Image not found — building from Containerfile (this takes a while: torch + CUDA wheels)…"
-    podman build --format docker -t "${IMAGE}" "${SCRIPT_DIR}"
+    echo "Image not found — building from $(comfy_containerfile) (this takes a while: torch + GPU wheels)…"
+    podman build --format docker -t "${IMAGE}" -f "${SCRIPT_DIR}/$(comfy_containerfile)" "${SCRIPT_DIR}"
 fi
 
 for d in models input output user custom_nodes; do
@@ -31,6 +34,7 @@ if podman container exists "${CONTAINER_NAME}" 2>/dev/null; then
 fi
 
 podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/dev/null
+gpu_args --security-opt label=disable   # NVIDIA: exactly the two flags it always had
 
 echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
 # --security-opt label=disable: SELinux otherwise denies the container access to the
@@ -47,10 +51,9 @@ echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
-    --device nvidia.com/gpu=all \
-    --security-opt label=disable \
+    "${GPU_ARGS[@]}" \
     --network "${NET}" \
-    -p "${PORT}:8188" \
+    -p "$(publish "${PORT}" 8188)" \
     -v "${STATE}/models:/data/models" \
     -v "${STATE}/input:/data/input" \
     -v "${STATE}/output:/data/output" \

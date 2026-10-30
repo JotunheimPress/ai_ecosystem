@@ -221,6 +221,10 @@ Deliberate, not incidental:
   the dashboard polls every 10 s. Metadata only; it never opens a file.
 - **The doctor is not polled.** It shells out to podman several times; it's on-demand
   behind a button.
+- **`STACK_GPU` must be in `stackctl._PASSTHROUGH` too** (2026-10-30). `run-podman.sh` resolves
+  the host profile (`lib/host.sh`) on the host and passes `-e STACK_GPU`, because the start
+  scripts detect the GPU with `nvidia-ctk` / `/dev/kfd`, which this container doesn't have. Drop
+  it and a KoboldCPP restarted from the dashboard comes up **with no GPU**, without an error.
 - **`CONTAINER_HOST` and `DBUS_SESSION_BUS_ADDRESS` must be in `stackctl._PASSTHROUGH`.**
   The subprocess env is a deliberate allowlist, and dropping either fails *quietly*:
   without the first, podman talks to an engine that isn't there and every up/down does
@@ -274,7 +278,7 @@ models screen *offers* the restart in a confirm dialog; it still never happens b
 **Context window** (Language models → Installed, the combobox under the status line):
 `ModelsApi.set_llm_context` writes `KOBOLDCPP_CONTEXT` into `model.env` (removing the line =
 KoboldCPP's default, 8192), keeping every other line as it is; `select_llm` carries it over
-on a model change. Sizes are `inventory.CONTEXT_SIZES` — 4K, 6K, 8K, 12K, 16K, 24K, 32K —
+on a model change. Sizes are `inventory.CONTEXT_SIZES` — 4K, 6K, 8K, 12K, 16K, 24K, 32K, 48K, 64K, 96K, 128K —
 and must match the `case` in `koboldcpp/start.sh` (`tests/test_context.py` checks). Each
 option shows the KV-cache cost for the selected model (`vram.kv_cache_bytes`, f16, from the
 GGUF header's attention shape; hybrid models count only every `full_attention_interval`th

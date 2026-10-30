@@ -123,7 +123,9 @@ def desktop_active() -> bool:
 #   DBUS_SESSION_BUS_ADDRESS  — the host user systemd, via the systemctl shim. Without it
 #                               `stack` can't see the unit and the on/off switch vanishes
 #                               from status entirely (it reads as "unknown", not "off").
-_PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS")
+# STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
+# in here, and without it they launch the backends with no GPU (lib/host.sh).
+_PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU")
 
 
 def _env() -> dict:
