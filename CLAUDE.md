@@ -39,6 +39,12 @@ shared across every app; frontends run side-by-side on their own ports.
   that backend runs. The local copies run as `koboldcpp-local` / `orpheus-tts-local` with no host
   ports. Route state is `$ECO/router/route.conf`, written only by `stack route`. Groundwork for the
   Halo box (`HALO_PLAN.md`). See `router/CLAUDE.md`.
+- `lan-proxy/` — the **LAN proxy**, off by default: one Caddy container (`lan-proxy`, stock
+  `caddy:2.11.4`) that serves the apps to other devices over HTTPS on **8760–8764** (+ a plain-HTTP
+  start page and CA download on **8780**), with its own local CA and a password in front of the apps
+  without a login. `stack lan on|off` writes `lan.env` (git-ignored); `stack` exports
+  `PANTHEON_PUBLIC_ORIGIN` + `IGUANA_ALLOWED_HOSTS` from it on every run. State in `$ECO/lan-proxy/`.
+  See `lan-proxy/CLAUDE.md`.
 - `orpheus-tts/` — Orpheus TTS for Pantheon's voice: a `start.sh` that runs the **koboldcpp image**
   in admin mode with no model, so it costs nothing until Pantheon loads it. State in
   `$ECO/orpheus-tts/` (models/, config/). See `orpheus-tts/CLAUDE.md`.
