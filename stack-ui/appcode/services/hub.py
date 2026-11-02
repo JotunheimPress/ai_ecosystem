@@ -169,7 +169,7 @@ def vram_total() -> int | None:
         return _VRAM[1]
     total = None
     try:
-        req = urllib.request.Request("http://localhost:8188/system_stats",
+        req = urllib.request.Request(f"http://localhost:{os.environ.get('COMFYUI_PORT') or '8188'}/system_stats",
                                      headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=2) as r:
             devs = json.load(r).get("devices") or []

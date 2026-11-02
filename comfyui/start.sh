@@ -17,7 +17,7 @@ STATE="${COMFYUI_STATE:-$ECO/ComfyUI}"
 host_profile_load
 IMAGE="$(comfy_image)"
 CONTAINER_NAME="${COMFYUI_NAME:-comfyui}"   # override to run a second copy side-by-side
-PORT="${COMFYUI_PORT:-8188}"
+PORT="$HOST_COMFY_PORT"   # host side only; inside ai-net it is comfyui:8188 (lib/host.sh)
 NET="${COMFYUI_NET:-ai-net}"
 
 if ! podman image exists "${IMAGE}"; then

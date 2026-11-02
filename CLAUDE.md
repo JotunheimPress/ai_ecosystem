@@ -28,7 +28,9 @@ shared across every app; frontends run side-by-side on their own ports.
   reaches it via `$SELF` like the comfyui recipe. Was briefly a standalone repo
   (`github.com/El-Iguana/stack-ui`), imported here with its history via `git subtree`.
 - `lib/host.sh` + optional `host.env` (git-ignored; `host.env.example`) — the **host profile**:
-  `GPU=nvidia|amd`, `LLM_BACKEND=cuda|vulkan|rocm`, `BIND`. Sourced by `stack` and every backend
+  `GPU=nvidia|amd`, `LLM_BACKEND=cuda|vulkan|rocm`, `BIND`, `COMFYUI_PORT` (host port only,
+  default 8188; the Halo uses 8189 because AMD Rex runs its own socket-activated ComfyUI on
+  127.0.0.1:8188 — on ai-net it is always `comfyui:8188`). Sourced by `stack` and every backend
   script; it supplies the GPU flags, image tags and published-port address. Without `host.env`
   the GPU is detected — NVIDIA CDI first, since this workstation also has `/dev/kfd` from its
   CPU's graphics — and the 4070 setup is byte-for-byte what it was. The AMD Halo box is the

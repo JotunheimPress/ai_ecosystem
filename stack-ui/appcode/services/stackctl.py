@@ -125,7 +125,8 @@ def desktop_active() -> bool:
 #                               from status entirely (it reads as "unknown", not "off").
 # STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
 # in here, and without it they launch the backends with no GPU (lib/host.sh).
-_PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU")
+_PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU",
+                "COMFYUI_PORT")
 
 
 def _env() -> dict:

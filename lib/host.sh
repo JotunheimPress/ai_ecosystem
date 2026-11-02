@@ -9,9 +9,13 @@
 #   LLM_BACKEND=cuda|vulkan|rocm   how KoboldCPP and Orpheus use it
 #   BIND=127.0.0.1             publish the stack's open ports on this address only
 #                              (unset = all interfaces, as on the workstation)
+#   COMFYUI_PORT=8189          host port for ComfyUI (default 8188). On ai-net it is
+#                              always comfyui:8188; this moves only the host side, e.g.
+#                              off a port the OS already uses (AMD Rex ships its own
+#                              ComfyUI on 127.0.0.1:8188).
 #
 # After host_profile_load:
-#   HOST_GPU HOST_LLM_BACKEND HOST_BIND   the resolved values
+#   HOST_GPU HOST_LLM_BACKEND HOST_BIND HOST_COMFY_PORT   the resolved values
 #   gpu_args <nvidia-extra...>            sets the array GPU_ARGS for `podman run`
 #   publish <host-port> <container-port>  prints a -p value honouring BIND
 #   kobold_image / comfy_image            image tag for this profile
@@ -24,7 +28,9 @@ HOST_ENV_FILE="${HOST_ENV_FILE:-$(dirname "$_HOST_LIB_DIR")/host.env}"
 
 _host_env_get() {   # strict KEY=value read, quotes tolerated, nothing executed
   [ -f "$HOST_ENV_FILE" ] || return 0
-  grep -E "^[[:space:]]*$1=" "$HOST_ENV_FILE" | tail -1 | cut -d= -f2- \
+  # `|| true`: a key the file leaves out is normal, but grep then exits 1, and under
+  # `set -eo pipefail` (the start scripts) that would kill the caller silently.
+  { grep -E "^[[:space:]]*$1=" "$HOST_ENV_FILE" || true; } | tail -1 | cut -d= -f2- \
     | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^[\"']//" -e "s/[\"']$//"
 }
 
@@ -45,7 +51,7 @@ host_profile_load() {
   local v
   # Safe values first, so a caller that carries on after a bad host.env (`stack doctor`
   # does, to report it) doesn't trip over unset variables under `set -u`.
-  HOST_GPU=none; HOST_LLM_BACKEND=vulkan; HOST_BIND=""
+  HOST_GPU=none; HOST_LLM_BACKEND=vulkan; HOST_BIND=""; HOST_COMFY_PORT=8188
   v="${STACK_GPU:-$(_host_env_get GPU)}"
   case "$v" in nvidia|amd|none) HOST_GPU="$v" ;;
     "") HOST_GPU="$(host_detect_gpu)" ;;
@@ -67,7 +73,14 @@ host_profile_load() {
     echo "host.env: BIND must be an IPv4 address, got '$v'" >&2; return 1
   fi
   HOST_BIND="$v"
-  export HOST_GPU HOST_LLM_BACKEND HOST_BIND
+  v="${COMFYUI_PORT:-$(_host_env_get COMFYUI_PORT)}"
+  if [ -n "$v" ]; then
+    if ! [[ "$v" =~ ^[0-9]{1,5}$ ]] || ((v < 1 || v > 65535)); then
+      echo "host.env: COMFYUI_PORT must be a port number, got '$v'" >&2; return 1
+    fi
+    HOST_COMFY_PORT="$v"
+  fi
+  export HOST_GPU HOST_LLM_BACKEND HOST_BIND HOST_COMFY_PORT
 }
 
 # GPU_ARGS for `podman run`. Extra arguments are added only on NVIDIA, so each script keeps

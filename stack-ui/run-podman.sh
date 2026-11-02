@@ -127,6 +127,7 @@ podman run -d \
   "${TOKEN_ARGS[@]}" \
   "${GPU_ARGS[@]}" \
   -e STACK_GPU="$HOST_GPU" \
+  -e COMFYUI_PORT="$HOST_COMFY_PORT" \
   -v "$ECO:$ECO" \
   "$IMAGE"
 

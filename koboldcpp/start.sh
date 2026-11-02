@@ -204,7 +204,7 @@ fi
 # swap. Ask ComfyUI to drop its cache first — it reloads on its next job.
 # KOBOLDCPP_FREE_COMFY=0 skips this.
 if [ "${KOBOLDCPP_FREE_COMFY:-1}" != "0" ]; then
-    if curl -fsS -m 5 -X POST "${COMFYUI_URL:-http://localhost:8188}/free" \
+    if curl -fsS -m 5 -X POST "${COMFYUI_URL:-http://localhost:${HOST_COMFY_PORT}}/free" \
             -H 'Content-Type: application/json' \
             -d '{"unload_models":true,"free_memory":true}' >/dev/null 2>&1; then
         echo "Asked ComfyUI to release its cached models"

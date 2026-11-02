@@ -17,13 +17,15 @@ ComfyUI's `/system_stats` and are unavailable when it is stopped.
 from __future__ import annotations
 
 import json
+import os
 import struct
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-COMFY = "http://localhost:8188"
+# Host port from ai-stack/host.env (COMFYUI_PORT), handed in by run-podman.sh.
+COMFY = f"http://localhost:{os.environ.get('COMFYUI_PORT') or '8188'}"
 UA = "stack-ui/0.5"
 
 # Rough KV-cache + activation overhead at the context sizes this box runs (8k). Scales
