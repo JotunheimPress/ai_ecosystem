@@ -150,6 +150,21 @@ default in this version.
 | q8 cache, batch 2048 | (not measurable) | 449 t/s | 18.1 / 20.0 t/s | 1.4 GB |
 | f16 cache, batch 2048 | (not measurable) | **257 t/s** | 18.3 / 20.3 t/s | 2.6 GB |
 
+**ROCm vs Vulkan** (same model and context; ROCm = `:rocm`, KoboldCPP 1.111.2 built for
+gfx1151 on ROCm 7.14.1; two runs each, which agreed within 3%):
+
+| Backend | ~2K prompt | ~14K prompt | Generation (2K / 14K) |
+|---|---|---|---|
+| **Vulkan, q8 cache (default)** | 704–720 t/s | 456–460 t/s | 22.6–23.5 / 20.0 t/s |
+| ROCm, q8 cache | 477 t/s | 151–152 t/s | 20.8–21.4 / 14.5 t/s |
+| ROCm, f16 cache | 478–485 t/s | 152–153 t/s | 20.3–20.6 / 13.0 t/s |
+| ROCm, f16, flash attention off | 615–617 t/s | 300 t/s | 17.8–18.2 / 8.1 t/s |
+
+**Vulkan stays the default `LLM_BACKEND`.** ROCm loses in every column, worst on long
+prompts (3x slower). Its flash attention is the weak part on gfx1151 (a rocWMMA build may
+help; untested). Worth re-running when KoboldCPP or ROCm is updated, and on a MoE model.
+The `:rocm` image (20.5 GB) is kept so `LLM_BACKEND=rocm` still works.
+
 ComfyUI, SDXL base 1024x1024, 20 steps euler (warm / first load):
 
 | Config | SDXL | SD1.5 512 |
@@ -159,8 +174,8 @@ ComfyUI, SDXL base 1024x1024, 20 steps euler (warm / first load):
 
 ComfyUI's main.py already sets `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`, so flash
 attention was on from the start (attention alone: 5.7 ms vs 93 ms without it). Image speed
-is compute-bound; the flags mostly shorten loads. Still to do: ROCm vs Vulkan KoboldCPP,
-one large MoE, and the Performance power profile.
+is compute-bound; the flags mostly shorten loads. Still to do: one large MoE, and the
+Performance power profile.
 
 ### Phase C: move the frontends and data
 
