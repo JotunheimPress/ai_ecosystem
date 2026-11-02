@@ -222,6 +222,11 @@ fi
 # memory on Strix Halo (HALO_PLAN.md), and this KoboldCPP already loads without it unless
 # given --usemmap. Never add --usemmap here.
 BACKEND_ARGS=()
+# 8-bit KV cache on AMD: half the cache memory, no slower (measured on the Halo, Rocinante
+# 12B at 14K: 452 -> 471 t/s prompt, ~20 t/s generation either way). Flash attention, which
+# it needs, is on by default in this KoboldCPP. Batch size stays at the default 512: 2048
+# was no faster with q8 and halved long-prompt speed with f16. KOBOLDCPP_QUANTKV=0 = f16.
+case "${HOST_GPU}" in amd) BACKEND_ARGS+=(--quantkv "${KOBOLDCPP_QUANTKV:-1}") ;; esac
 gpu_args --privileged     # NVIDIA: --device nvidia.com/gpu=all --privileged, as always
 launch() {
     local um=()

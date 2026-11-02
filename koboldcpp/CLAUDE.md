@@ -17,8 +17,8 @@ and nothing differs from before (verified 2026-10-30: identical `podman run` con
   (`ROCM_IMAGE` build arg) → `:rocm`, 20.5 GB. Upstream has no Linux ROCm binary. `--usecublas`
   selects the hipBLAS library. **No `--usemmap` on ROCm** (reported catastrophic on Strix Halo;
   off by default in this version — `--nommap` does not exist, don't add it).
-- On AMD, `start.sh` uses `GPU_ARGS` from `lib/host.sh` (`/dev/kfd`, `/dev/dri`, keep-groups),
-  defaults GPU layers to 999, reads memory from amdgpu's sysfs (VRAM + GTT) instead of
+- On AMD, `start.sh` uses `GPU_ARGS` from `lib/host.sh` (`/dev/kfd`, `/dev/dri`, the crun keep-groups annotation),
+  defaults GPU layers to 999, uses an 8-bit KV cache (`--quantkv 1`; `KOBOLDCPP_QUANTKV=0` for f16), reads memory from amdgpu's sysfs (VRAM + GTT) instead of
   `nvidia-smi`, and skips the CUDA unified-memory retry.
 - `start.sh` — launches the container; handles image build and cleanup automatically
 - `models/` — GGUF model files mounted into the container at `/models`

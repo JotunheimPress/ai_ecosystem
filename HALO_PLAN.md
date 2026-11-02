@@ -137,6 +137,31 @@ Make the stack portable before the box arrives, and prove nothing changes on the
    processing and generation, empty and full context). Record the numbers here and pick the
    default `LLM_BACKEND`. Same for Orpheus real-time factor (the 4070 does ~1.5×).
 
+#### Measured 2026-11-02 (Rex, Vulkan KoboldCPP 1.111.2, ROCm 7.13 ComfyUI, power profile Balanced)
+
+KoboldCPP, Rocinante 12B Q4_K_M, 41/41 layers, 16K context. Flash attention is on by
+default in this version.
+
+| Config | ~2K prompt | ~14K prompt | Generation (empty / 14K) | KV cache |
+|---|---|---|---|---|
+| f16 cache, batch 512 (before) | — | 453 t/s | 24.9 / 19.6 t/s | 2.6 GB |
+| **q8 cache, batch 512 (default now)** | 725–739 t/s | 465–471 t/s | 23.5 / 19.9 t/s | 1.4 GB |
+| q8 cache, batch 1024 | 1066 t/s | 460 t/s | 21.5 / 20.0 t/s | 1.4 GB |
+| q8 cache, batch 2048 | (not measurable) | 449 t/s | 18.1 / 20.0 t/s | 1.4 GB |
+| f16 cache, batch 2048 | (not measurable) | **257 t/s** | 18.3 / 20.3 t/s | 2.6 GB |
+
+ComfyUI, SDXL base 1024x1024, 20 steps euler (warm / first load):
+
+| Config | SDXL | SD1.5 512 |
+|---|---|---|
+| defaults (before) | 19.4 / 24.9 s | 3.3 / 4.9 s |
+| **--highvram + MIOPEN_FIND_MODE=FAST (default now)** | 19.3 / 22.3 s | 3.0–3.3 / 3.8 s |
+
+ComfyUI's main.py already sets `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`, so flash
+attention was on from the start (attention alone: 5.7 ms vs 93 ms without it). Image speed
+is compute-bound; the flags mostly shorten loads. Still to do: ROCm vs Vulkan KoboldCPP,
+one large MoE, and the Performance power profile.
+
 ### Phase C: move the frontends and data
 
 1. Stop the workstation stack. Copy `companion/data`, `ai_story_maker/data`, Iguana and Nocturne

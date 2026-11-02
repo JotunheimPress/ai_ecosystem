@@ -36,6 +36,19 @@ fi
 podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/dev/null
 gpu_args --security-opt label=disable   # NVIDIA: exactly the two flags it always had
 
+# AMD tuning (gfx1151, unified memory). Measured on the Halo 2026-11-02, SDXL 1024x1024
+# 20 steps: ~19.4 s warm either way, cold load 24 -> 22 s with --highvram.
+#   --highvram: keep models resident. "Offloading to RAM" moves them within the same
+#     unified memory, so it only costs copy time. Skipped if you pass a *vram flag yourself.
+#   MIOPEN_FIND_MODE=FAST: skip MIOpen's slow exhaustive kernel search on first use.
+#   Not set here: TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL, which ComfyUI's main.py already
+#   turns on (flash attention on gfx1151; ~16x faster attention than without it).
+AMD_ENV=(); AMD_ARGS=()
+case "${HOST_GPU}" in
+    amd) AMD_ENV=(-e MIOPEN_FIND_MODE=FAST)
+         [[ " $* " == *vram\ * ]] || AMD_ARGS=(--highvram) ;;
+esac
+
 echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
 # --security-opt label=disable: SELinux otherwise denies the container access to the
 # CDI-injected /dev/nvidia* nodes ("Failed to initialize NVML: Insufficient
@@ -51,6 +64,7 @@ echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
+    "${AMD_ENV[@]}" \
     "${GPU_ARGS[@]}" \
     --network "${NET}" \
     -p "$(publish "${PORT}" 8188)" \
@@ -63,6 +77,7 @@ podman run -d \
     --listen 0.0.0.0 \
     --port 8188 \
     --base-directory /data \
+    "${AMD_ARGS[@]}" \
     "$@"
 
 echo "==> ComfyUI started (detached, ${NET}). Logs: podman logs -f ${CONTAINER_NAME}"
