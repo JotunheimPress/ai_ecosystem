@@ -90,10 +90,14 @@ gpu_args() {
   case "$HOST_GPU" in
     nvidia) GPU_ARGS=(--device nvidia.com/gpu=all "$@") ;;
     # ROCm needs /dev/kfd (compute) and /dev/dri (render nodes); Vulkan needs /dev/dri.
-    # keep-groups passes the user's video/render membership into the rootless container,
-    # which is what grants access to those nodes. Debian/Ubuntu confine with AppArmor,
-    # not SELinux, so label=disable is a no-op there but keeps Fedora hosts working.
-    amd) GPU_ARGS=(--device /dev/kfd --device /dev/dri --group-add keep-groups
+    # Keeping the user's video/render membership in the rootless container is what grants
+    # access to those nodes. That is `--group-add keep-groups`, but podman refuses it over
+    # the socket ("not supported in remote mode"), which is how stack-ui runs `stack`.
+    # The crun annotation behind it does the same and works locally and remotely.
+    # Debian/Ubuntu confine with AppArmor, not SELinux, so label=disable is a no-op there
+    # but keeps Fedora hosts working.
+    amd) GPU_ARGS=(--device /dev/kfd --device /dev/dri
+                   --annotation run.oci.keep_original_groups=1
                    --security-opt label=disable --security-opt seccomp=unconfined) ;;
     *) GPU_ARGS=() ;;
   esac
