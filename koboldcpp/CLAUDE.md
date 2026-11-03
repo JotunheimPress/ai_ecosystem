@@ -29,6 +29,7 @@ and nothing differs from before (verified 2026-10-30: identical `podman run` con
   | `<|im_start|>` (Qwen, other ChatML) | `chatml.json` — per-role `<|im_start|>…<|im_end|>` |
   | `[SYSTEM_PROMPT]` (newer Mistral) | KoboldCPP's built-in `AutoGuess` |
   | `[INST]` only (Mistral **Nemo**, e.g. Rocinante) | `mistral-nemo.json` |
+  | `[gMASK]<sop>` + `/nothink` + `<think></think>` (GLM-4.5/4.6 Air, e.g. Iceblink) | KoboldCPP's built-in `GLM-4-NoThink` (AutoGuess picks GLM-4.7's thinking format, whose replies start mid-reasoning with only a closing `</think>`) |
   | none of these | `AutoGuess` |
   `mistral-nemo.json` follows Nemo's template (`[INST]{system}\n\n{user}[/INST]{reply}</s>`, no spaces,
   no system tokens): system text joins the surrounding `[INST]` block, so the companion's trailing

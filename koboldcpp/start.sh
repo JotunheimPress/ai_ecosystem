@@ -146,17 +146,30 @@ fi
 #   <|im_start|>      -> chatml.json         (Qwen and other ChatML models)
 #   [SYSTEM_PROMPT]   -> AutoGuess           (newer Mistral, which has real system tokens)
 #   [INST]            -> mistral-nemo.json   (Nemo-style: instructions inside [INST])
+#   [gMASK]<sop> with /nothink and <think></think> in its template
+#                     -> GLM-4-NoThink       (GLM-4.5/4.6 Air and their finetunes, e.g.
+#                        Iceblink: AutoGuess picks the GLM-4.7 thinking format, which
+#                        opens <think> itself, so replies arrived as "reasoning</think>
+#                        answer" with no opening tag for the apps to strip. Roleplay
+#                        finetuners recommend thinking off; it also saves a long preamble.)
 #   anything else     -> AutoGuess           (KoboldCPP reads the template itself)
 # KOBOLDCPP_ADAPTER (env or model.env) overrides: a file in this folder or a built-in name.
 pick_adapter() {
     local seen
     seen="$(head -c 67108864 "${MODELS_DIR}/${MODEL}" 2>/dev/null \
-        | LC_ALL=C grep -a -o -e '<|im_start|>' -e '\[SYSTEM_PROMPT\]' -e '\[INST\]' 2>/dev/null \
+        | LC_ALL=C grep -a -o -e '<|im_start|>' -e '\[SYSTEM_PROMPT\]' -e '\[INST\]' \
+              -e '\[gMASK\]<sop>' -e '/nothink' -e '<think></think>' 2>/dev/null \
         | sort -u | tr '\n' ' ')"
     case "${seen}" in
         *'<|im_start|>'*)     echo chatml.json ;;
         *'[SYSTEM_PROMPT]'*)  echo AutoGuess ;;
         *'[INST]'*)           echo mistral-nemo.json ;;
+        *'[gMASK]<sop>'*)     # sort order follows the locale: test each marker on its own
+            if [[ "${seen}" == *'/nothink'* && "${seen}" == *'<think></think>'* ]]; then
+                echo GLM-4-NoThink
+            else
+                echo AutoGuess
+            fi ;;
         *)                    echo AutoGuess ;;
     esac
 }

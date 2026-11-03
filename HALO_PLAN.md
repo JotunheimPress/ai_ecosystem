@@ -165,6 +165,18 @@ prompts (3x slower). Its flash attention is the weak part on gfx1151 (a rocWMMA 
 help; untested). Worth re-running when KoboldCPP or ROCm is updated, and on a MoE model.
 The `:rocm` image (20.5 GB) is kept so `LLM_BACKEND=rocm` still works.
 
+**MoE: GLM-4.5 Iceblink v3 106B-A12B** (zerofata, IQ4_XS FFN / Q8_0 attention, 66 GB in
+two parts), Vulkan, q8 cache, 16K, 47/47 layers. 62 GB weights + 1.6 GB cache; 64 of 94 GB
+GPU memory used with ComfyUI idle. Thinking off (`GLM-4-NoThink`, picked automatically).
+
+| Model | ~2K prompt | ~14K prompt | Generation (2K / 14K) |
+|---|---|---|---|
+| Rocinante 12B Q4_K_M | 704–739 t/s | 456–471 t/s | 22.6–23.5 / 20.0 t/s |
+| Iceblink v3 106B-A12B | 267–275 t/s | 179–180 t/s | 15.9–16.0 / 13.9–14.1 t/s |
+
+A chat turn only processes the new tokens (KoboldCPP reuses the cached prefix), so the
+full-prompt cost is paid on the first message or after an edit far back in the history.
+
 ComfyUI, SDXL base 1024x1024, 20 steps euler (warm / first load):
 
 | Config | SDXL | SD1.5 512 |
@@ -174,8 +186,7 @@ ComfyUI, SDXL base 1024x1024, 20 steps euler (warm / first load):
 
 ComfyUI's main.py already sets `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`, so flash
 attention was on from the start (attention alone: 5.7 ms vs 93 ms without it). Image speed
-is compute-bound; the flags mostly shorten loads. Still to do: one large MoE, and the
-Performance power profile.
+is compute-bound; the flags mostly shorten loads. Still to do: the Performance power profile.
 
 ### Phase C: move the frontends and data
 
