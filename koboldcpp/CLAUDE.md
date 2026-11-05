@@ -84,6 +84,7 @@ Resolved by `start.sh` as **env var → `model.env` → built-in default**:
 | `KOBOLDCPP_MODEL` | `Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf` | Model file in `models/` |
 | `KOBOLDCPP_GPU_LAYERS` | `33` | Number of layers to offload to GPU |
 | `KOBOLDCPP_ADAPTER` | picked from the model file | chat format: `chatml.json`, `mistral-nemo.json`, or a KoboldCPP built-in (`AutoGuess`, `Llama-3`, …) |
+| `KOBOLDCPP_SMARTCACHE` | `on` | `--smartcache`: KV snapshots in RAM, so an app's side call doesn't make the next chat turn re-read the whole conversation (~12 s → ~2 s to first token, measured). `0` turns it off, a number sets the slot limit |
 | `KOBOLDCPP_CONTEXT` | unset (KoboldCPP default, 8192) | `--contextsize`; one of 4096 6144 8192 12288 16384 24576 32768 49152 65536 98304 131072 (48K+ sized for the AMD box's unified memory), anything else refuses to start. KV cache grows with it. Apps read the live value from `/api/extra/true_max_context_length` (Pantheon budgets against it). Set it from AI Ecosystem → Language models → Context window (shows each size's KV-cache cost), or by hand; stack-ui keeps it when it rewrites `model.env` |
 
 ```bash

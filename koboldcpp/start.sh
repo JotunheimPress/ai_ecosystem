@@ -240,6 +240,18 @@ BACKEND_ARGS=()
 # it needs, is on by default in this KoboldCPP. Batch size stays at the default 512: 2048
 # was no faster with q8 and halved long-prompt speed with f16. KOBOLDCPP_QUANTKV=0 = f16.
 case "${HOST_GPU}" in amd) BACKEND_ARGS+=(--quantkv "${KOBOLDCPP_QUANTKV:-1}") ;; esac
+# Smart cache: keep snapshots of recent KV caches in system RAM and restore the one that
+# matches. Without it the single cache belongs to whatever ran last, so the apps' small
+# side calls (Pantheon's emotion read, a memory pass) made the next chat turn re-read the
+# whole conversation: measured 2026-11-04, ~12 s to first token instead of ~2 s on a
+# 4K-token chat. A 5K-token prompt's snapshot is ~0.4 GB with q8 KV. Needs fast-forward,
+# which is on by default. KOBOLDCPP_SMARTCACHE=0 turns it off; a number sets the limit.
+case "${KOBOLDCPP_SMARTCACHE:-on}" in
+    0|off|no) ;;
+    on|'') BACKEND_ARGS+=(--smartcache) ;;
+    *[!0-9]*) echo "KOBOLDCPP_SMARTCACHE must be 0, on, or a number, got '${KOBOLDCPP_SMARTCACHE}'" >&2; exit 1 ;;
+    *) BACKEND_ARGS+=(--smartcache "${KOBOLDCPP_SMARTCACHE}") ;;
+esac
 gpu_args --privileged     # NVIDIA: --device nvidia.com/gpu=all --privileged, as always
 launch() {
     local um=()
