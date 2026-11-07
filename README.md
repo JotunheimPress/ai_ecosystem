@@ -17,8 +17,8 @@ once, then pick whichever app you want.
 
 | App | Port | Directory | Repo | What |
 |-----|------|-----------|------|------|
-| `companion` | 7861 | `companion/` | `JotunheimPress/companion` | **Pantheon** — character-card AI companion |
-| `story` | 7860 | `ai_story_maker/` | `JotunheimPress/ai-story-maker` | **Rhapsode** — the Narrative Engine |
+| `companion` | 7861 | `companion/` | `JotunheimPress/npc_maker` | **Pantheon** — character-card AI companion |
+| `story` | 7860 | `ai_story_maker/` | `JotunheimPress/narrative_engine` | **Rhapsode** — the Narrative Engine |
 | `iguana` | 7862 | `iguana_studio/` | `JotunheimPress/iguana_studio` | ComfyUI web GUI |
 
 You only need the frontends you actually use; `stack` starts each on demand. The backends are
@@ -86,9 +86,10 @@ names, so pass the target explicitly:
 
 ```bash
 cd ..                                                              # the ecosystem root
-git clone https://github.com/JotunheimPress/companion.git       companion
-git clone https://github.com/JotunheimPress/ai-story-maker.git  ai_story_maker
-git clone https://github.com/JotunheimPress/iguana_studio.git   iguana_studio
+git clone https://github.com/JotunheimPress/npc_maker.git        companion
+git clone https://github.com/JotunheimPress/narrative_engine.git ai_story_maker
+git clone https://github.com/JotunheimPress/iguana_studio.git    iguana_studio
+git clone https://github.com/JotunheimPress/muninn.git           muninn   # memory library; companion and ai_story_maker build against it
 ```
 
 Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
