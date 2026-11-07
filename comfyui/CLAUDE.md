@@ -41,7 +41,7 @@ Installed today:
 
 | Node | Deps added to the image | Used by |
 |---|---|---|
-| `ComfyUI-PhotoMaker-Plus` (shiimizu, pinned `459f5c0`) | `insightface==1.0.1`, `onnxruntime==1.28.0` | iguana studio's Person mode |
+| `ComfyUI_PuLID_Flux_ll` (lldacing, pinned `7c7362b` **+ `patches/ComfyUI_PuLID_Flux_ll.patch`**) | `insightface==1.0.1`, `onnxruntime==1.28.0`, `facexlib==0.3.0`, `filterpy==2.0.0`, `timm==1.0.31`, `ftfy==6.3.1`, `facenet-pytorch==2.6.0` (`--no-deps`) | iguana studio's Person mode (PuLID-FLUX) |
 | `ComfyUI-GGUF` (city96, pinned `6ea2651`) | `gguf==0.19.0` | iguana studio's Edit mode (Flux Kontext) |
 
 `ComfyUI-GGUF` supplies `UnetLoaderGGUF`, which is **required, not an optimization**: the fp8 build
@@ -51,12 +51,21 @@ path. Only `gguf` is installed from its requirements — `sentencepiece`/`protob
 
 `stack install comfyui` clones these at their pins from the `CUSTOM_NODES=(…)` registry in `stack`
 and `stack doctor` reports drift, so the checkout half is reproducible on a fresh machine. **Weights
-still aren't** — PhotoMaker needs `models/photomaker/photomaker-v{1,2}.bin`, and V2 additionally
-needs InsightFace `buffalo_l` (5 `.onnx` files) at `models/insightface/models/buffalo_l/` — note the
-doubled path, which is how insightface resolves `<root>/models/<name>`. Install reports both as
-missing rather than downloading them.
+still aren't** — PuLID needs `models/pulid/pulid_flux_v0.9.1.safetensors`,
+`models/clip/EVA02_CLIP_L_336_psz14_s6B.pt`, three facexlib `.pth` files in `models/facexlib/`
+and InsightFace `antelopev2` (5 `.onnx`) at `models/insightface/models/antelopev2/` — note the
+doubled path, which is how insightface resolves `<root>/models/<name>`. Sources are listed in
+`iguana_studio/comfyui-auto/CLAUDE.md` (PuLID section).
 
-**Don't install a custom node's `requirements.txt` blindly.** PhotoMaker-Plus's pins `numpy<2`
+**A row may carry a patch** (4th field, a file in `patches/`), applied to the working tree after
+checkout so HEAD stays on the pin; `stack doctor` checks it is in place. PuLID's is the only one:
+upstream swaps Flux's forward for a copy that ComfyUI 0.31 no longer matches — the patch header
+explains. **Bumping `COMFYUI_VERSION` or the PuLID pin means re-checking that patch.**
+
+PhotoMaker-Plus was dropped from the registry on 2026-11-05 (Person mode moved to PuLID); its
+checkout in `custom_nodes/` and `models/photomaker/` are unused and can be deleted.
+
+**Don't install a custom node's `requirements.txt` blindly.** PhotoMaker-Plus's pinned `numpy<2`
 (for the old insightface 0.7.3 sdist), which would downgrade numpy under torch 2.11 and break the
 image; and it wants `onnxruntime-gpu`, which has no CUDA 13 build to match this image's torch. See
 the comment block in the `Containerfile` and `iguana_studio/comfyui-auto/CLAUDE.md` for the full

@@ -72,6 +72,22 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
         gguf==0.19.0
 
+# ComfyUI_PuLID_Flux_ll (lldacing) — PuLID-FLUX face identity for Iguana's Person mode.
+# Its requirements.txt is NOT used: it lists cython (only for building the old
+# insightface sdist) and onnxruntime-gpu (see the InsightFace note above for why the
+# CPU build stays). insightface and onnxruntime are already installed; this adds the
+# rest, all as wheels, with no change to torch or numpy.
+#   - facexlib: face parsing/alignment (filterpy, numba come with it)
+#   - timm, ftfy: the EVA-CLIP image encoder
+#   - facenet-pytorch: imported at load time by the node. --no-deps because it pins
+#     torch<2.3, which would replace this image's torch.
+RUN pip install --no-cache-dir \
+        facexlib==0.3.0 \
+        filterpy==2.0.0 \
+        timm==1.0.31 \
+        ftfy==6.3.1 \
+    && pip install --no-cache-dir --no-deps facenet-pytorch==2.6.0
+
 EXPOSE 8188
 
 # Same probe as Containerfile (docker format only; long start period for torch + nodes).

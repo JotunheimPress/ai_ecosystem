@@ -20,10 +20,10 @@ from services.stackctl import ECO, STACK, _env
 
 NODES_DIR = COMFY_MODELS.parent / "custom_nodes"
 
-# The registry is a bash array of "name|repo|pinned-sha" rows. Parsed rather than
-# duplicated — see the module docstring.
+# The registry is a bash array of "name|repo|pinned-sha[|patch]" rows. Parsed rather than
+# duplicated — see the module docstring. The optional patch field is not shown here.
 _BLOCK = re.compile(r"^CUSTOM_NODES=\((.*?)^\)", re.S | re.M)
-_ROW = re.compile(r'"([^"|]+)\|([^"|]+)\|([0-9a-f]{7,40})"')
+_ROW = re.compile(r'"([^"|]+)\|([^"|]+)\|([0-9a-f]{7,40})(?:\|[^"|]*)?"')
 
 
 def registry() -> list[dict]:

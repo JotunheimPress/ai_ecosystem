@@ -429,10 +429,14 @@ IMG_STACKUI="localhost/stackui:latest"
 # adding a line there too. Weights are never downloaded (see the note in
 # cmd_install); missing ones are reported, not fetched.
 #
-#            name|repo|pinned commit
+# An optional 4th field names a patch in comfyui/patches/, applied to the working tree
+# after checkout (HEAD stays on the pin). For upstream fixes we need but can't push;
+# each patch's header says why. `git apply --reverse --check` tells applied from not.
+#
+#            name|repo|pinned commit[|patch]
 CUSTOM_NODES=(
-  "ComfyUI-PhotoMaker-Plus|https://github.com/shiimizu/ComfyUI-PhotoMaker-Plus.git|459f5c009e8bc3fe76bd63a7f302ddf3406c7062"
   "ComfyUI-GGUF|https://github.com/city96/ComfyUI-GGUF.git|6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
+  "ComfyUI_PuLID_Flux_ll|https://github.com/lldacing/ComfyUI_PuLID_Flux_ll.git|7c7362b806c2c0f4bde8742ada9e7cb05b44d249|ComfyUI_PuLID_Flux_ll.patch"
 )
 
 WARNS=0
@@ -585,14 +589,35 @@ install_koboldcpp() {
         || warn "no *.gguf in $models — see ai-stack/koboldcpp/INSTALL.md §2"
 }
 
+# 0 = the node's patch is applied (or it has none), 1 = not applied, 2 = doesn't fit.
+node_patch_state() {
+  local dir=$1 patch=$2
+  [ -n "$patch" ] || return 0
+  git -C "$dir" apply --reverse --check "$SELF/comfyui/patches/$patch" 2>/dev/null && return 0
+  git -C "$dir" apply --check "$SELF/comfyui/patches/$patch" 2>/dev/null && return 1
+  return 2
+}
+
+apply_node_patch() {
+  local name=$1 dir=$2 patch=$3 st=0
+  node_patch_state "$dir" "$patch" || st=$?
+  case $st in
+    0) [ -z "$patch" ] || ok "custom node $name: $patch applied" ;;
+    1) git -C "$dir" apply "$SELF/comfyui/patches/$patch" \
+         && ok "custom node $name: applied $patch" \
+         || warn "custom node $name: applying $patch failed" ;;
+    *) warn "custom node $name: $patch doesn't apply to this checkout — local edits?" ;;
+  esac
+}
+
 install_custom_nodes() {
-  local state=$1 row name url pin dir have
+  local state=$1 row name url pin patch dir have
   ((${#CUSTOM_NODES[@]})) || return 0
   if ! command -v git >/dev/null 2>&1; then
     warn "git not found — cannot install custom nodes"; return 0
   fi
   for row in "${CUSTOM_NODES[@]}"; do
-    IFS='|' read -r name url pin <<<"$row"
+    IFS='|' read -r name url pin patch <<<"$row"
     dir="$state/custom_nodes/$name"
     if [ -d "$dir/.git" ]; then
       have=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
@@ -609,6 +634,7 @@ install_custom_nodes() {
           warn "custom node $name: commit $pin not found in $dir"
         fi
       fi
+      apply_node_patch "$name" "$dir" "$patch"
     elif [ -e "$dir" ]; then
       warn "custom node $name exists but isn't a git checkout — left alone ($dir)"
     else
@@ -616,6 +642,7 @@ install_custom_nodes() {
       if git clone --quiet "$url" "$dir" 2>/dev/null \
          && git -C "$dir" checkout --quiet "$pin" 2>/dev/null; then
         ok "custom node $name @ ${pin:0:7}"
+        apply_node_patch "$name" "$dir" "$patch"
       else
         warn "custom node $name: clone failed — $url"
       fi
@@ -731,14 +758,18 @@ cmd_doctor() {
   else
     warn "$SVC points at another path, not $SELF — stack install service"
   fi
-  local state="${COMFYUI_STATE:-$ECO/ComfyUI}" row name pin dir
+  local state="${COMFYUI_STATE:-$ECO/ComfyUI}" row name pin patch dir
   for row in "${CUSTOM_NODES[@]}"; do
-    IFS='|' read -r name _ pin <<<"$row"
+    IFS='|' read -r name _ pin patch <<<"$row"
     dir="$state/custom_nodes/$name"
     if [ ! -d "$dir/.git" ]; then
       warn "custom node $name missing — stack install comfyui"
     elif [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$pin" ]; then
-      ok "custom node $name @ ${pin:0:7}"
+      if node_patch_state "$dir" "$patch"; then
+        ok "custom node $name @ ${pin:0:7}${patch:+ + $patch}"
+      else
+        warn "custom node $name: $patch not applied — stack install comfyui"
+      fi
     else
       warn "custom node $name off its pin (${pin:0:7}) — stack install comfyui"
     fi

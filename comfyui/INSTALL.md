@@ -144,8 +144,9 @@ KoboldCPP* on 12 GB VRAM, the practical minimum is a single SD 1.5 checkpoint �
 | `secuanceDreamDeliberate_v125Main` | 4.0 G | SD 1.5 | Civitai |
 
 Search Civitai by the filename above; exact URLs are omitted because they move. Other populated
-subtrees: `photomaker/` (2.6 G), `insightface/` (927 M), `vae/` (320 M) — only needed for the
-workflows that reference them.
+subtrees: `pulid/` (1.1 G), `clip/` (EVA-CLIP, 856 M), `facexlib/`, `insightface/` (antelopev2),
+`vae/` (320 M) — only needed for the workflows that reference them (Person mode: see
+`iguana_studio/comfyui-auto/CLAUDE.md`). `photomaker/` is no longer used.
 
 ### Video — WAN 2.2 TI2V 5B
 

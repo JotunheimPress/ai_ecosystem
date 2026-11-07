@@ -1,0 +1,65 @@
+ComfyUI_PuLID_Flux_ll @ 7c7362b — run on ComfyUI's own Flux forward (ComfyUI >= 0.31)
+
+Why: ApplyPulidFlux's OUTER_SAMPLE wrapper swaps Flux.forward_orig for its own copy
+(pulid_forward_orig), written against an older ComfyUI. ComfyUI 0.31 calls forward_orig
+with timestep_zero_index, so every sample failed with
+  TypeError: pulid_forward_orig() got an unexpected keyword argument 'timestep_zero_index'
+
+Fix: register the node's non-override wrapper instead, so ComfyUI's forward_orig runs
+and calls the node's dit block-replace patches itself (it supports them natively). Those
+patch classes read transformer_options from extra_options, where only the old forward
+put it; ComfyUI passes it in input_args, so they now take whichever is present.
+Verified 2026-11-05 on the Halo (ROCm): FLUX.1-dev Q8 GGUF + PuLID v0.9.1, identity kept.
+
+Applied by `stack install comfyui`; `stack doctor` reports whether it is in place.
+
+diff --git a/PulidFluxHook.py b/PulidFluxHook.py
+index f750920..20f179e 100644
+--- a/PulidFluxHook.py
++++ b/PulidFluxHook.py
+@@ -63,7 +63,8 @@ class DitDoubleBlockReplace:
+             setattr(self, key, value)
+ 
+     def __call__(self, input_args, extra_options):
+-        transformer_options = extra_options["transformer_options"]
++        # pulid_forward_orig passes these in extra_options; ComfyUI's own forward_orig in input_args.
++        transformer_options = extra_options.get("transformer_options") or input_args["transformer_options"]
+         pulid_temp_attrs = transformer_options.get(PatchKeys.pulid_patch_key_attrs, {})
+         sigma = pulid_temp_attrs["timesteps"][0].detach().cpu().item()
+         out = extra_options["original_block"](input_args)
+@@ -89,7 +90,8 @@ class DitDoubleBlockReplace:
+ class LastDitDoubleBlockReplace(DitDoubleBlockReplace):
+     def __call__(self, input_args, extra_options):
+         out = super().__call__(input_args, extra_options)
+-        transformer_options = extra_options["transformer_options"]
++        # pulid_forward_orig passes these in extra_options; ComfyUI's own forward_orig in input_args.
++        transformer_options = extra_options.get("transformer_options") or input_args["transformer_options"]
+         pulid_temp_attrs = transformer_options.get(PatchKeys.pulid_patch_key_attrs, {})
+         pulid_temp_attrs["double_blocks_txt"] = out['txt']
+         return out
+@@ -107,7 +109,8 @@ class DitSingleBlockReplace:
+             setattr(self, key, value)
+ 
+     def __call__(self, input_args, extra_options):
+-        transformer_options = extra_options["transformer_options"]
++        # pulid_forward_orig passes these in extra_options; ComfyUI's own forward_orig in input_args.
++        transformer_options = extra_options.get("transformer_options") or input_args["transformer_options"]
+         pulid_temp_attrs = transformer_options.get(PatchKeys.pulid_patch_key_attrs, {})
+ 
+         out = extra_options["original_block"](input_args)
+diff --git a/pulidflux.py b/pulidflux.py
+index 802cd1d..540b927 100644
+--- a/pulidflux.py
++++ b/pulidflux.py
+@@ -402,7 +402,10 @@ class ApplyPulidFlux:
+ 
+         if len(model.get_wrappers(comfy.patcher_extension.WrappersMP.OUTER_SAMPLE, wrappers_name)) == 0:
+             # Just add it once when connecting in series
+-            model.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.OUTER_SAMPLE, wrappers_name, pulid_outer_sample_wrappers_with_override)
++            # Patched for ComfyUI >= 0.31: keep ComfyUI's own Flux.forward_orig, which calls the
++            # dit block-replace patches below, instead of swapping in pulid_forward_orig — a copy
++            # of an older forward that no longer matches its signature (timestep_zero_index).
++            model.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.OUTER_SAMPLE, wrappers_name, pulid_outer_sample_wrappers)
+         if len(model.get_wrappers(comfy.patcher_extension.WrappersMP.APPLY_MODEL, wrappers_name)) == 0:
+             # Just add it once when connecting in series
+             model.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.APPLY_MODEL, wrappers_name, pulid_apply_model_wrappers)
