@@ -127,7 +127,11 @@ one by cloning it next to ai-stack; remove it by removing the clone.
 - Parsed by `frontend_manifests` in `stack` with **python3** (present in the stack-ui image; jq
   isn't). stack-ui gets brands and icons from `stack frontends --json` rather than reading the
   manifests itself, so the two can't disagree.
-- `stack desktop` still needs the `companion` frontend specifically (its `desktop/` unit).
+- **No desktop avatar** (removed 2026-11-07). `stack desktop`, `stack install desktop` and the
+  dashboard's Desktop avatar button are gone. ai-stack is the backends plus frontend discovery, and
+  nothing frontend-specific belongs here. Cantinero (companion-assistant) runs its desktop shell on its
+  own (its `desktop/README.md`). A unit left over from an old install at
+  `~/.config/systemd/user/pantheon-desktop.service` is no longer managed by ai-stack.
 
 ## Install (`stack install`)
 

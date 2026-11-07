@@ -94,8 +94,7 @@ def main(argv: list[str]) -> int:
             return 0
 
         if verb == "is-active":
-            # Needed since the dashboard grew a desktop-avatar toggle: it has to
-            # know whether the unit is up to label the button. ActiveState is a
+            # `stack install` asks it about podman.socket. ActiveState is a
             # property on the unit object, so this is two calls, not one.
             #
             # A unit that has never been loaded has no object path and LoadUnit

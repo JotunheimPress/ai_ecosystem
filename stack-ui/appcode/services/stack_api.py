@@ -39,8 +39,6 @@ class StackApi:
             **stackctl.parse_status(res["output"]),
             "raw": res["output"],
             "duration_ms": res["duration_ms"],
-            # Not in `stack status`: the avatar is a host GUI with no port to probe.
-            "desktop": stackctl.desktop_active(),
             "busy": bool(job and not job.done),
             "job": job.public() if job and not job.done else None,
             "backends": backends.snapshot(),

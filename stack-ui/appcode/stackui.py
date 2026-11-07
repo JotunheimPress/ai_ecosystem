@@ -113,8 +113,6 @@ class StackUI(MainWindow):
             ToolbarSeparator(),
             ToolbarButton(id="up", label="Start backends", icon="mdi-play",
                           tooltip="Start KoboldCPP and ComfyUI without changing the switch"),
-            ToolbarButton(id="desktop", label="Desktop avatar", icon="mdi-account-box",
-                          tooltip="Pantheon's avatar on your desktop"),
             ToolbarButton(id="downall", label="Stop all", icon="mdi-stop", variant="danger",
                           tooltip="Stop every backend and frontend (not this dashboard)"),
             ToolbarSpacer(),
@@ -239,7 +237,6 @@ class StackUI(MainWindow):
         self.toolbar.set_text("switch", f"Backends {sw}" if sw else "Switch unknown")
         self.toolbar.set_hidden("on", sw == "ON")
         self.toolbar.set_hidden("off", sw != "ON")
-        self.toolbar.set_text("desktop", "Close avatar" if ov.get("desktop") else "Desktop avatar")
         self.toolbar.set_text("updated", f"updated {js.Date.new().toLocaleTimeString()} · "
                                          f"{ov.get('duration_ms')} ms")
         # A job started in another tab (or before a reload) still owns the slot: follow it
@@ -267,12 +264,6 @@ class StackUI(MainWindow):
             self.act("off", confirm="Stop both backends and disable boot auto-start?")
         elif item == "up":
             self.act("up")
-        elif item == "desktop":
-            # One toggle: `stack desktop` is idempotent, so a stray second press is harmless.
-            if self.overview.get("desktop"):
-                self.act("desktop_stop", confirm="Close the desktop avatar?")
-            else:
-                self.act("desktop")
         elif item == "downall":
             self.act("down", "all", confirm="Stop all backends and frontends?")
 
@@ -328,7 +319,7 @@ class StackUI(MainWindow):
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy
-        for item in ("on", "off", "up", "desktop", "downall"):
+        for item in ("on", "off", "up", "downall"):
             self.toolbar.set_disabled(item, busy)
         if self.screen and hasattr(self.screen, "on_busy"):
             self.screen.on_busy(busy)

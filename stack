@@ -11,15 +11,13 @@
 #   stack <app>           start one app: a backend (router|koboldcpp|comfyui|orpheus-tts),
 #                           stackui, or an installed frontend by its repo name (stack frontends)
 #   stack frontends [--json]  list the installed frontends (each repo's frontend.json)
-#   stack desktop         Pantheon's avatar on the desktop (starts the app if needed)
-#   stack desktop stop    close it
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
 #   stack route [local|halo]  show / set where text + voice are served (backend router)
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
-#                           all|backends|koboldcpp|comfyui|stackui|service|path|desktop
+#                           all|backends|koboldcpp|comfyui|stackui|service|path
 #   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
@@ -100,7 +98,7 @@ declare -A LABEL=(
 # `stack <name>` would never reach them.
 FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
   menu on enable off disable gaming up status st down restart logs route install setup
-  doctor check desktop help)
+  doctor check help)
 
 # mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
 frontend_manifests() {
@@ -681,8 +679,8 @@ install_stackui() {
 
 cmd_install() {
   local t=${1:-all} rc=0
-  case "$t" in all|backends|koboldcpp|comfyui|stackui|service|path|desktop) ;;
-    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|stackui|service|path|desktop)"; return 1 ;;
+  case "$t" in all|backends|koboldcpp|comfyui|stackui|service|path) ;;
+    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|stackui|service|path)"; return 1 ;;
   esac
   echo "${C_B}ai-stack install${C_OFF} — target: $t   ${C_DIM}(idempotent; weights are never downloaded)${C_OFF}"
   echo "${C_B}Prerequisites${C_OFF}"; check_prereqs || rc=1
@@ -695,10 +693,6 @@ cmd_install() {
   fi
   if [[ "$t" == all || "$t" == stackui ]]; then
     echo "${C_B}AI Ecosystem${C_OFF}"; install_stackui || rc=1
-  fi
-  if [[ "$t" == all || "$t" == desktop ]]; then
-    echo "${C_B}Desktop avatar${C_OFF}"; install_desktop_unit || rc=1
-    install_kwin_rule || rc=1
   fi
   echo
   # Missing weights are not an install failure — they're deliberately out of scope —
@@ -757,103 +751,6 @@ cmd_doctor() {
   echo "${C_B}Runtime${C_OFF}"; cmd_status
 }
 
-# Pantheon's desktop avatar: a host-side GTK window, not a container, so it is a
-# verb rather than a registry row -- it has no port and no health URL, and adding
-# a fake one would make it show as permanently down in `status`. It only frames
-# the companion container, so make sure that is up first.
-DESKTOP_UNIT="pantheon-desktop.service"
-
-install_desktop_unit() {
-  [[ -n "${FDIR[companion]:-}" ]] || { warn "desktop avatar needs the companion frontend — not installed"; return 1; }
-  local src="${FDIR[companion]}/desktop/$DESKTOP_UNIT"
-  local dst="$HOME/.config/systemd/user/$DESKTOP_UNIT" rendered
-  [ -f "$src" ] || { warn "no desktop unit at $src"; return 1; }
-  rendered=$(sed "s|@ECO@|$ECO|g" "$src")
-  if [ -f "$dst" ] && [ "$rendered" = "$(cat "$dst")" ]; then
-    ok "desktop unit installed ($dst)"
-  else
-    step "installing desktop unit -> $dst"
-    mkdir -p "$(dirname "$dst")" && printf '%s\n' "$rendered" > "$dst" \
-      && systemctl --user daemon-reload && ok "installed"
-  fi
-}
-
-# Position is the compositor's business, not ours: a Wayland client may not know
-# or set where it is, under any toolkit. So "remember where I dragged her" can
-# only be a window rule. positionrule=2 is Remember, deliberately not 3/Force --
-# Force snaps her back after every drag, which looks like dragging is broken.
-install_kwin_rule() {
-  command -v kwriteconfig6 >/dev/null || { warn "kwriteconfig6 not found — skipping window rule"; return 0; }
-  local g=pantheon-desktop existing
-  existing=$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null)
-  case ",$existing," in
-    *",$g,"*) ok "window rule present" ;;
-    *)
-      step "installing KWin window rule ($g)"
-      # Append; never overwrite. Someone else's rules live in this same list.
-      kwriteconfig6 --file kwinrulesrc --group General --key rules \
-        "${existing:+$existing,}$g"
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key Description "Pantheon desktop avatar"
-      # Substring match: GTK sets the Wayland app_id from the application id and
-      # KWin normalises it, so an exact match is the brittle choice.
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclass "pantheon"
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclasscomplete false
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key wmclassmatch 1
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key position "1400,380"
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key positionrule 2
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key size "420,620"
-      kwriteconfig6 --file kwinrulesrc --group "$g" --key sizerule 2
-      local k
-      for k in above skiptaskbar skippager skipswitcher noborder; do
-        kwriteconfig6 --file kwinrulesrc --group "$g" --key "$k" true
-        kwriteconfig6 --file kwinrulesrc --group "$g" --key "${k}rule" 3
-      done
-      qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 \
-        || qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
-      ok "installed — drag her once and KWin remembers"
-      ;;
-  esac
-}
-
-# Started as a systemd --user unit rather than a child of this script, because
-# `stack desktop` also runs from inside the stack-ui container -- which has the
-# host session bus but no Wayland display, so a process it spawns has nowhere to
-# draw. The host user manager does have the display, and the shim maps
-# `systemctl --user start` onto it, so this one path works from both places.
-cmd_desktop() {
-  # Ask the user manager, not the filesystem. $HOME inside the stack-ui container
-  # is a throwaway, so a file test there reports "not installed" for a unit that
-  # is present on the host -- which is exactly how this first failed. The shim
-  # forwards list-unit-files to the host manager, so one check works from both.
-  if ! systemctl --user list-unit-files "$DESKTOP_UNIT" >/dev/null 2>&1; then
-    echo "desktop unit not installed — run this once in a terminal:"
-    echo "    stack install desktop"
-    return 1
-  fi
-  if [[ -z "${FDIR[companion]:-}" ]]; then
-    echo "the desktop avatar frames the companion frontend, which isn't installed"
-    return 1
-  fi
-  if ! is_up companion; then
-    echo "==> ${LABEL[companion]} is not running — starting it"
-    ensure_net; start_app companion
-    wait_up companion 30 || { echo "   ${LABEL[companion]} did not come up; see: stack logs companion"; return 1; }
-  fi
-  if systemctl --user is-active --quiet "$DESKTOP_UNIT"; then
-    echo "==> already running (left-click the tray icon to show her)"
-    return 0
-  fi
-  echo "==> starting the ${LABEL[companion]} desktop avatar"
-  systemctl --user start "$DESKTOP_UNIT" \
-    && echo "   up — tray icon menu has show/hide, move, and quit" \
-    || echo "   failed; see: journalctl --user -u $DESKTOP_UNIT -n 30"
-}
-
-cmd_desktop_stop() {
-  systemctl --user is-active --quiet "$DESKTOP_UNIT" || { echo "not running"; return 0; }
-  systemctl --user stop "$DESKTOP_UNIT" && echo "stopped"
-}
-
 case "${1:-}" in
   ""|menu)   cmd_menu ;;
   on|enable)  cmd_on ;;
@@ -867,7 +764,6 @@ case "${1:-}" in
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
-  desktop)   shift; [[ "${1:-}" == "stop" ]] && cmd_desktop_stop || cmd_desktop "$@" ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as
   # soon as a command was added.
