@@ -8,7 +8,9 @@
 #                           on  = start backends now + at boot
 #   stack up              start the backends now (without touching the boot toggle)
 #   stack status          show what's up
-#   stack <app>           start one app        (companion|story|iguana|nocturne|koboldcpp|comfyui|orpheus-tts)
+#   stack <app>           start one app: a backend (router|koboldcpp|comfyui|orpheus-tts),
+#                           stackui, or an installed frontend by its repo name (stack frontends)
+#   stack frontends [--json]  list the installed frontends (each repo's frontend.json)
 #   stack desktop         Pantheon's avatar on the desktop (starts the app if needed)
 #   stack desktop stop    close it
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
@@ -21,7 +23,8 @@
 #   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
-# Add a new frontend = one row in the registry below.
+# Frontends aren't listed here: any sibling repo with a frontend.json is one (see
+# frontend_manifests below). Install a frontend = clone it next to ai-stack.
 # ============================================================
 set -uo pipefail
 
@@ -41,7 +44,7 @@ host_profile_load || HOST_PROFILE_BAD=1
 # router first: koboldcpp and orpheus-tts are health-probed THROUGH it, so without it
 # they read as down and `stack up` would reload a model that was already serving.
 BACKENDS=(router koboldcpp comfyui orpheus-tts)
-FRONTENDS=(companion story iguana nocturne)
+FRONTENDS=()   # filled from the installed repos' frontend.json by load_frontends
 # Control apps are shown and startable like the rest, but deliberately excluded from
 # `down all` / `down frontends`: stack-ui is the thing you're clicking in, and having a
 # button stop its own server is a bad afternoon. Stop it explicitly (`stack down stackui`).
@@ -57,33 +60,169 @@ reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (K
 reg comfyui   "$HOST_COMFY_PORT" "http://localhost:$HOST_COMFY_PORT/system_stats" "Image/video generation (ComfyUI)" container comfyui
 # Up = the server answers; the voice model itself loads only while Pantheon's voice is on.
 reg orpheus-tts 5005 "http://localhost:5005/api/v1/model" "Expressive voice (Orpheus TTS, loads on demand)" container orpheus-tts-local
-reg companion 7861 "http://127.0.0.1:7861/api/health"   "Character-card AI companion"               container companion
-reg story     7860 "http://localhost:7860/"              "The Narrative Engine"                      container ai-story-maker
-reg iguana    7862 "http://localhost:7862/api/health"    "iguana_studio ComfyUI GUI"                 container iguana
-# /api/health, not /, and it stays 200 with ComfyUI down: this probe asks whether
-# *nocturne* is up, and reporting a failure because a dependency is down would make
-# `stack nocturne` look broken for an app that started fine.
-reg nocturne  7864 "http://localhost:7864/api/health"    "Ambient music generation"                  container nocturne
 # Containerized like everything else, but with the host podman socket and session bus
 # mounted so it can drive them. Loopback-only by design (see stack-ui/CLAUDE.md).
 reg stackui   7863 "http://127.0.0.1:7863/api/health"    "Control dashboard for the stack itself"    container stackui
 
-# Facing names. The key on the left is what you type (`stack companion`) and what every
+# Facing names. The key on the left is what you type (`stack koboldcpp`) and what every
 # target check matches — this is only what a UI puts on the card, so a product rename never
 # touches a command anyone has in their fingers. Apps whose product name is already their
 # key need no row. stack-ui reads this out of the script the same way it reads CUSTOM_NODES:
 # one registry, so the dashboard cannot disagree with the CLI about what a thing is called.
+# Frontends are not in this block: their facing name is the `brand` in their own
+# frontend.json (load_frontends adds it here at run time, and stack-ui reads it from
+# `stack frontends --json`).
 declare -A LABEL=(
   [router]="Router"
   [koboldcpp]="Oracle"
   [comfyui]="Morpheus"
   [orpheus-tts]="Orpheus TTS"
-  [companion]="Pantheon"
-  [story]="Rhapsode"
-  [iguana]="Iguana Studio"
-  [nocturne]="Nocturne"
   [stackui]="AI Ecosystem"
 )
+
+# ---- frontends: discovered, not registered ---------------------------------------------
+# A frontend is any repo directly under $ECO with a frontend.json at its root. So the list
+# is exactly what's installed, and a fork (npc_maker next to companion) shows up as itself
+# instead of hiding behind a hardcoded name. The manifest:
+#
+#   { "repo": "companion",                       identity: what you type, unique, = repo name
+#     "brand": "companion",                      what a UI shows (default: repo)
+#     "description": "Character-card AI companion",
+#     "port": 7861,                              host port it serves on
+#     "health": "http://127.0.0.1:7861/api/health",   200 = up; must be on localhost
+#     "container": "companion",                  podman name: stop + logs
+#     "start": "run-podman.sh",                  path inside the repo, executable
+#     "icon": "mdi-account-heart-outline" }      optional, for stack-ui
+#
+# Parsed with python3 (it's in the stack-ui image too; jq isn't). Bad manifests are
+# skipped and reported by `stack doctor`, never fatal: one broken clone mustn't take the
+# whole launcher down. Names a command or a built-in app already uses are refused, since
+# `stack <name>` would never reach them.
+FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
+  menu on enable off disable gaming up status st down restart logs route install setup
+  doctor check desktop help)
+
+# mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
+frontend_manifests() {
+  python3 - "$1" "$ECO" "${FRONTEND_RESERVED[@]}" <<'PY'
+import json, os, re, sys
+from pathlib import Path
+
+mode, eco, reserved = sys.argv[1], Path(sys.argv[2]), set(sys.argv[3:])
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+ICON = re.compile(r"^mdi-[a-z0-9-]+$")
+HEALTH = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?(/\S*)?$")
+CTRL = re.compile(r"[\x00-\x1f\x7f]")
+US = "\x1f"   # field separator: tabs would collapse empty fields under bash `read`
+
+def text(v, field, limit=200):
+    if not isinstance(v, str) or CTRL.search(v) or len(v) > limit:
+        raise ValueError(f"{field} must be a single-line string")
+    return v
+
+def origin_repo(d):
+    """Repo name from .git/config's origin url, or None. Read, not `git`: cheap and no git needed."""
+    try:
+        cfg = (d / ".git" / "config").read_text()
+    except OSError:
+        return None
+    m = re.search(r'\[remote "origin"\][^\[]*?url\s*=\s*(\S+)', cfg)
+    return re.sub(r"\.git$", "", m.group(1).rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]) if m else None
+
+apps, warns, seen = [], [], {}
+for d in sorted(p for p in eco.iterdir() if p.is_dir() and not p.name.startswith(".")):
+    mf = d / "frontend.json"
+    if not mf.is_file():
+        continue
+    try:
+        m = json.loads(mf.read_text())
+        if not isinstance(m, dict):
+            raise ValueError("not a JSON object")
+        repo = m.get("repo")
+        if not isinstance(repo, str) or not NAME.match(repo):
+            raise ValueError("repo must be a name (letters, digits, _ . -)")
+        if repo in reserved:
+            raise ValueError(f"repo {repo!r} clashes with a stack command or built-in app")
+        port = m.get("port")
+        if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
+            raise ValueError("port must be an integer 1024-65535")
+        health = text(m.get("health"), "health")
+        if not HEALTH.match(health):
+            raise ValueError("health must be an http URL on localhost or 127.0.0.1")
+        container = m.get("container")
+        if not isinstance(container, str) or not NAME.match(container):
+            raise ValueError("container must be a podman name")
+        start = text(m.get("start"), "start")
+        sp = (d / start).resolve()
+        if os.path.isabs(start) or d.resolve() not in sp.parents:
+            raise ValueError("start must be a path inside the repo")
+        if not (sp.is_file() and os.access(sp, os.X_OK)):
+            raise ValueError(f"start script {start} missing or not executable")
+        brand = text(m.get("brand") or repo, "brand", 64)
+        desc = text(m.get("description", ""), "description")
+        icon = m.get("icon") or ""
+        if icon and not (isinstance(icon, str) and ICON.match(icon)):
+            raise ValueError("icon must look like mdi-name")
+    except (OSError, ValueError) as e:
+        warns.append(f"{d.name}/frontend.json skipped: {e}")
+        continue
+    if repo in seen:
+        warns.append(f"{d.name}/frontend.json skipped: repo {repo!r} is already {seen[repo]}/ — "
+                     f"a fork needs its own repo name")
+        continue
+    seen[repo] = d.name
+    o = origin_repo(d)
+    if o and o != repo:
+        warns.append(f"{d.name}/frontend.json says repo {repo!r} but its origin is {o!r}")
+    for other in apps:
+        for what, mine, theirs in (("port", port, other["port"]),
+                                   ("container name", container, other["container"])):
+            if mine == theirs:
+                warns.append(f"{repo} and {other['repo']} share {what} {mine} — "
+                             f"they can't run at the same time")
+    apps.append(dict(repo=repo, brand=brand, description=desc, port=port, health=health,
+                     container=container, start=str(sp), dir=str(d), icon=icon))
+
+if mode == "json":
+    print(json.dumps({"frontends": [{k: a[k] for k in ("repo", "brand", "description", "port", "icon", "dir")}
+                                    for a in apps], "warnings": warns}))
+else:
+    for a in apps:
+        print(US.join(["F", a["repo"], a["brand"], str(a["port"]), a["health"], a["container"],
+                       a["start"], a["dir"], a["icon"], a["description"]]))
+    for w in warns:
+        print(US.join(["W", w]))
+PY
+}
+
+declare -A FSTART FDIR FICON
+FRONTEND_WARN=()
+load_frontends() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    FRONTEND_WARN+=("python3 not found — can't read frontend.json, so no frontends are listed")
+    return 0
+  fi
+  local kind repo brand port health cname start dir icon desc
+  while IFS=$'\x1f' read -r kind repo brand port health cname start dir icon desc; do
+    case $kind in
+      F) reg "$repo" "$port" "$health" "$desc" container "$cname"
+         LABEL[$repo]=$brand; FSTART[$repo]=$start; FDIR[$repo]=$dir; FICON[$repo]=$icon
+         FRONTENDS+=("$repo") ;;
+      W) FRONTEND_WARN+=("$repo") ;;
+    esac
+  done < <(frontend_manifests tsv)
+}
+load_frontends
+
+cmd_frontends() {
+  if [[ ${1:-} == --json ]]; then frontend_manifests json; return; fi
+  if ((${#FRONTENDS[@]} == 0)); then echo "no frontends installed (no */frontend.json in $ECO)"; fi
+  local a
+  for a in "${FRONTENDS[@]}"; do
+    printf "  %-18s %-20s :%-5s %b%s%b\n" "$a" "${LABEL[$a]}" "${PORT[$a]}" "$C_DIM" "${FDIR[$a]}" "$C_OFF"
+  done
+  for a in "${FRONTEND_WARN[@]}"; do echo "  ${C_RED}!${C_OFF} $a"; done
+}
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
@@ -104,17 +243,15 @@ start_app() {
     # and `stack restart` is what the dashboard streams.
     router)    "$SELF/router/start.sh" >/dev/null ;;
     koboldcpp) "$ECO/koboldcpp/start.sh" >/dev/null ;;
-    companion) "$ECO/companion/run-podman.sh" >/dev/null 2>&1 ;;
-    story)     "$ECO/ai_story_maker/run-podman.sh" >/dev/null 2>&1 ;;
     # Canonical recipe lives in the ai-stack checkout, not in the upstream ComfyUI
     # tree (our files would be untracked there). Code is in the image; the checkout
     # supplies only mutable state via --base-directory.
     comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
     orpheus-tts) "$SELF/orpheus-tts/start.sh" >/dev/null ;;
-    iguana)    "$ECO/iguana_studio/comfyui-auto/run-podman.sh" >/dev/null 2>&1 ;;
-    nocturne)  "$ECO/nocturne/run-podman.sh" >/dev/null 2>&1 ;;
     # Ships in this checkout, like the comfyui recipe — hence $SELF, not $ECO.
     stackui)   "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1 ;;
+    # Frontends: the start script their frontend.json names (checked to be inside the repo).
+    *)         [[ -n "${FSTART[$1]:-}" ]] && "${FSTART[$1]}" >/dev/null 2>&1 ;;
   esac
 }
 
@@ -132,7 +269,7 @@ stop_app() {
 
 dot() { is_up "$1" && printf "%bup  %b" "$C_GREEN" "$C_OFF" || printf "%bdown%b" "$C_RED" "$C_OFF"; }
 
-row() { printf "  %-11s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${PORT[$1]}" "$C_OFF" "$C_DIM" "${DESC[$1]}" "$C_OFF"; }
+row() { printf "  %-16s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${PORT[$1]}" "$C_OFF" "$C_DIM" "${DESC[$1]}" "$C_OFF"; }
 
 cmd_status() {
   if have_svc; then
@@ -259,7 +396,8 @@ cmd_menu() {
   fi
   # pick a frontend
   echo "Pick a frontend to launch:"
-  local i=1; for a in "${FRONTENDS[@]}"; do printf "  %d) %-10s %s\n" "$i" "$a" "${DESC[$a]}"; ((i++)); done
+  ((${#FRONTENDS[@]})) || { echo "  (none installed — clone a frontend repo next to ai-stack)"; return; }
+  local i=1; for a in "${FRONTENDS[@]}"; do printf "  %d) %-16s %s\n" "$i" "$a" "${DESC[$a]}"; ((i++)); done
   printf "  0) done\n"
   read -rp "> " sel
   [[ "$sel" =~ ^[0-9]+$ ]] || { echo "cancelled"; return; }
@@ -611,6 +749,11 @@ cmd_doctor() {
       warn "custom node $name off its pin (${pin:0:7}) — stack install comfyui"
     fi
   done
+  echo "${C_B}Frontends${C_OFF} ${C_DIM}(repos in $ECO with a frontend.json)${C_OFF}"
+  local f
+  ((${#FRONTENDS[@]})) || warn "no frontends installed — clone one next to ai-stack"
+  for f in "${FRONTENDS[@]}"; do ok "$f (${LABEL[$f]}) at ${FDIR[$f]}"; done
+  for f in "${FRONTEND_WARN[@]}"; do warn "$f"; done
   echo "${C_B}Runtime${C_OFF}"; cmd_status
 }
 
@@ -621,7 +764,8 @@ cmd_doctor() {
 DESKTOP_UNIT="pantheon-desktop.service"
 
 install_desktop_unit() {
-  local src="$ECO/companion/desktop/$DESKTOP_UNIT"
+  [[ -n "${FDIR[companion]:-}" ]] || { warn "desktop avatar needs the companion frontend — not installed"; return 1; }
+  local src="${FDIR[companion]}/desktop/$DESKTOP_UNIT"
   local dst="$HOME/.config/systemd/user/$DESKTOP_UNIT" rendered
   [ -f "$src" ] || { warn "no desktop unit at $src"; return 1; }
   rendered=$(sed "s|@ECO@|$ECO|g" "$src")
@@ -686,6 +830,10 @@ cmd_desktop() {
     echo "    stack install desktop"
     return 1
   fi
+  if [[ -z "${FDIR[companion]:-}" ]]; then
+    echo "the desktop avatar frames the companion frontend, which isn't installed"
+    return 1
+  fi
   if ! is_up companion; then
     echo "==> ${LABEL[companion]} is not running — starting it"
     ensure_net; start_app companion
@@ -718,6 +866,7 @@ case "${1:-}" in
   route)     cmd_route "${2:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
+  frontends) cmd_frontends "${2:-}" ;;
   desktop)   shift; [[ "${1:-}" == "stop" ]] && cmd_desktop_stop || cmd_desktop "$@" ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as

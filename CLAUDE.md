@@ -5,8 +5,9 @@ shared across every app; frontends run side-by-side on their own ports.
 
 ## Structure
 
-- `stack` — the launcher (bash). Registry of apps is a block of `reg` rows near the top; add a new
-  frontend = one row. Symlinked onto PATH at `~/.local/bin/stack`.
+- `stack` — the launcher (bash). Backends and stackui are a block of `reg` rows near the top;
+  **frontends are discovered**: any repo directly under `$ECO` with a `frontend.json` (see
+  *Frontends* below). Symlinked onto PATH at `~/.local/bin/stack`.
   **Path resolution:** `ECO` is `$AI_ECOSYSTEM` if set, else derived from the script's own location
   (`readlink -f` resolves the PATH symlink; the ecosystem root is the checkout's parent). Projects
   are expected as siblings. Don't reintroduce a hardcoded path. `SELF` is the ai-stack checkout
@@ -61,7 +62,8 @@ stack on / stack off  # SINGLE SWITCH for the AI backend (the one to remember):
 stack              # interactive: show status, offer to start backends, then pick a frontend
 stack up           # start backends now WITHOUT changing the boot toggle
 stack status       # what's up (+ shows the ON/OFF switch state)
-stack companion    # start one app (companion|story|iguana|koboldcpp|comfyui|orpheus-tts)
+stack companion    # start one app: a backend, stackui, or a frontend by repo name
+stack frontends    # installed frontends (--json for stack-ui)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
@@ -83,9 +85,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 | koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
 | orpheus-tts | container | (via router) | — | `ai-stack/orpheus-tts/start.sh` (container `orpheus-tts-local`) — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
-| companion  | container | 7861 (127.0.0.1 only) | kobold + comfyui | `~/Development/ai_ecosystem/companion/run-podman.sh` — **Pantheon**; health `/api/health` |
-| story      | container | 7860 | kobold (+comfyui)| `~/Development/ai_ecosystem/ai_story_maker/run-podman.sh` — **Rhapsode** |
-| iguana     | container | 7862 | comfyui          | `~/Development/ai_ecosystem/iguana_studio/comfyui-auto/run-podman.sh` (on `ai-net`; reaches ComfyUI by name at `comfyui:8188`) |
+| *frontends* | container | from `frontend.json` | varies | whatever is installed — see below. Today: `companion` 7861, `ai-story-maker` 7860, `iguana_studio` 7862, `nocturne` 7864 |
 
 ## Topology
 
@@ -96,11 +96,38 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 - Frontends don't conflict — distinct ports (7861/7860/7862), so several can run at once. "Pick a
   frontend" is about convenience, not exclusivity.
 
-## Adding a frontend
+## Frontends (`frontend.json`)
 
-Add one `reg <name> <port> <health-url> "<desc>" <container|proc> [container-name]` row, add it to the
-`FRONTENDS=(…)` list, and add its start line to `start_app()` (a `run-podman.sh` for containers, or a
-backgrounded process for a host-side `proc` app). Stop logic keys off `KIND`.
+Frontends are not registered in `stack`. A frontend is any repo directly under `$ECO` with a
+`frontend.json` at its root, so the stack — and stack-ui — list exactly what's installed. Install
+one by cloning it next to ai-stack; remove it by removing the clone.
+
+```json
+{
+  "repo": "companion",                          // identity: what you type, = the repo name
+  "brand": "companion",                         // what a UI shows (defaults to repo)
+  "description": "Character-card AI companion",
+  "port": 7861,
+  "health": "http://127.0.0.1:7861/api/health", // must be on localhost / 127.0.0.1
+  "container": "companion",                     // podman name, for stop + logs
+  "start": "run-podman.sh",                     // inside the repo, executable
+  "icon": "mdi-account-heart-outline"           // optional, stack-ui card icon
+}
+```
+
+- **The repo name is the identity** (`stack companion`, `stack ai-story-maker`, `stack iguana_studio`);
+  the brand is display only. There are no short aliases — `story` / `iguana` were dropped on
+  2026-11-07 when this replaced the hardcoded rows.
+- **A fork must change `repo`, `port` and `container`** (e.g. npc_maker forked from companion). Two
+  manifests with the same `repo` → the second is skipped; a shared port or container name is
+  allowed but `stack doctor` warns, since the two can't run at once. A `repo` that differs from the
+  clone's git origin also warns.
+- Bad manifests are skipped and reported by `stack doctor` / `stack frontends`, never fatal. A
+  `repo` that collides with a stack verb or built-in app (`status`, `koboldcpp`, …) is refused.
+- Parsed by `frontend_manifests` in `stack` with **python3** (present in the stack-ui image; jq
+  isn't). stack-ui gets brands and icons from `stack frontends --json` rather than reading the
+  manifests itself, so the two can't disagree.
+- `stack desktop` still needs the `companion` frontend specifically (its `desktop/` unit).
 
 ## Install (`stack install`)
 

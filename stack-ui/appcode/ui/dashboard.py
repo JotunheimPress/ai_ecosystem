@@ -18,11 +18,7 @@ from ui.common import Listeners, ago, attr, by_id, closest, esc, failed, fmt_byt
 _ICONS = {
     "koboldcpp": "mdi-text-box-outline",
     "comfyui": "mdi-image-filter-hdr",
-    "companion": "mdi-account-heart-outline",
-    "story": "mdi-book-open-page-variant-outline",
-    "iguana": "mdi-palette-outline",
-    "nocturne": "mdi-music-note-outline",
-}
+}  # frontends bring their own icon in frontend.json (`icon`)
 
 _KIND_LABEL = {"ckpt": "checkpoint", "unet": "diffusion model", "lora": "LoRA", "vae": "VAE",
                "clip": "text encoder", "control_net": "ControlNet"}
@@ -84,7 +80,8 @@ class DashboardView:
             self._backend_card(a) for a in apps if a.get("group") == "backends")
         by_id("db-frontends").innerHTML = "".join(
             self._frontend_card(a) for a in apps if a.get("group") == "frontends") or (
-            '<p class="su-dim">No frontends registered.</p>')
+            '<p class="su-dim">No frontends installed — clone a frontend repo next to ai-stack '
+            '(any repo with a frontend.json).</p>')
         by_id("db-gpu").innerHTML = self._gpu_line()
 
     # --- markup ----------------------------------------------------------------
@@ -105,7 +102,7 @@ class DashboardView:
 
     def _head(self, a: dict, sub: str) -> str:
         up = a.get("up")
-        icon = _ICONS.get(a["name"], "mdi-application-outline")
+        icon = a.get("icon") or _ICONS.get(a["name"], "mdi-application-outline")
         title = esc(a.get("label") or a["name"])
         if up and a.get("group") == "frontends":
             # The name this page was opened with, so a phone's links point at the stack's
@@ -234,7 +231,10 @@ class DashboardView:
                 + '<span class="su-dim">both backends and the desktop share this card</span>')
 
     def _frontend_card(self, a: dict) -> str:
-        sub = f':{int(a["port"])}'
+        # The repo name is the identity; say it whenever the brand differs, so a fork
+        # (npc_maker) can't pass for the original (companion) on looks alone.
+        repo = "" if a.get("label") == a["name"] else f'{esc(a["name"])} · '
+        sub = f'{repo}:{int(a["port"])}'
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub)}'
                 f'<div class="su-card-body"><p class="su-desc">{esc(a.get("desc"))}</p></div>'

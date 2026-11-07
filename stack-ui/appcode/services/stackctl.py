@@ -16,6 +16,7 @@ parent of this project, with the checkout expected as a sibling.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -52,6 +53,8 @@ VERBS: dict[str, Verb] = {
     # read-only
     "status":  Verb(["status"], False),
     "doctor":  Verb(["doctor"], False, timeout=60),
+    # Installed frontends (repo = identity, brand = facing name), from their frontend.json.
+    "frontends": Verb(["frontends", "--json"], False),
     "logs":    Verb(["logs"], False, target="app", stream=True),
     # mutating — phase 1
     "on":      Verb(["on"], True, stream=True),
@@ -150,8 +153,9 @@ _APPS_TTL = 60.0
 
 def invalidate_apps() -> None:
     """Drop the cached registry — call after anything that could change what's running."""
-    global _APPS
+    global _APPS, _FRONTENDS
     _APPS = (0.0, [])
+    _FRONTENDS = (0.0, {})
 
 
 def known_apps(force: bool = False) -> list[str]:
@@ -267,12 +271,40 @@ _LABEL_ROW = re.compile(r'^\s*\[([A-Za-z0-9_.-]+)\]="([^"]*)"', re.M)
 
 
 def labels() -> dict:
-    """{registry key: product name} for the apps whose name differs from their key."""
+    """{registry key: product name} for the built-in apps whose name differs from their key.
+
+    Frontends aren't in that block — their brand lives in their own frontend.json; see
+    frontends().
+    """
     try:
         block = _LABEL_BLOCK.search(STACK.read_text())
     except OSError:
         return {}
     return dict(_LABEL_ROW.findall(block.group(1))) if block else {}
+
+
+# Installed frontends, as `stack frontends --json` reports them. Asked of `stack` rather
+# than read from the manifests here, so the dashboard can't disagree with the CLI about
+# which repos count or which manifest won a clash. Cached like known_apps: it only changes
+# when a repo is cloned or its frontend.json edited.
+_FRONTENDS: tuple[float, dict] = (0.0, {})
+
+
+def frontends(force: bool = False) -> dict:
+    """{"frontends": [{repo, brand, description, port, icon, dir}], "warnings": [...]}."""
+    global _FRONTENDS
+    if not force and time.monotonic() - _FRONTENDS[0] < _APPS_TTL and _FRONTENDS[1]:
+        return _FRONTENDS[1]
+    try:
+        data = json.loads(run("frontends")["output"])
+    except (StackError, ValueError):
+        return {"frontends": [], "warnings": []}
+    if not isinstance(data, dict):
+        return {"frontends": [], "warnings": []}
+    _FRONTENDS = (time.monotonic(), data)
+    return data
+
+
 _SWITCH = re.compile(r"^AI backend switch:\s*(?P<state>ON|OFF)\b")
 _GROUP = re.compile(r"^(?P<group>Backends|Frontends|Control)\b")
 
@@ -280,6 +312,11 @@ _GROUP = re.compile(r"^(?P<group>Backends|Frontends|Control)\b")
 def parse_status(output: str) -> dict:
     switch, group, apps = None, None, []
     label = labels()
+    icon = {}
+    for f in frontends().get("frontends") or []:
+        if isinstance(f, dict) and f.get("repo"):
+            label[f["repo"]] = f.get("brand") or f["repo"]
+            icon[f["repo"]] = f.get("icon") or ""
     for line in output.splitlines():
         if m := _SWITCH.match(line):
             switch = m.group("state")
@@ -291,6 +328,7 @@ def parse_status(output: str) -> dict:
             apps.append({
                 "name": m.group("name"),
                 "label": label.get(m.group("name"), m.group("name")),
+                "icon": icon.get(m.group("name"), ""),
                 "up": m.group("state").strip() == "up",
                 "port": int(m.group("port")),
                 "desc": m.group("desc"),

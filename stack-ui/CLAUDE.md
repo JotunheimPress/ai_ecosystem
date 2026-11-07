@@ -235,7 +235,7 @@ Deliberate, not incidental:
 - **The ecosystem is mounted at its REAL host path, never a tidy `/eco`.** With a remote
   client, `-v` and build-context paths are resolved by the *host* engine. A path that
   exists only inside this container produces containers with broken mounts — and it fails
-  quietly: `stack iguana` returned exit 0 while starting nothing usable. Identical paths on
+  quietly: `stack iguana` (now `stack iguana_studio`) returned exit 0 while starting nothing usable. Identical paths on
   both sides is what makes starting other apps work at all.
 - **Two `stack doctor` checks can't pass from in here** and are not real failures:
   the CDI spec needs host `nvidia-ctk`, and the systemd-unit check looks
