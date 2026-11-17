@@ -14,12 +14,19 @@ MODEL="/models/${FORTUNA_GGUF}"
 #   which the adapter returns as a 422.
 # --parallel 1: one slot; the adapter serialises requests (server.py).
 # --no-webui: nothing here is for a browser. --host 127.0.0.1: only the adapter reaches it.
+# --ctx-checkpoints 0: llama-server otherwise saves a checkpoint of Qwen3.5's recurrent state
+#   after every prompt. JevK5 sends cache_prompt: false, so nothing ever restores one, and on
+#   the Halo it cost ~240 ms of CPU per evaluation (121 tokens: 358 ms -> 94 ms; measured
+#   2026-11-17, fortuna/CLAUDE.md "Performance").
+# --cache-ram 0: the host-RAM prompt cache (8 GiB by default) is unused for the same reason.
 /app/llama-server \
     --host 127.0.0.1 --port 8080 \
     --model "$MODEL" \
     --ctx-size "${FORTUNA_CTX:-16384}" \
     --n-gpu-layers "${FORTUNA_NGL:-99}" \
     --parallel 1 \
+    --ctx-checkpoints 0 \
+    --cache-ram 0 \
     --no-webui &
 llama=$!
 

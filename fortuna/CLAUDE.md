@@ -63,16 +63,26 @@ Answers: `noul` → `noul` (P(true)); `choice` → `choice` + `probabilities`; `
 (expected level index) + `probabilities`; each with `confidence`. More than 16 options costs
 ceil(n/16)+1 passes (JevK5's knockout).
 
-## Performance (Halo, measured 2026-11-17) — open issue
+## Performance (Halo, measured 2026-11-17)
 
 Each question is one llama-server evaluation of the whole prompt (JevK5's client sends
-`cache_prompt: false`), so cost grows with state length. Measured: **~0.36 s for a ~120-token
-prompt, ~0.56 s for ~500 tokens**, on the GPU (33/33 layers on Vulkan0, 2 graph splits).
+`cache_prompt: false`), so cost grows with state length. With the GPU otherwise idle:
+**~0.1 s for a ~120-token prompt, ~0.3 s for ~500 tokens**; Whimsy's 28-label emotion question
+(3 passes) **~0.7 s**. KoboldCPP shares the GPU, so while it generates, everything here is slower
+(2–3x seen) — check `/sys/class/drm/card0/device/gpu_busy_percent` before trusting a measurement.
 
-**But a second llama.cpp process does the same work in 0.12 s / 0.32 s.** Reproduced with
-throwaway containers from the same image: whichever llama.cpp server starts *first* (with KoboldCPP
-also on Vulkan) pays ~240 ms extra per evaluation; any started after it doesn't, and the first
-stays slow even while the others run. Not the cause (each tested): flash attention, ubatch size,
-context size, log driver, mmap / load mode, process attributes (affinity, nice, cgroup, env),
-`n_probs`, prompt caching. Not yet tried: with KoboldCPP stopped, the ROCm base image, RADV env
-knobs. Until then a request with three questions on a short state takes ~1–1.5 s.
+**Fixed: `--ctx-checkpoints 0` (entrypoint.sh).** Before it, the llama-server Fortuna started took
+~0.36 s / ~0.57 s for the same prompts (emotion: ~2.6 s), while a *second* llama-server started
+next to it ran at full speed. How it was found:
+- The GPU kernels took the same time in both (`GGML_VK_PERF_LOGGER=1`); the slow process spent
+  ~250 ms more **user-space CPU** per evaluation, on its main thread.
+- The slow process was the only one holding any of the Halo's 512 MiB VRAM carve-out (~52 MB,
+  which is the size of the model's recurrent-state buffer), but moving memory to the host
+  (`GGML_VK_PREFER_HOST_MEMORY`, `GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM`) changed nothing.
+- Turning off llama-server's context checkpoints — snapshots of Qwen3.5's recurrent state saved
+  after each prompt — took the first process from 358 ms to 94 ms. Fortuna never restores a
+  checkpoint (no prompt caching), so they were pure cost. Why only the first process paid it is
+  not established; with checkpoints off it no longer matters.
+`--cache-ram 0` was added with it: the host-RAM prompt cache (8 GiB default) is unused too.
+Ruled out along the way: flash attention, ubatch size, context size, log driver, mmap / load
+mode, process attributes (affinity, nice, cgroup, env), `n_probs`.
