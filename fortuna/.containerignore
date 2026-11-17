@@ -1,0 +1,3 @@
+# Build context is this folder; only server.py and entrypoint.sh are COPYed in.
+CLAUDE.md
+start.sh

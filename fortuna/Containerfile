@@ -1,0 +1,39 @@
+# Fortuna — typed decisions (/v1/systemone) from JevK5 on llama.cpp.
+#
+# Base: the official llama.cpp server image at build b11146, the first release containing commit
+# 9575389, which JevK5's GGUF files were made and checked against. Pinned by digest (amd64), one
+# per GPU runtime; lib/host.sh picks it (fortuna_base_image) and start.sh / `stack install fortuna`
+# pass it as BASE. The default is the Vulkan build, which is what the Halo runs.
+#   vulkan  ghcr.io/ggml-org/llama.cpp:server-vulkan-b11146
+#   cuda    ghcr.io/ggml-org/llama.cpp:server-cuda-b11146
+#   rocm    ghcr.io/ggml-org/llama.cpp:server-rocm-b11146
+ARG BASE=ghcr.io/ggml-org/llama.cpp@sha256:171430232fd85c662776f13a5c4924e54256ece130b85fa6fe3fe5b519cf7052
+FROM ${BASE}
+
+# The JevK5 GGUF client: three standard-library files from the v0.3.3 tag, fetched at the pinned
+# commit and checked against their hashes. No pip, no packages: the base image already has
+# python3 and curl, and this path never imports torch (jevk5/__init__.py loads runtimes lazily).
+ARG JEVK5_COMMIT=f944fe37ff1d5ed3830aa4c8d88b7189c8c1268a
+RUN set -eu; \
+    dest=/opt/fortuna/vendor/jevk5; mkdir -p "$dest"; \
+    src="https://raw.githubusercontent.com/allebee/jevk5/${JEVK5_COMMIT}"; \
+    for f in jevk5/__init__.py jevk5/prompt.py jevk5/gguf.py LICENSE NOTICE; do \
+        curl -fsSL "$src/$f" -o "$dest/$(basename "$f")"; \
+    done; \
+    cd "$dest"; \
+    printf '%s  %s\n' \
+        3ec8170fe224e7b9b2ce0333a58ba1cb8066effd4e9d825fc913ef033b907e2b __init__.py \
+        322d69ba6abea83602f27b7a5aa0d3e6ab00847fd03ddccd35a28ae5b23acc1a prompt.py \
+        6505de497ce115f0bf85f110cf708fc8535a774f1361b811e3415b3e91a10d03 gguf.py \
+        cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30 LICENSE \
+        fb52b3763d991b0f46783f0399b2b25ba2bd3ee6bf2c821f9da4b4855a65e4db NOTICE \
+    | sha256sum -c -
+
+COPY server.py entrypoint.sh /opt/fortuna/
+RUN chmod 755 /opt/fortuna/entrypoint.sh \
+    && python3 -c "import sys; sys.path.insert(0, '/opt/fortuna/vendor'); from jevk5.gguf import JevK5GGUF; print('jevk5 client ok')"
+
+EXPOSE 8009
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -fs http://localhost:8009/health || exit 1
+ENTRYPOINT ["/opt/fortuna/entrypoint.sh"]

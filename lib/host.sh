@@ -121,6 +121,17 @@ kobold_gpu_flag() {
   esac
 }
 
+# Fortuna (typed decisions, fortuna/): the official llama.cpp server image for this GPU runtime,
+# pinned by digest at build b11146 (fortuna/Containerfile says why that build), plus our layer.
+fortuna_base_image() {
+  case "$HOST_LLM_BACKEND" in
+    cuda) echo "ghcr.io/ggml-org/llama.cpp@sha256:19e8d129e2b66434692102f03c68fdb079827cff08a3fe0fdf0b4fef9cc9041b" ;;
+    rocm) echo "ghcr.io/ggml-org/llama.cpp@sha256:a4d07a422c64467bd3f4177b2721ba1e0bf1af187618a265b71e9cef9e830639" ;;
+    *)    echo "ghcr.io/ggml-org/llama.cpp@sha256:171430232fd85c662776f13a5c4924e54256ece130b85fa6fe3fe5b519cf7052" ;;
+  esac
+}
+fortuna_image() { echo "localhost/fortuna:$HOST_LLM_BACKEND"; }
+
 comfy_image() {
   case "$HOST_GPU" in amd) echo "localhost/comfyui:rocm" ;; *) echo "localhost/comfyui:latest" ;; esac
 }

@@ -45,6 +45,11 @@ shared across every app; frontends run side-by-side on their own ports.
 - `orpheus-tts/` — Orpheus TTS for Pantheon's voice: a `start.sh` that runs the **koboldcpp image**
   in admin mode with no model, so it costs nothing until Pantheon loads it. State in
   `$ECO/orpheus-tts/` (models/, config/). See `orpheus-tts/CLAUDE.md`.
+- `fortuna/` — **Fortuna**, typed decisions (yes/no, choice, score as calibrated probabilities)
+  in TypeSafe's `/v1/systemone` shape, for frontends that today ask KoboldCPP for a label and parse
+  it. Engine: JevK5 (a GGUF) on the official llama.cpp server image, pinned by digest. Named
+  `fortuna` everywhere (not after its engine) so the engine can be swapped. State in
+  `$ECO/fortuna/` (models/, fortuna.env). See `fortuna/CLAUDE.md`.
 - `comfyui/` — the **canonical** ComfyUI recipe, same shape as `koboldcpp/`: `Containerfile`
   (ubuntu:24.04 + cu130 torch + ComfyUI cloned at a pinned tag), `start.sh`, `.containerignore`,
   `INSTALL.md`, `CLAUDE.md`, and two lock files — `requirements.lock.v0.31.1.txt` (current, COPYed
@@ -71,7 +76,7 @@ stack route [local|halo]  # show / set where text + voice are served (halo needs
 
 stack install      # one-time setup, idempotent: build backend images, create ai-net,
                    #   install the systemd unit, link onto PATH.
-                   #   targets: all|backends|koboldcpp|comfyui|service|path
+                   #   targets: all|backends|koboldcpp|comfyui|fortuna|stackui|service|path
 stack doctor       # check prerequisites + what's installed; changes nothing
 ```
 
@@ -85,6 +90,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 | koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
 | orpheus-tts | container | (via router) | — | `ai-stack/orpheus-tts/start.sh` (container `orpheus-tts-local`) — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
+| fortuna    | container | 8009 (127.0.0.1) | — | `ai-stack/fortuna/start.sh` (container `fortuna`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; model fetched only by `start.sh --fetch` (`fortuna/CLAUDE.md`) |
 | *frontends* | container | from `frontend.json` | varies | whatever is installed — see below. Today: `companion` 7861, `ai-story-maker` 7860, `iguana_studio` 7862, `nocturne` 7864 |
 
 ## Topology
@@ -140,7 +146,7 @@ can't drift. Every step is idempotent — re-running reports what's already in p
 
 What it does: checks prerequisites (podman, host driver, CDI spec) → links `~/.local/bin/stack` →
 renders the systemd unit and `daemon-reload`s → creates `ai-net` → links the KoboldCPP recipe into
-`$ECO/koboldcpp` → builds the two backend images →
+`$ECO/koboldcpp` → builds the backend images (KoboldCPP, ComfyUI, Fortuna) →
 creates the ComfyUI state skeleton (`models/checkpoints`, `input`, `output`, `user`, `custom_nodes`)
 → clones the ComfyUI **custom nodes** at their pinned commits.
 

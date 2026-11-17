@@ -18,6 +18,7 @@ from ui.common import Listeners, ago, attr, by_id, closest, esc, failed, fmt_byt
 _ICONS = {
     "koboldcpp": "mdi-text-box-outline",
     "comfyui": "mdi-image-filter-hdr",
+    "fortuna": "mdi-dice-multiple-outline",
 }  # frontends bring their own icon in frontend.json (`icon`)
 
 _KIND_LABEL = {"ckpt": "checkpoint", "unet": "diffusion model", "lora": "LoRA", "vae": "VAE",
