@@ -2,13 +2,15 @@
 
 Status: **Phase A done 2026-10-30** (host profiles, AMD images built, NVIDIA unchanged).
 Phase 1 (router, 2026-10-29) is done and still used. Phases B+ wait for the hardware.
+Orpheus TTS was removed from the stack on 2026-11-18; entries under *done* below keep their
+original wording as history.
 
 Hardware: AMD Ryzen AI Halo (Strix Halo, Zen 5), **Radeon 8060S** iGPU (RDNA 3.5, **gfx1151**),
 **128 GB unified memory** shared by CPU and GPU.
 
 ## Goal
 
-The Halo box can run the whole AI stack: every backend (KoboldCPP, Orpheus TTS, ComfyUI), every
+The Halo box can run the whole AI stack: every backend (KoboldCPP, ComfyUI, Fortuna), every
 frontend (Pantheon, Rhapsode, Iguana Studio, Nocturne) and the AI Ecosystem dashboard, with their
 data. **It is an option to switch to, not a replacement:** the NVIDIA install on the workstation
 stays fully supported and runnable, and the same checkout runs on both (host profiles, Phase A).
@@ -20,11 +22,11 @@ Running on Halo frees the 4070 for games.
 |---|---|
 | What runs on Halo | **Everything**: backends, frontends, dashboard, and their data. |
 | Halo OS | **Preinstalled: AMD's "Rex"** (Ryzen AI Developer Platform 1), based on Debian 13 (Trixie). Reported in its Sept 2026 update to ship Linux 7.2.7 and ROCm 10.0 (one source, not yet confirmed with AMD). Kept if `stack doctor` passes on it. Replaces the earlier Ubuntu 24.04 choice. |
-| GPU runtime | **ROCm for ComfyUI** (PyTorch has no other path). **KoboldCPP and Orpheus: build both ROCm and Vulkan, benchmark, keep the winner as default** and the other switchable. |
+| GPU runtime | **ROCm for ComfyUI** (PyTorch has no other path). **KoboldCPP: build both ROCm and Vulkan, benchmark, keep the winner as default** and the other switchable. |
 | How Halo is run | **Its own `stack`**: a clone of ai-stack on the Halo box, driven locally there (CLI + its own dashboard). Replaces the 2026-10-29 plan of driving a remote podman over SSH from the workstation, which only made sense while the frontends stayed here. |
 | Access from the workstation | **Directly over the LAN**, `http://<halo>.local:<port>`. Every app answers on all interfaces over plain HTTP (2026-10-30: a local product, no TLS or tunnel). |
 | Network | Wired LAN, DHCP reservation, hostname `halo`, SSH key auth only (2026-10-29). |
-| Router | **Kept** (Phase 1). On Halo it routes `koboldcpp` / `orpheus-tts` to the ROCm or Vulkan copy, which is what makes the runtime switchable without touching the frontends. |
+| Router | **Kept** (Phase 1). On Halo it routes `koboldcpp` to the ROCm or Vulkan copy, which is what makes the runtime switchable without touching the frontends. |
 | NVIDIA install | **Kept as a first-class option** (2026-10-30). Same checkout, NVIDIA profile, unchanged behaviour. Switching between hosts is choosing which stack you run and which data copy is current (Phase D). No automatic text failover: with the frontends on Halo, "Halo is down" means the apps are down too. |
 
 ## Kernel and firmware (check first)
@@ -67,8 +69,7 @@ unchanged. Everything GPU-specific is in the three backend recipes, `stack` and 
 | Where | NVIDIA / single-host assumption | Change |
 |---|---|---|
 | `koboldcpp/Containerfile` | `nvidia/cuda` base, `--usecublas` | Add `Containerfile.vulkan` (official binary + Mesa RADV) and `Containerfile.rocm` (YellowRoseCx `koboldcpp-rocm`, built for gfx1151). Tags `koboldcpp:cuda`, `:vulkan`, `:rocm`. |
-| `koboldcpp/start.sh` | `--device nvidia.com/gpu=all`, `nvidia-smi` VRAM waits, CUDA unified-memory retry, default 33 GPU layers, ComfyUI `/free`, Orpheus unload | Pick device flags and backend flag (`--usecublas` / `--usevulkan`) from the host profile. On AMD: all layers on the GPU, `--nommap` for ROCm, VRAM waits read `/sys/class/drm/card*/device/mem_info_*` or skip, no CUDA UM retry. The ComfyUI / Orpheus unloads stay but matter far less. |
-| `orpheus-tts/start.sh` | nvidia device, `--usecublas` in the exported `.kcpps` | Same host profile; regenerate the `.kcpps` per backend. |
+| `koboldcpp/start.sh` | `--device nvidia.com/gpu=all`, `nvidia-smi` VRAM waits, CUDA unified-memory retry, default 33 GPU layers, ComfyUI `/free` | Pick device flags and backend flag (`--usecublas` / `--usevulkan`) from the host profile. On AMD: all layers on the GPU, `--nommap` for ROCm, VRAM waits read `/sys/class/drm/card*/device/mem_info_*` or skip, no CUDA UM retry. The ComfyUI unload stays but matters far less. |
 | `comfyui/Containerfile` | cu130 torch wheels; GGUF node justified by 12 GB | `Containerfile.rocm`: torch from AMD's gfx1151 wheel index (`repo.amd.com/rocm/whl/gfx1151/`) or TheRock nightlies; its own requirements lock (torch line differs). insightface/onnxruntime stay CPU. |
 | `comfyui/start.sh` | `--device nvidia.com/gpu=all`, `label=disable` | AMD: `--device /dev/kfd --device /dev/dri --group-add keep-groups`, plus `--security-opt seccomp=unconfined` if ROCm needs it (Ubuntu uses AppArmor, not SELinux). |
 | `stack` (`check_prereqs`, `doctor`) | `nvidia-ctk` CDI check | Per profile: AMD checks `/dev/kfd`, `render`/`video` group membership, kernel ≥ 6.18.4, TTM limit, ROCm visible in a test container. |
@@ -77,7 +78,7 @@ unchanged. Everything GPU-specific is in the three backend recipes, `stack` and 
 | `stack-ui` VRAM planner, `vram.py` | ComfyUI `/system_stats` as the only GPU view; 12 GB budgets | Unified-memory budget (TTM limit minus OS headroom); one pool shared by both backends. |
 | Context sizes (`start.sh`, stack-ui `CONTEXT_SIZES`, Pantheon `models/schema.py`) | Max 32K, sized for 12 GB | Add 49152 / 65536 / 131072. Lists must stay identical (stack-ui's test checks start.sh). |
 | Ports bound on all interfaces | router :5001, ComfyUI :8188, Rhapsode :7860, Nocturne :7864 | Fine on a workstation; **on a LAN server they're open without a login.** Halo profile binds them to 127.0.0.1 (the tunnel reaches them), plus `ufw default deny incoming` with only SSH allowed. |
-| Data that moves | — | ComfyUI models 120 GB, KoboldCPP models 30 GB, Orpheus 2.3 GB, `companion/data` 151 MB, Rhapsode, Iguana, Nocturne outputs, `jarvis` (Piper voices). Rhapsode mounts Pantheon's data read-only, so the two must stay on one host (they will). |
+| Data that moves | — | ComfyUI models 120 GB, KoboldCPP models 30 GB, `companion/data` 151 MB, Rhapsode, Iguana, Nocturne outputs, `jarvis` (Piper voices). Rhapsode mounts Pantheon's data read-only, so the two must stay on one host (they will). |
 | Pantheon desktop avatar | `/desktop` on `127.0.0.1:7861` | The GTK shell stays on the workstation and points at the tunnelled port. |
 
 ## Phases
@@ -135,7 +136,7 @@ Make the stack portable before the box arrives, and prove nothing changes on the
 4. Clone ai-stack and the frontends as siblings, `stack install`, copy the models.
 5. **Benchmark** KoboldCPP ROCm vs Vulkan on Rocinante 12B and one large MoE (prompt
    processing and generation, empty and full context). Record the numbers here and pick the
-   default `LLM_BACKEND`. Same for Orpheus real-time factor (the 4070 does ~1.5×).
+   default `LLM_BACKEND`.
 
 #### Measured 2026-11-02 (Rex, Vulkan KoboldCPP 1.111.2, ROCm 7.13 ComfyUI, power profile Balanced)
 
@@ -191,8 +192,8 @@ is compute-bound; the flags mostly shorten loads. Still to do: the Performance p
 ### Phase C: move the frontends and data
 
 1. Stop the workstation stack. Copy `companion/data`, `ai_story_maker/data`, Iguana and Nocturne
-   outputs, `jarvis`, the ComfyUI state and Orpheus state to the same relative paths on Halo.
-2. `stack up` and each frontend on Halo; verify chat, voice (Orpheus + Kokoro), sprites, Iguana,
+   outputs, `jarvis`, the ComfyUI state to the same relative paths on Halo.
+2. `stack up` and each frontend on Halo; verify chat, voice (Kokoro), sprites, Iguana,
    Nocturne, the narrator, Rhapsode's read of Pantheon's library.
 3. Set up backups of the Halo data dirs: they now live on one machine only.
 

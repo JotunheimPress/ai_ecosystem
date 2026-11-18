@@ -8,13 +8,13 @@
 #                           on  = start backends now + at boot
 #   stack up              start the backends now (without touching the boot toggle)
 #   stack status          show what's up
-#   stack <app>           start one app: a backend (router|koboldcpp|comfyui|orpheus-tts|fortuna),
+#   stack <app>           start one app: a backend (router|koboldcpp|comfyui|fortuna),
 #                           stackui, or an installed frontend by its repo name (stack frontends)
 #   stack frontends [--json]  list the installed frontends (each repo's frontend.json)
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
-#   stack route [local|halo]  show / set where text + voice are served (backend router)
+#   stack route [local|halo]  show / set where text is served (backend router)
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|koboldcpp|comfyui|fortuna|stackui|service|path
@@ -39,9 +39,9 @@ SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off sw
 . "$SELF/lib/host.sh"
 host_profile_load || HOST_PROFILE_BAD=1
 
-# router first: koboldcpp and orpheus-tts are health-probed THROUGH it, so without it
-# they read as down and `stack up` would reload a model that was already serving.
-BACKENDS=(router koboldcpp comfyui orpheus-tts fortuna)
+# router first: koboldcpp is health-probed THROUGH it, so without it it reads as down
+# and `stack up` would reload a model that was already serving.
+BACKENDS=(router koboldcpp comfyui fortuna)
 FRONTENDS=()   # filled from the installed repos' frontend.json by load_frontends
 # Control apps are shown and startable like the rest, but deliberately excluded from
 # `down all` / `down frontends`: stack-ui is the thing you're clicking in, and having a
@@ -51,13 +51,11 @@ CONTROL=(stackui)
 declare -A PORT HEALTH DESC KIND CNAME
 #           port  health-url                              description                              kind       container-name
 reg() { local k=$1; PORT[$k]=$2; HEALTH[$k]=$3; DESC[$k]=$4; KIND[$k]=$5; CNAME[$k]=${6:-}; }
-# The router owns the names `koboldcpp`/`orpheus-tts` on ai-net and host ports 5001/5005;
-# the local 4070 copies run as `*-local` behind it (router/, HALO_PLAN.md).
-reg router    5001 "http://localhost:5001/__router/health" "Routes text + voice to where they run"   container backend-router
+# The router owns the name `koboldcpp` on ai-net and host port 5001; the local copy runs
+# as `koboldcpp-local` behind it (router/, HALO_PLAN.md).
+reg router    5001 "http://localhost:5001/__router/health" "Routes text to where it runs" container backend-router
 reg koboldcpp 5001 "http://localhost:5001/api/v1/model"  "LLM text generation (KoboldCPP)"          container koboldcpp-local
 reg comfyui   "$HOST_COMFY_PORT" "http://localhost:$HOST_COMFY_PORT/system_stats" "Image/video generation (ComfyUI)" container comfyui
-# Up = the server answers; the voice model itself loads only while Pantheon's voice is on.
-reg orpheus-tts 5005 "http://localhost:5005/api/v1/model" "Expressive voice (Orpheus TTS, loads on demand)" container orpheus-tts-local
 # Typed decisions (/v1/systemone): JevK5 on llama.cpp. Up = model loaded (fortuna/CLAUDE.md).
 # Host port is loopback-only; frontends use http://fortuna:8009 on ai-net.
 reg fortuna   8009 "http://127.0.0.1:8009/health"        "Typed decisions: yes/no, choice, score (JevK5)" container fortuna
@@ -77,7 +75,6 @@ declare -A LABEL=(
   [router]="Router"
   [koboldcpp]="Oracle"
   [comfyui]="Morpheus"
-  [orpheus-tts]="Orpheus TTS"
   [fortuna]="Fortuna"
   [stackui]="AI Ecosystem"
 )
@@ -249,7 +246,6 @@ start_app() {
     # tree (our files would be untracked there). Code is in the image; the checkout
     # supplies only mutable state via --base-directory.
     comfyui)   "$SELF/comfyui/start.sh" >/dev/null 2>&1 ;;
-    orpheus-tts) "$SELF/orpheus-tts/start.sh" >/dev/null ;;
     # Returns once the model is loaded; stderr says what's missing (e.g. the GGUF).
     fortuna)   "$SELF/fortuna/start.sh" >/dev/null ;;
     # Ships in this checkout, like the comfyui recipe — hence $SELF, not $ECO.
@@ -280,7 +276,7 @@ cmd_status() {
     if svc_enabled; then echo "AI backend switch: ${C_GREEN}ON${C_OFF}  (auto-starts at boot)"
     else                 echo "AI backend switch: ${C_RED}OFF${C_OFF} (gaming mode — won't start at boot)"; fi
   fi
-  DESC[router]="Routes text + voice → $(route_name)"
+  DESC[router]="Routes text → $(route_name)"
   echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
   echo "${C_B}Control${C_OFF}";                 for a in "${CONTROL[@]}"; do row "$a"; done
@@ -289,7 +285,7 @@ cmd_status() {
 start_one() {
   local a=$1
   # Reached through the router, so it has to be up first (see BACKENDS).
-  if [[ $a == koboldcpp || $a == orpheus-tts ]] && ! is_up router; then start_one router || return 1; fi
+  if [[ $a == koboldcpp ]] && ! is_up router; then start_one router || return 1; fi
   if is_up "$a"; then echo "  $a already up (:${PORT[$a]})"; return 0; fi
   # Health says down, but for a `proc` app the port may still be held — by an instance
   # that's mid-startup, or wedged. Starting now would just lose the port race, and the
@@ -316,7 +312,7 @@ start_one() {
   fi
 }
 
-# ---- backend router: where text + voice are served -------------------------------------
+# ---- backend router: where text is served ----------------------------------------------
 # route.conf is nginx text the router includes; written here and only from fixed values or
 # a validated host name, never from free-form input.
 ROUTE_FILE="$ECO/router/route.conf"
@@ -327,16 +323,16 @@ halo_host() {   # HALO_HOST from ai-stack/halo.env (git-ignored), parsed, never 
   [[ "$v" =~ ^[A-Za-z0-9.-]+$ ]] && echo "$v"
 }
 cmd_route() {
-  local t=${1:-} k o
+  local t=${1:-} k
   case "$t" in
-    "")    echo "text  → $(route_now)"; echo "voice → $(grep -oP 'set \$orpheus_up \K[^;]+' "$ROUTE_FILE" 2>/dev/null || echo orpheus-tts-local:5005)"; return 0 ;;
-    local) k="koboldcpp-local:5001"; o="orpheus-tts-local:5005" ;;
+    "")    echo "text → $(route_now)"; return 0 ;;
+    local) k="koboldcpp-local:5001" ;;
     halo)  local h; h=$(halo_host) || { echo "no valid HALO_HOST in $SELF/halo.env (HALO_PLAN.md Phase 2)"; return 1; }
-           k="$h:5001"; o="$h:5005" ;;
+           k="$h:5001" ;;
     *)     echo "usage: stack route [local|halo]"; return 1 ;;
   esac
   mkdir -p "$(dirname "$ROUTE_FILE")"
-  printf 'set $kobold_up %s;\nset $orpheus_up %s;\n' "$k" "$o" > "$ROUTE_FILE.tmp" && mv "$ROUTE_FILE.tmp" "$ROUTE_FILE"
+  printf 'set $kobold_up %s;\n' "$k" > "$ROUTE_FILE.tmp" && mv "$ROUTE_FILE.tmp" "$ROUTE_FILE"
   if podman container exists "${CNAME[router]}" 2>/dev/null \
      && [[ "$(podman inspect -f '{{.State.Status}}' "${CNAME[router]}" 2>/dev/null)" == running ]]; then
     podman exec "${CNAME[router]}" nginx -s reload >/dev/null 2>&1 \
@@ -349,7 +345,7 @@ cmd_route() {
       sleep 0.25
     done
   fi
-  echo "  ${C_GREEN}✓${C_OFF} text → $k, voice → $o"
+  echo "  ${C_GREEN}✓${C_OFF} text → $k"
 }
 
 cmd_up() { ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done; }

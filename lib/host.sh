@@ -6,7 +6,7 @@
 # as koboldcpp/model.env. Every key is optional; without the file the GPU is detected.
 #
 #   GPU=nvidia|amd|none        the GPU the containers get
-#   LLM_BACKEND=cuda|vulkan|rocm   how KoboldCPP and Orpheus use it
+#   LLM_BACKEND=cuda|vulkan|rocm   how KoboldCPP uses it
 #   BIND=127.0.0.1             publish the stack's open ports on this address only
 #                              (unset = all interfaces, as on the workstation)
 #   COMFYUI_PORT=8189          host port for ComfyUI (default 8188). On ai-net it is

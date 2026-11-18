@@ -1,7 +1,6 @@
-# Backend router: answers as `koboldcpp` and `orpheus-tts` on ai-net (and on the host ports
-# those containers used to publish) and forwards each request to wherever that backend runs
-# right now. Today that's the local 4070 copies; later it's the Halo box with the 4070 as
-# fallback (HALO_PLAN.md). Frontends keep their URLs and never learn which machine answered.
+# Backend router: answers as `koboldcpp` on ai-net (and on the host port that container used
+# to publish) and forwards each request to wherever text runs right now: the local copy, or
+# the Halo box (HALO_PLAN.md). Frontends keep their URLs and never learn which machine answered.
 #
 # Rendered by the nginx image's own entrypoint: only ${NGINX_LOCAL_RESOLVERS} is substituted
 # (envsubst is limited to variables that exist in the environment), so nginx's own $vars
@@ -29,18 +28,9 @@ access_log off;                # health polls every few seconds; errors still go
 # Text: KoboldCPP
 server {
     listen 5001;
-    include /etc/nginx/route/route.conf;     # sets $kobold_up and $orpheus_up (written by `stack route`)
+    include /etc/nginx/route/route.conf;     # sets $kobold_up (written by `stack route`)
 
     location = /__router/health { default_type text/plain; return 200 "ok\n"; }
-    location = /__router/route  { default_type text/plain; return 200 "text $kobold_up\nvoice $orpheus_up\n"; }
+    location = /__router/route  { default_type text/plain; return 200 "text $kobold_up\n"; }
     location / { proxy_pass http://$kobold_up; }
-}
-
-# Voice: Orpheus TTS (KoboldCPP admin mode). Admin routes pass through: Pantheon loads and
-# unloads the voice model with /api/admin/reload_config.
-server {
-    listen 5005;
-    include /etc/nginx/route/route.conf;
-
-    location / { proxy_pass http://$orpheus_up; }
 }

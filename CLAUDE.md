@@ -37,14 +37,10 @@ shared across every app; frontends run side-by-side on their own ports.
   CPU's graphics — and the 4070 setup is byte-for-byte what it was. The AMD Halo box is the
   other profile (`HALO_PLAN.md`); both stay supported.
 - `router/` — the **backend router**: one nginx container (`backend-router`, stock
-  `nginx:1.28-alpine` + `router.conf.template`) that owns the names `koboldcpp` and `orpheus-tts` on
-  ai-net and host ports **5001** (all interfaces) and **127.0.0.1:5005**, and forwards each to where
-  that backend runs. The local copies run as `koboldcpp-local` / `orpheus-tts-local` with no host
-  ports. Route state is `$ECO/router/route.conf`, written only by `stack route`. Groundwork for the
-  Halo box (`HALO_PLAN.md`). See `router/CLAUDE.md`.
-- `orpheus-tts/` — Orpheus TTS for Pantheon's voice: a `start.sh` that runs the **koboldcpp image**
-  in admin mode with no model, so it costs nothing until Pantheon loads it. State in
-  `$ECO/orpheus-tts/` (models/, config/). See `orpheus-tts/CLAUDE.md`.
+  `nginx:1.28-alpine` + `router.conf.template`) that owns the name `koboldcpp` on ai-net and host
+  port **5001**, and forwards it to where text runs. The local copy runs as `koboldcpp-local` with
+  no host port. Route state is `$ECO/router/route.conf`, written only by `stack route`. Groundwork
+  for the Halo box (`HALO_PLAN.md`). See `router/CLAUDE.md`.
 - `fortuna/` — **Fortuna**, typed decisions (yes/no, choice, score as calibrated probabilities)
   in TypeSafe's `/v1/systemone` shape, for frontends that today ask KoboldCPP for a label and parse
   it. Engine: JevK5 (a GGUF) on the official llama.cpp server image, pinned by digest. Named
@@ -72,7 +68,7 @@ stack frontends    # installed frontends (--json for stack-ui)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
 stack restart <app>
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
-stack route [local|halo]  # show / set where text + voice are served (halo needs HALO_HOST in halo.env)
+stack route [local|halo]  # show / set where text is served (halo needs HALO_HOST in halo.env)
 
 stack install      # one-time setup, idempotent: build backend images, create ai-net,
                    #   install the systemd unit, link onto PATH.
@@ -86,10 +82,9 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 
 | App        | Kind      | Port | Backend it needs | How it starts |
 |------------|-----------|------|------------------|---------------|
-| router     | container | 5001, 5005 (127.0.0.1) | — | `ai-stack/router/start.sh` — container `backend-router`; started first, since the two below are health-probed through it |
+| router     | container | 5001 | — | `ai-stack/router/start.sh` — container `backend-router`; started first, since koboldcpp is health-probed through it |
 | koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
 | comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
-| orpheus-tts | container | (via router) | — | `ai-stack/orpheus-tts/start.sh` (container `orpheus-tts-local`) — Pantheon's expressive voice; idle with **no model / no VRAM** until voice is on (`orpheus-tts/CLAUDE.md`) |
 | fortuna    | container | 8009 (127.0.0.1) | — | `ai-stack/fortuna/start.sh` (container `fortuna`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; model fetched only by `start.sh --fetch` (`fortuna/CLAUDE.md`) |
 | *frontends* | container | from `frontend.json` | varies | whatever is installed — see below. Today: `companion` 7861, `ai-story-maker` 7860, `iguana_studio` 7862, `nocturne` 7864 |
 
@@ -197,7 +192,7 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 
 - `koboldcpp/start.sh` runs the container **detached** (`podman run -d`) but returns only once the
   model has loaded (or failed): it waits for the old container's VRAM, asks ComfyUI to unload its
-  cache and Orpheus TTS, retries in CUDA unified memory when VRAM is merely fragmented, and on a
+  cache, retries in CUDA unified memory when VRAM is merely fragmented, and on a
   real shortage retries with fewer layers — see `koboldcpp/CLAUDE.md`. It picks the chat format
   (adapter) from the model file: ChatML for Qwen, `mistral-nemo.json` for Rocinante, AutoGuess
   otherwise. A swap takes ~25 s; a fallback ~35–50 s.

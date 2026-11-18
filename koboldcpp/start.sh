@@ -185,31 +185,6 @@ if [[ "${ADAPTER}" == *.json ]]; then
     ADAPTER_ARGS=(--chatcompletionsadapter /adapter.json)
 fi
 
-# Orpheus TTS (Pantheon's voice) holds ~3 GB while voice is on. Unload it so the chat
-# model gets the room; Pantheon reloads it on the next spoken line. Only when it is
-# actually loaded, and then wait for the memory itself: the unload call returns at once
-# and the server frees its VRAM a second or two later, when its process restarts —
-# wait_vram_settled alone returned before that and the chat model fell back to fewer
-# layers (measured: 29 instead of 33).
-# Asked through `podman exec`, not the router: this is about the copy sharing THIS GPU.
-# Through the router it would unload whichever Orpheus is serving, the Halo box's included.
-ORPHEUS_LOCAL="orpheus-tts-local"
-orpheus_local() { podman exec "${ORPHEUS_LOCAL}" curl "$@" 2>/dev/null; }
-if orpheus_local -fsS -m 3 "http://localhost:5005/api/v1/model" | grep -qi orpheus; then
-    before="$(vram_used)"
-    if orpheus_local -fsS -m 5 -X POST "http://localhost:5005/api/admin/reload_config" \
-            -H 'Content-Type: application/json' -d '{"filename":"unload_model"}' >/dev/null 2>&1; then
-        echo "Unloaded Orpheus TTS to make room (Pantheon reloads it when it next speaks)"
-        for _ in $(seq 1 40); do                 # <= 20 s
-            sleep 0.5
-            now="$(vram_used)"
-            [ -n "${before}" ] && [ -n "${now}" ] && [ $(( before - now )) -ge 1000 ] && break
-            [ -z "${before}" ] && break
-        done
-        wait_vram_settled
-    fi
-fi
-
 # ComfyUI keeps its last models cached in VRAM between jobs, and on this box memory
 # another process holds costs a new process about twice its size in allocatable VRAM
 # (measured 2026-10-28: 8.7 GB reported free, 5.4 GB allocatable with ComfyUI holding

@@ -53,10 +53,7 @@ The container is **`koboldcpp-local`** and publishes no host port: the backend r
 
 1. Stops the old container cleanly and **waits for its VRAM to be released** (it frees after
    `podman rm` returns, not by it).
-2. **Unloads the local Orpheus TTS** (`orpheus-tts-local`, asked through `podman exec`, never the router, which may point at the Halo box) if Pantheon's voice has it loaded (~3 GB; Pantheon reloads it on the
-   next spoken line) and waits until that memory is actually back — the unload call returns before
-   the server frees it.
-3. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
+2. **Asks ComfyUI to drop its cached models** (`POST :8188/free`; it reloads on its next job).
    Measured on this box: memory another process holds shrinks what a new process can allocate by
    about twice its size — 8.7 GB reported free, only 5.4 GB allocatable with ComfyUI holding 2.3 GB,
    9.5 GB once it let go. That is why Rocinante 12B (needs ~7 GB at 33 layers) failed after a swap
