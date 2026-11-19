@@ -3,6 +3,11 @@
 One `stack` command to run the **shared AI backends** and then **pick a frontend**. Backends are
 shared across every app; frontends run side-by-side on their own ports.
 
+**Wiki:** `docs/wiki/` (user guide + developer guide, linked Markdown; GitHub's own wiki isn't
+available on this private repo under the org's free plan). It summarises and links to these
+CLAUDE.md files, which stay the source of truth; update a wiki page when behaviour a user sees
+changes.
+
 ## Structure
 
 - `stack` — the launcher (bash). Backends and stackui are a block of `reg` rows near the top;

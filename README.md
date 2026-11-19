@@ -4,6 +4,9 @@ One command to run a local, self-hosted AI stack. It manages the shared GPU **ba
 (LLM + image generation) and the **frontends** that use them — so you bring the backends up
 once, then pick whichever app you want.
 
+**Documentation:** the [wiki](docs/wiki/README.md) has a user guide (install, running, the
+dashboard, models, frontends, troubleshooting) and a developer guide.
+
 ## Components
 
 **Backends (shared)** — both are Podman containers on the `ai-net` network, GPU via CDI.

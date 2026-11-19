@@ -1,0 +1,49 @@
+# Contributing
+
+[Wiki home](README.md) · Developer guide
+
+## Workflow
+
+- `master` is the default branch. Work on a branch named `feature/…`, `fix/…`, `docs/…` or
+  `chore/…`, open a PR to `master`, and squash-merge it.
+- Commit and PR titles are `prefix: plain sentence` saying what is different for someone using
+  it, e.g. `fix: ComfyUI keeps its database with the rest of its state`.
+- The `CLAUDE.md` next to the code you change is part of the change: keep it current. This wiki
+  summarises; update it when behaviour a user sees changes.
+- No CI: run the checks below before opening a PR, and say in the PR what you ran and what you
+  didn't.
+
+## The `stack` script and start scripts
+
+```bash
+bash -n stack fortuna/start.sh        # syntax
+./stack doctor                        # read-only, safe on a live host
+./stack status --json | python3 -m json.tool
+```
+
+## The dashboard
+
+```bash
+cd stack-ui
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python "pytincture==1.0.0" "uvicorn[standard]" jeepney pytest pip \
+    <path to wa_pytincture_widgetset>
+PYTHON=$PWD/.venv/bin/python <path to wa_pytincture_widgetset>/scripts/dev_wheel.sh appcode
+
+STACK_UI_PORT=7873 .venv/bin/python service.py     # dev server; 7863 is the real one
+.venv/bin/python -m pytest -q tests                 # unit tests, against fakes
+STACKUI_URL=http://127.0.0.1:7873 CHROME=<chromium> \
+  uv run --with playwright python tests/smoke.py    # every screen and theme; fails on any console error
+```
+
+- The dev server drives the real host (podman, systemd), so it is a real control plane, not a
+  mock. The smoke test only reads, plus one HuggingFace search (`STACKUI_OFFLINE=1` skips it)
+  and theme clicks, which only touch the browser's storage.
+- After merging, rebuild the running dashboard: `stack-ui/run-podman.sh --rebuild`.
+
+## Backends
+
+Changing a recipe usually means rebuilding its image and restarting it:
+`podman rmi <image>` (or bump the pinned version) and `stack restart <backend>`. A restart
+interrupts whatever the frontends are doing with that backend, so check first (ComfyUI's queue:
+`curl localhost:8189/queue`).
