@@ -32,6 +32,12 @@ START_SH = ECO / "ai-stack" / "koboldcpp" / "start.sh"
 # Where the backend router sends text (`stack route`); written only by `stack`.
 ROUTE_FILE = ECO / "router" / "route.conf"
 COMFY_MODELS = Path(os.environ.get("COMFYUI_STATE") or (ECO / "ComfyUI")) / "models"
+# Fortuna: its model table ships in the recipe; its files and fortuna.env are state.
+FORTUNA_TABLE = ECO / "ai-stack" / "fortuna" / "models.table"
+FORTUNA_STATE = ECO / "fortuna"
+FORTUNA_MODELS = FORTUNA_STATE / "models"
+FORTUNA_ENV = FORTUNA_STATE / "fortuna.env"
+HOST_ENV = ECO / "ai-stack" / "host.env"
 
 # Subtrees worth showing separately. Anything else under models/ is rolled up as "other".
 COMFY_KINDS = ["checkpoints", "loras", "vae", "diffusion_models", "text_encoders",
@@ -237,6 +243,139 @@ def kobold() -> dict:
     }
 
 
+# --- Fortuna -------------------------------------------------------------------
+# The files Fortuna can serve are a fixed table (fortuna/models.table), each pinned by sha256
+# to one Hub commit. start.sh reads the same table, so a name valid here is valid there.
+_ROW = re.compile(r"^[a-z0-9][a-z0-9._-]*\|")
+
+
+def fortuna_table() -> dict:
+    """{repo, rev, models: [{name, file, sha256, bytes, temperature, knockout, default_for}]}."""
+    out: dict = {"repo": None, "rev": None, "models": []}
+    try:
+        text = FORTUNA_TABLE.read_text()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        if line.startswith("REPO="):
+            out["repo"] = line[5:].strip()
+        elif line.startswith("REV="):
+            out["rev"] = line[4:].strip()
+        elif _ROW.match(line):
+            f = line.split("|")
+            if len(f) != 7 or not f[3].isdigit():
+                continue
+            out["models"].append({
+                "name": f[0], "file": f[1], "sha256": f[2], "bytes": int(f[3]),
+                "temperature": f[4], "knockout": f[5],
+                "default_for": [g for g in f[6].split(",") if g and g != "-"]})
+    return out
+
+
+def host_gpu() -> str:
+    """nvidia | amd | none — as lib/host.sh resolves HOST_GPU: STACK_GPU (run-podman.sh sets
+    it in the container), then host.env's GPU=, then detection. Detection here is coarser than
+    the script's (no nvidia-ctk): a CDI spec means NVIDIA, else /dev/kfd means AMD."""
+    v = os.environ.get("STACK_GPU", "")
+    if not v:
+        try:
+            for line in HOST_ENV.read_text().splitlines():
+                k, _, val = line.partition("=")
+                if k.strip() == "GPU":
+                    v = val.strip().strip('"').strip("'")
+        except OSError:
+            pass
+    if v in ("nvidia", "amd", "none"):
+        return v
+    if Path("/etc/cdi/nvidia.yaml").exists() or Path("/var/run/cdi/nvidia.yaml").exists():
+        return "nvidia"
+    return "amd" if Path("/dev/kfd").exists() else "none"
+
+
+def _read_fortuna_env() -> dict[str, str]:
+    """Same strict read as start.sh's _env_get: KEY=value, last one wins, never executed."""
+    out: dict[str, str] = {}
+    try:
+        for line in FORTUNA_ENV.read_text().splitlines():
+            k, sep, v = line.partition("=")
+            if sep and k.strip():
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def running_fortuna() -> str | None:
+    """The model Fortuna has loaded, from its /health (200 only once loaded). Via the router,
+    which always forwards decisions to this machine's fortuna-local."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8009/health", timeout=2) as r:
+            name = json.load(r).get("model")
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+    return name if isinstance(name, str) and name else None
+
+
+def _stamp_matches(stamp: Path, f: Path, sha: str) -> bool:
+    """start.sh's stamp: "<size> <mtime> <sha256>" of the file as it was hashed."""
+    try:
+        st = f.stat()
+        return stamp.read_text().strip() == f"{st.st_size} {int(st.st_mtime)} {sha}"
+    except OSError:
+        return False
+
+
+def _integrity(m: dict) -> str:
+    """verified | mismatch | unchecked | partial | absent. Never hashes: it reads the stamps
+    start.sh writes (`--verify`, `--fetch`, or its first start with the file)."""
+    f = FORTUNA_MODELS / m["file"]
+    if not f.is_file():
+        return "partial" if (FORTUNA_MODELS / (m["file"] + ".part")).is_file() else "absent"
+    if _stamp_matches(f.with_name(f.name + ".verified"), f, m["sha256"]):
+        return "verified"
+    if _stamp_matches(f.with_name(f.name + ".mismatch"), f, m["sha256"]):
+        return "mismatch"
+    return "unchecked"
+
+
+_PROBE = object()
+
+
+def fortuna_models(running=_PROBE) -> dict:
+    """Fortuna's known files with their integrity, which one boots, and which one is loaded.
+    ``running`` skips the /health probe when the caller already has the answer."""
+    t = fortuna_table()
+    gpu = host_gpu()
+    env = _read_fortuna_env()
+    default = next((m["name"] for m in t["models"] if gpu in m["default_for"]), None)
+    selected = env.get("MODEL") or default
+    if running is _PROBE:
+        running = running_fortuna()
+    rows = []
+    for m in t["models"]:
+        state = _integrity(m)
+        part = FORTUNA_MODELS / (m["file"] + ".part")
+        rows.append({
+            **m, "integrity": state,
+            "present": state not in ("absent", "partial"),
+            "part_bytes": part.stat().st_size if state == "partial" else 0,
+            "selected": m["name"] == selected, "running": m["name"] == running,
+            "default": m["name"] == default,
+            "url": (f"https://huggingface.co/{t['repo']}/blob/{t['rev']}/{m['file']}"
+                    if t["repo"] and t["rev"] else None)})
+    sel = next((r for r in rows if r["selected"]), None)
+    return {
+        "dir": str(FORTUNA_MODELS), "repo": t["repo"], "rev": t["rev"], "gpu": gpu,
+        "models": rows, "selected": selected, "default": default,
+        "source": "fortuna.env" if env.get("MODEL") else (f"default for {gpu}" if default else "unknown"),
+        # A MODEL= the table doesn't know: start.sh refuses to start with it.
+        "selected_known": sel is not None,
+        "selected_integrity": sel["integrity"] if sel else None,
+        "running": running,
+        "restart_needed": bool(running) and bool(selected) and running != selected,
+    }
+
+
 def comfyui() -> dict:
     def build():
         kinds, seen = [], set()
@@ -311,6 +450,9 @@ WRITABLE: dict[str, tuple[Path, tuple[str, ...]]] = {
     # unet/ and clip/ aliases, which ComfyUI still reads but new guides don't use.
     "diffusion_model": (COMFY_MODELS / "diffusion_models", CKPT_EXTS),
     "text_encoder": (COMFY_MODELS / "text_encoders", CKPT_EXTS),
+    # Fortuna's files: only deleted from here (they are fetched by start.sh, never downloads.py,
+    # and selected by table name in select_fortuna).
+    "fortuna": (FORTUNA_MODELS, GGUF_EXTS),
 }
 # The image-side collections, in display order.
 IMAGE_KINDS = ("checkpoint", "lora", "vae", "diffusion_model", "text_encoder")
@@ -398,6 +540,34 @@ def select_kobold(model: str, gpu_layers: int | None) -> dict:
     return kobold()
 
 
+def select_fortuna(name: str) -> dict:
+    """Pin the model Fortuna boots: MODEL= in fortuna.env. Applies on its next start.
+
+    Only a name from the table, and only a file that is downloaded and not known to be bad —
+    start.sh would refuse anything else at the next start, which may be a boot. Every other
+    line of fortuna.env (API_KEY…) is kept as it is. Written atomically, like model.env.
+    """
+    f = fortuna_models()
+    row = next((m for m in f["models"] if m["name"] == name), None)
+    if row is None:
+        raise InventoryError(f"unknown Fortuna model: {name!r}")
+    if not row["present"]:
+        raise InventoryError(f"{name} is not downloaded — download it first")
+    if row["integrity"] == "mismatch":
+        raise InventoryError(f"{name} failed its sha256 check — delete it and download it again")
+    try:
+        lines = FORTUNA_ENV.read_text().splitlines()
+    except FileNotFoundError:
+        lines = ["# Parsed (never sourced) by ai-stack/fortuna/start.sh. MODEL= written by stack-ui."]
+    lines = [ln for ln in lines if ln.partition("=")[0].strip() != "MODEL"]
+    lines.append(f"MODEL={name}")
+    FORTUNA_STATE.mkdir(parents=True, exist_ok=True)
+    tmp = FORTUNA_ENV.with_name(FORTUNA_ENV.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.replace(tmp, FORTUNA_ENV)
+    return fortuna_models()
+
+
 def delete_model(kind: str, name: str) -> dict:
     """Delete one model file. Irreversible, so it refuses the two obvious footguns."""
     p = _safe_target(kind, name)
@@ -412,8 +582,20 @@ def delete_model(kind: str, name: str) -> dict:
         if any(m["name"] == name and m["running"] for m in state["models"]):
             raise InventoryError(f"{name} is currently loaded — stop koboldcpp first")
 
+    if kind == "fortuna":
+        f = fortuna_models()
+        row = next((m for m in f["models"] if m["file"] == name), None)
+        if row and row["selected"]:
+            raise InventoryError(f"{name} is the model Fortuna boots — choose another one first")
+        if row and row["running"]:
+            raise InventoryError(f"{name} is loaded in Fortuna — stop fortuna first")
+
     size = p.stat().st_size
     p.unlink()
+    if kind == "fortuna":
+        # Its integrity stamps describe a file that is gone.
+        for ext in (".verified", ".mismatch"):
+            p.with_name(p.name + ext).unlink(missing_ok=True)
     # Drop the provenance entry too, or a later file of the same name inherits a link to
     # something it isn't.
     provenance.forget(kind, name)

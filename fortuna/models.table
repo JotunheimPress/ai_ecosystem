@@ -1,0 +1,18 @@
+# The model files Fortuna will serve. Read by start.sh (run, --fetch, --verify, --check) and by
+# stack-ui (Language models -> Fortuna, the VRAM planner), so the two can't disagree.
+#
+# REPO and REV pin where every file comes from. Rows are
+#   name | file | sha256 | bytes | temperature | knockout T | default for
+# The hashes are the Hub's LFS sha256 at REV; bytes are the Hub's sizes at REV. The temperatures
+# are the per-file values on that commit's model card. They differ by file, and the wrong pair
+# silently mis-calibrates every probability.
+# "default for" names the GPUs (lib/host.sh HOST_GPU: nvidia, amd, none) that boot this file when
+# fortuna.env sets no MODEL; "-" means never the default. Exactly one row must name each GPU.
+#   Q8 (229/231 answers identical to bf16, 4.5 GB) where memory is plentiful: the Halo's unified
+#   memory. On the 12 GB 4070 Fortuna shares VRAM with KoboldCPP, so Q4_K_M (2.7 GB, 221/231).
+REPO=alibiserikbay/JevK5-GGUF
+REV=ec67b0bfce5119a8b11a2cdb430bb43e3fa3e82a
+jevk5-4b-q8|jevk5-4b-v0.3-Q8_0.gguf|aea433883bc7ed399f2fbd539e53d2eac7caf71a946fe6650995a413979d4a30|4482402720|1.22|0.93|amd,none
+jevk5-4b-q5|jevk5-4b-v0.3-Q5_K_M.gguf|b1df9869dd14c0f5b243fa956dd985f0141c3d23ec4847da4c503c73c1050601|3074986400|1.22|0.93|-
+jevk5-4b-q4|jevk5-4b-v0.3-Q4_K_M.gguf|94ca0d7745c47f79091b0892ca657c81d9dc9e4ed0238ba0a7ea261d8938c882|2708804000|1.22|0.93|nvidia
+jevk5-9b-q8|jevk5-9b-v0.3.3-Q8_0.gguf|283de8fd216ad2200506d9236e574ddb5902b16e6a806a6fa38e9dd1b4286edf|9527501280|1.316|1.05|-

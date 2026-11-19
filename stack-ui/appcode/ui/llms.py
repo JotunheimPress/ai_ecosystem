@@ -1,6 +1,7 @@
-"""Language models: the GGUFs KoboldCPP can load, and HuggingFace search to get more.
+"""Language models: the GGUFs KoboldCPP can load, HuggingFace search to get more, and the
+models Fortuna (decisions) can serve.
 
-Two tabs.
+Three tabs.
 
 **Installed** — every .gguf in koboldcpp/models with its size, architecture and layer
 count (read from the file header), the one selected to boot and the one actually loaded.
@@ -13,6 +14,9 @@ model server-side.
 carries an advisory fit band for this card; the band is suppressed, not guessed, when
 VRAM is unknown (ComfyUI down). Every repo links to its page — the licence, prompt format
 and model card live there, not here.
+
+**Fortuna** — the pinned files from fortuna/models.table, with their sha256 state; see
+ui/fortuna_models.py.
 """
 from __future__ import annotations
 
@@ -37,6 +41,7 @@ from wapyt import (
 )
 
 from services.models_api import ModelsApi
+from ui.fortuna_models import FortunaModels
 from ui.common import (
     Listeners,
     by_id,
@@ -90,14 +95,20 @@ class LlmsView:
         self.tabs = TabWidget(TabWidgetConfig(tabs=[
             TabConfig(id="installed", title="Installed", icon="mdi-harddisk"),
             TabConfig(id="find", title="Find on HuggingFace", icon="mdi-magnify"),
-        ], active=self._first_tab if self._first_tab in ("installed", "find") else "installed"),
+            TabConfig(id="fortuna", title="Fortuna", icon="mdi-scale-balance"),
+        ], active=self._first_tab if self._first_tab in ("installed", "find", "fortuna")
+            else "installed"),
             container=host)
         self._mount_installed(container_of(self.tabs.get_cell("installed")))
         self._mount_find(container_of(self.tabs.get_cell("find")))
+        self.fortuna = FortunaModels(self.app)
+        self.fortuna.mount(container_of(self.tabs.get_cell("fortuna")))
         spawn(self.load(), "load llms")
+        spawn(self.fortuna.load(), "load fortuna")
 
     def unmount(self) -> None:
         self.listeners.clear()
+        self.fortuna.unmount()
 
     def apply_args(self, tab: str = "", **_) -> None:
         if tab:
@@ -170,7 +181,8 @@ class LlmsView:
         if failed(r, "list the models"):
             return
         self.state = r
-        by_id("llm-dir").textContent = f"GGUF files for KoboldCPP · {r.get('dir')}"
+        by_id("llm-dir").textContent = (f"GGUF files for KoboldCPP · {r.get('dir')} — and "
+                                         "Fortuna's, on its own tab")
         rows = []
         for m in r.get("models") or []:
             gpu = m.get("preset")
@@ -291,6 +303,7 @@ class LlmsView:
             self.tb.set_disabled("use", True)
 
     def on_busy(self, busy: bool) -> None:
+        self.fortuna.on_busy(busy)
         self.tb.set_disabled("restart", busy)
         sel = by_id("llm-ctx")
         if sel:

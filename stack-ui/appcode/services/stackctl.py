@@ -47,7 +47,7 @@ DOWN_GROUPS = {"all", "backends", "frontends"}
 class Verb:
     argv: list[str]                 # fixed prefix; the validated target is appended
     mutating: bool
-    target: str | None = None       # None | "app" | "down"
+    target: str | None = None       # None | "app" | "down" | "fortuna_model"
     stream: bool = False            # long-running: stream output instead of buffering
     timeout: int = 30
 
@@ -78,6 +78,11 @@ VERBS: dict[str, Verb] = {
     # one of two verbs, never a host. `halo` reads HALO_HOST from ai-stack/halo.env.
     "route_text_local": Verb(["route", "local"], True, stream=True),
     "route_text_halo":  Verb(["route", "halo"], True, stream=True),
+    # Fortuna's model files: the recipe's pinned, sha256-checked download, and a re-hash of a
+    # file already here. The target is a NAME from fortuna/models.table (never a file or URL);
+    # the recipe maps it to the file, the pinned commit and the hash.
+    "fortuna_fetch":  Verb(["fortuna-model", "fetch"], True, target="fortuna_model", stream=True),
+    "fortuna_verify": Verb(["fortuna-model", "verify"], True, target="fortuna_model", stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -158,6 +163,12 @@ def resolve(verb_key: str, target: str | None) -> list[str]:
 
     if not target:
         raise StackError(f"`{verb_key}` needs a target")
+    if v.target == "fortuna_model":
+        from services import inventory     # reads the table only; no import cycle at load
+
+        if target not in {m["name"] for m in inventory.fortuna_table()["models"]}:
+            raise StackError(f"unknown Fortuna model: {target!r}")
+        return [*v.argv, target]
     apps = known_apps()
     if not apps:
         # Better to refuse than to fall back to trusting the request: an empty registry

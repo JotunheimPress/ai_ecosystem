@@ -330,11 +330,30 @@ class InfrastructureView(_Cards):
         return "".join(rows)
 
     def _fortuna_body(self, a: dict, f: dict) -> str:
-        if not a.get("up") or not f.get("up"):
-            return self._kv("Loaded", '<span class="su-dim">nothing — not running</span>')
-        return (self._kv("Loaded", f'<b class="su-model">{esc(f.get("model") or "unnamed")}</b>')
-                + self._kv("Answers", '<span class="su-dim">yes/no, choice and score questions '
-                                      '(/v1/systemone)</span>'))
+        up = a.get("up") and f.get("up")
+        if up:
+            rows = [self._kv("Loaded", f'<b class="su-model">{esc(f.get("model") or "unnamed")}</b>'),
+                    self._kv("Answers", '<span class="su-dim">yes/no, choice and score questions '
+                                        '(/v1/systemone)</span>')]
+        else:
+            rows = [self._kv("Loaded", '<span class="su-dim">nothing — not running</span>')]
+        sel, integ = f.get("selected"), f.get("selected_integrity")
+        # The file it boots, when that is news: not running, about to change, or not verified.
+        if sel and (not up or f.get("restart_needed") or integ != "verified"):
+            note = {"verified": ("su-dim", "sha256 verified"),
+                    "unchecked": ("su-warn", "not verified yet — checked on its next start"),
+                    "mismatch": ("su-bad", "failed its sha256 check — it will not start"),
+                    "absent": ("su-bad", "not downloaded"),
+                    "partial": ("su-bad", "download not finished")}.get(
+                        integ, ("su-bad", "not in models.table — it will not start"))
+            rows.append(self._kv("Boots", f'{esc(sel)} <span class="{note[0]}">· {note[1]}</span>'))
+        if f.get("restart_needed"):
+            rows.append(
+                '<div class="su-banner"><i class="mdi mdi-information-outline"></i>'
+                f'<span>Selected <b>{esc(sel)}</b> — restart Fortuna to load it.</span>'
+                f'<button class="su-btn su-primary" data-act="restart" data-target="{esc(a["name"])}"'
+                f'{self._dis()}>Restart</button></div>')
+        return "".join(rows)
 
     def _gpu_line(self) -> str:
         g = self.ov.get("gpu") or {}

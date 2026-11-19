@@ -15,6 +15,8 @@
 #   stack restart <app>
 #   stack logs <app>
 #   stack route [local|halo]  show / set where text is served (backend router)
+#   stack fortuna-model [list | fetch NAME | verify NAME]  Fortuna's model files (fortuna/models.table):
+#                           pinned, sha256-checked download, or re-hash one already here
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path
@@ -125,7 +127,7 @@ declare -A LOCAL_PROBE=(
 # `stack <name>` would never reach them.
 FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
   menu on enable off disable gaming up status st down restart logs route install setup
-  doctor check help)
+  doctor check help fortuna-model)
 
 # mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
 frontend_manifests() {
@@ -915,9 +917,24 @@ install_fortuna() {
   # Weights are never fetched here (see above); the recipe has an explicit, hash-checked fetch.
   local models="${FORTUNA_STATE:-$ECO/fortuna}/models" n
   mkdir -p "$models"
-  n=$(find "$models" -maxdepth 1 -name '*.gguf' 2>/dev/null | wc -l)
-  ((n)) && ok "$n GGUF model(s) in $models" \
-        || warn "no Fortuna model — fetch it (4.5 GB, sha256-checked): ai-stack/fortuna/start.sh --fetch"
+  fortuna_model_check
+}
+
+# One line about the model Fortuna will boot: present, and sha256-verified? Read-only — the
+# recipe compares the file with its stamp and never hashes here (fortuna/start.sh --check).
+fortuna_model_check() {
+  local line
+  if line="$("$SELF/fortuna/start.sh" --check 2>&1)"; then ok "$line"; else warn "$line"; fi
+}
+
+# `stack fortuna-model fetch|verify NAME`: the recipe's own pinned, hash-checked download and
+# its re-hash, by a name from fortuna/models.table. stack-ui's Fortuna tab runs these.
+cmd_fortuna_model() {
+  case "${1:-}" in
+    fetch|verify) "$SELF/fortuna/start.sh" "--$1" ${2:+"$2"} ;;
+    ""|list)      "$SELF/fortuna/start.sh" --models ;;
+    *) echo "usage: stack fortuna-model [list | fetch NAME | verify NAME]"; return 2 ;;
+  esac
 }
 
 install_stackui() {
@@ -981,6 +998,7 @@ cmd_doctor() {
   podman image exists "$IMG_KOBOLD" && ok "$IMG_KOBOLD" || warn "$IMG_KOBOLD missing — stack install koboldcpp"
   podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
   podman image exists "$IMG_FORTUNA" && ok "$IMG_FORTUNA" || warn "$IMG_FORTUNA missing — stack install fortuna"
+  fortuna_model_check
   podman image exists "$IMG_STACKUI" && ok "$IMG_STACKUI" || warn "$IMG_STACKUI missing — stack install stackui"
   [ -n "$IMG_ROUTER" ] && podman image exists "$IMG_ROUTER" && ok "$IMG_ROUTER" \
     || warn "${IMG_ROUTER:-router image} missing — stack install router"
@@ -1043,6 +1061,7 @@ case "${1:-}" in
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
+  fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as
   # soon as a command was added.

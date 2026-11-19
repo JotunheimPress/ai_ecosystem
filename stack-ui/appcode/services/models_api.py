@@ -81,6 +81,25 @@ class ModelsApi:
         except (inventory.InventoryError, TypeError, ValueError) as exc:
             return _err(exc)
 
+    # --- Fortuna (decisions) ----------------------------------------------------
+    def fortuna_models(self) -> dict:
+        """Fortuna's pinned files: integrity, which one boots, which one is loaded.
+        Downloading and hashing are stack actions (fortuna_fetch / fortuna_verify)."""
+        from services import inventory, stackctl
+
+        return {"ok": True, **inventory.fortuna_models(), "disk": stackctl.disk()}
+
+    def select_fortuna(self, model: str) -> dict:
+        """Pin the model Fortuna boots (MODEL= in fortuna.env). Never restarts."""
+        from services import inventory
+
+        try:
+            return {"ok": True, "fortuna": inventory.select_fortuna(model or "")}
+        except inventory.InventoryError as exc:
+            return _err(exc)
+        except OSError as exc:
+            return {"ok": False, "error": f"could not write fortuna.env: {exc}"}
+
     # --- image models (ComfyUI) -----------------------------------------------
     def images(self) -> dict:
         from services import inventory, stackctl
@@ -112,9 +131,13 @@ class ModelsApi:
         models = [{"name": m["name"], "size": m["size"], "active": m["active"],
                    "n_layers": vram.gguf_meta(Path(m["path"])).get("n_layers")}
                   for m in k["models"]]
+        f = inventory.fortuna_models()
+        fortuna = [{"name": m["name"], "file": m["file"], "size": m["bytes"],
+                    "selected": m["selected"], "running": m["running"]}
+                   for m in f["models"] if m["present"]]
         return {"ok": True, "vram": vram.stats(), "comfy_up": vram.comfy_up(), "models": models,
                 "checkpoints": inventory.checkpoints(), "active": k["active"],
-                "gpu_layers": k["gpu_layers"]}
+                "gpu_layers": k["gpu_layers"], "fortuna": fortuna}
 
     def free_vram(self) -> dict:
         """Make ComfyUI release VRAM it is holding after a job — the fix for Kobold OOMing
@@ -126,18 +149,27 @@ class ModelsApi:
         except RuntimeError as exc:
             return _err(exc)
 
-    def plan(self, model: str, checkpoint: str = "") -> dict:
-        """How many layers of ``model`` fit alongside ``checkpoint``. An estimate."""
+    def plan(self, model: str, checkpoint: str = "", fortuna: str = "") -> dict:
+        """How many layers of ``model`` fit alongside ``checkpoint`` and the Fortuna model
+        named ``fortuna`` (a table name; "" = Fortuna not counted). An estimate."""
         from services import inventory, vram
 
         try:
             path = inventory._safe_target("kobold", model or "")
             ckpt = inventory._safe_target("checkpoint", checkpoint).stat().st_size \
                 if checkpoint else 0
+            fort = 0
+            if fortuna:
+                row = next((m for m in inventory.fortuna_models()["models"]
+                            if m["name"] == fortuna and m["present"]), None)
+                if row is None:
+                    raise inventory.InventoryError(f"no downloaded Fortuna model {fortuna!r}")
+                fort = vram.fortuna_bytes(inventory._safe_target("fortuna", row["file"]))
         except (inventory.InventoryError, OSError) as exc:
             return _err(exc)
         s = vram.stats()
-        return {"ok": True, **vram.plan(path, path.stat().st_size, ckpt, s.get("total") or 0)}
+        return {"ok": True, **vram.plan(path, path.stat().st_size, ckpt, s.get("total") or 0,
+                                        fortuna_size=fort)}
 
     # --- HuggingFace ------------------------------------------------------------
     def hf_search(self, query: str, limit: int = 30) -> dict:

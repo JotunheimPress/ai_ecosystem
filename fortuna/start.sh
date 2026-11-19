@@ -8,9 +8,13 @@
 #                         which answers as http://fortuna:8009 by name and http://127.0.0.1:8009
 #                         from the host (loopback only). Returns once the model has loaded, or
 #                         fails with the container's last log lines.
-#   ./start.sh --fetch    download the configured model file (pinned commit) and check its
-#                         sha256. The only thing here that downloads weights, and only when asked.
-#   ./start.sh --models   list the model files this recipe knows, with their sizes.
+#   ./start.sh --fetch [NAME]   download a model file (default: the configured one) at the pinned
+#                         commit and check its sha256. The only thing that downloads Fortuna's
+#                         weights, and only when asked (`stack fortuna-model fetch`, stack-ui).
+#   ./start.sh --verify [NAME]  hash a downloaded file now and record the result.
+#   ./start.sh --check    one read-only line about the configured model (stack doctor); exit 0
+#                         only when it is present and verified.
+#   ./start.sh --models   list the model files this recipe knows (models.table), with sizes.
 #
 # Settings: $ECO/fortuna/fortuna.env (git-ignored state dir; parsed, never sourced), or the
 # environment (FORTUNA_MODEL, FORTUNA_API_KEY), environment first.
@@ -34,18 +38,14 @@ CONTAINER_NAME="fortuna-local"
 PORT=8009
 NET="ai-net"
 
-# The model files this recipe will serve: name | file | sha256 | temperature | knockout T.
-# All from huggingface.co/alibiserikbay/JevK5-GGUF at commit HF_REV; the hashes are the Hub's LFS
-# sha256 and the temperatures are the per-file values on that commit's model card (they differ by
-# file, and the wrong one silently mis-calibrates every probability).
-HF_REPO="alibiserikbay/JevK5-GGUF"
-HF_REV="ec67b0bfce5119a8b11a2cdb430bb43e3fa3e82a"
-MODELS=(
-  "jevk5-4b-q8|jevk5-4b-v0.3-Q8_0.gguf|aea433883bc7ed399f2fbd539e53d2eac7caf71a946fe6650995a413979d4a30|1.22|0.93"
-  "jevk5-4b-q5|jevk5-4b-v0.3-Q5_K_M.gguf|b1df9869dd14c0f5b243fa956dd985f0141c3d23ec4847da4c503c73c1050601|1.22|0.93"
-  "jevk5-4b-q4|jevk5-4b-v0.3-Q4_K_M.gguf|94ca0d7745c47f79091b0892ca657c81d9dc9e4ed0238ba0a7ea261d8938c882|1.22|0.93"
-  "jevk5-9b-q8|jevk5-9b-v0.3.3-Q8_0.gguf|283de8fd216ad2200506d9236e574ddb5902b16e6a806a6fa38e9dd1b4286edf|1.316|1.05"
-)
+# The model files this recipe will serve live in models.table (name | file | sha256 | bytes |
+# temperature | knockout T | default for), pinned to one Hub commit. stack-ui reads the same file.
+TABLE="${FORTUNA_TABLE:-${SCRIPT_DIR}/models.table}"
+HF_REPO="$(sed -n 's/^REPO=//p' "$TABLE" | tail -1)"
+HF_REV="$(sed -n 's/^REV=//p' "$TABLE" | tail -1)"
+mapfile -t MODELS < <(grep -E '^[a-z0-9][a-z0-9._-]*\|' "$TABLE")
+[ -n "$HF_REPO" ] && [ -n "$HF_REV" ] && ((${#MODELS[@]})) \
+  || { echo "fortuna: no models in $TABLE" >&2; exit 1; }
 
 _env_get() {   # strict KEY=value read from fortuna.env, quotes tolerated, nothing executed
   [ -f "$ENV_FILE" ] || return 0
@@ -53,54 +53,132 @@ _env_get() {   # strict KEY=value read from fortuna.env, quotes tolerated, nothi
     | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e "s/^[\"']//" -e "s/[\"']$//"
 }
 
-# Default: Q8 (229/231 answers identical to bf16, 4.5 GB) where memory is plentiful — the Halo's
-# unified memory. On the 12 GB 4070 it shares VRAM with KoboldCPP, so Q4_K_M (2.7 GB, 221/231).
-case "$HOST_GPU" in nvidia) DEFAULT_MODEL=jevk5-4b-q4 ;; *) DEFAULT_MODEL=jevk5-4b-q8 ;; esac
+# Default when fortuna.env names no MODEL: the row whose last column lists this GPU.
+DEFAULT_MODEL=""
+for r in "${MODELS[@]}"; do
+  [[ ",${r##*|}," == *",${HOST_GPU},"* ]] && DEFAULT_MODEL="${r%%|*}"
+done
 WANT="${FORTUNA_MODEL:-$(_env_get MODEL)}"; WANT="${WANT:-$DEFAULT_MODEL}"
 API_KEY="${FORTUNA_API_KEY:-$(_env_get API_KEY)}"
 
-ROW=""
-for r in "${MODELS[@]}"; do [[ "${r%%|*}" == "$WANT" ]] && ROW="$r"; done
-if [[ "${1:-}" == --models ]]; then
+MODE=run
+case "${1:-}" in
+  --models) MODE=models ;;
+  --check)  MODE=check ;;
+  # --fetch / --verify take an optional model name; without one, the configured model.
+  --fetch|--verify) MODE="${1#--}"; [ -n "${2:-}" ] && WANT="$2" ;;
+  "") ;;
+  *) echo "usage: start.sh [--models | --check | --fetch [NAME] | --verify [NAME]]" >&2; exit 2 ;;
+esac
+
+if [[ $MODE == models ]]; then
   for r in "${MODELS[@]}"; do
-    IFS='|' read -r n f _ t k <<<"$r"
-    printf '  %-12s %-28s T=%-5s %s\n' "$n" "$f" "$t" "$([[ $n == "$WANT" ]] && echo '<- configured')"
+    IFS='|' read -r n f _ b t _ _ <<<"$r"
+    printf '  %-12s %-28s %5s GB  T=%-5s %s\n' "$n" "$f" "$(awk "BEGIN{printf \"%.1f\", $b/1e9}")" \
+      "$t" "$([[ $n == "$WANT" ]] && echo '<- configured')"
   done
   exit 0
 fi
+
+ROW=""
+for r in "${MODELS[@]}"; do [[ "${r%%|*}" == "$WANT" ]] && ROW="$r"; done
 [ -n "$ROW" ] || { echo "unknown MODEL '$WANT' — one of: $(printf '%s ' "${MODELS[@]%%|*}")" >&2; exit 1; }
-IFS='|' read -r NAME FILE SHA TEMP KO_TEMP <<<"$ROW"
+IFS='|' read -r NAME FILE SHA BYTES TEMP KO_TEMP _ <<<"$ROW"
 GGUF="${MODELS_DIR}/${FILE}"
 
-if [[ "${1:-}" == --fetch ]]; then
+# Integrity stamps next to each file, both "<size> <mtime> <sha256>" of the file as it was hashed:
+#   <file>.verified  the sha256 matched the table — trusted while size and mtime still match
+#   <file>.mismatch  it did not — the file is refused while size and mtime still match
+# stack-ui reads the same two files (inventory.fortuna_models), never hashing anything itself.
+stamp_now() { echo "$(stat -c '%s %Y' "$GGUF") $SHA"; }
+state() {   # verified | mismatch | unchecked | absent
+  [ -f "$GGUF" ] || { echo absent; return; }
+  local s; s="$(stamp_now)"
+  if [ "$(cat "${GGUF}.verified" 2>/dev/null)" = "$s" ]; then echo verified
+  elif [ "$(cat "${GGUF}.mismatch" 2>/dev/null)" = "$s" ]; then echo mismatch
+  else echo unchecked; fi
+}
+hash_check() {   # hash the file now and record the result; 0 = matches the table
+  echo "checking ${FILE} sha256 ($(awk "BEGIN{printf \"%.1f\", $BYTES/1e9}") GB)…"
+  local s; s="$(stamp_now)"
+  if echo "${SHA}  ${GGUF}" | sha256sum -c --quiet - >/dev/null 2>&1; then
+    echo "$s" > "${GGUF}.verified"; rm -f "${GGUF}.mismatch"
+    echo "==> ${FILE}: sha256 matches ${HF_REPO} @ ${HF_REV:0:12}"
+    return 0
+  fi
+  echo "$s" > "${GGUF}.mismatch"; rm -f "${GGUF}.verified"
+  echo "sha256 MISMATCH for ${GGUF} — not the file ${HF_REPO} publishes at ${HF_REV:0:12}." >&2
+  return 1
+}
+
+# Read-only, for `stack doctor` and `stack install`: one line about the configured model,
+# exit 0 only when it is present and verified. Never hashes (that can take a while).
+if [[ $MODE == check ]]; then
+  if [ -n "${FORTUNA_MODEL:-}" ]; then src="FORTUNA_MODEL"
+  elif [ -n "$(_env_get MODEL)" ]; then src="fortuna.env"
+  else src="default for GPU=${HOST_GPU}"; fi
+  case "$(state)" in
+    verified)  echo "Fortuna model ${NAME} (${src}) present, sha256 verified"; exit 0 ;;
+    unchecked) echo "Fortuna model ${NAME} (${src}) present but not verified yet — stack fortuna-model verify ${NAME} (or it is checked on its next start)" ;;
+    mismatch)  echo "Fortuna model ${NAME} (${src}) FAILED its sha256 check — delete ${FILE} and run: stack fortuna-model fetch ${NAME}" ;;
+    absent)    echo "Fortuna model ${NAME} (${src}) not downloaded — stack fortuna-model fetch ${NAME} ($(awk "BEGIN{printf \"%.1f\", $BYTES/1e9}") GB, sha256-checked)" ;;
+  esac
+  exit 1
+fi
+
+if [[ $MODE == verify ]]; then
+  [ -f "$GGUF" ] || { echo "not downloaded: ${GGUF} — start.sh --fetch ${NAME}" >&2; exit 1; }
+  hash_check && exit 0
+  echo "Delete it and fetch it again: stack fortuna-model fetch ${NAME}" >&2
+  exit 1
+fi
+
+if [[ $MODE == fetch ]]; then
   mkdir -p "$MODELS_DIR"
-  if [ -f "$GGUF" ]; then echo "already present: $GGUF"; exit 0; fi
+  if [ -f "$GGUF" ]; then
+    echo "already present: $GGUF ($(state))"
+    case "$(state)" in
+      verified) exit 0 ;;
+      unchecked) hash_check && exit 0 ;;
+    esac
+    echo "it does not match — delete it, then fetch again" >&2
+    exit 1
+  fi
   url="https://huggingface.co/${HF_REPO}/resolve/${HF_REV}/${FILE}"
-  echo "downloading ${FILE} (${HF_REPO} @ ${HF_REV:0:12})…"
-  curl -fL --retry 3 -C - -o "${GGUF}.part" "$url"
-  echo "checking sha256…"
-  echo "${SHA}  ${GGUF}.part" | sha256sum -c --quiet - \
-    || { echo "sha256 mismatch — kept as ${GGUF}.part, not used" >&2; exit 1; }
+  echo "downloading ${FILE} (${HF_REPO} @ ${HF_REV:0:12}, $(awk "BEGIN{printf \"%.1f\", $BYTES/1e9}") GB)…"
+  # Quiet curl plus our own progress line every 5 s: curl's meter redraws with \r, which shows
+  # as nothing at all in the dashboard console until the end. -C - resumes a kept .part.
+  curl -fsSL --retry 3 -C - -o "${GGUF}.part" "$url" &
+  pid=$!
+  trap 'kill $pid 2>/dev/null' EXIT
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    have=$(stat -c %s "${GGUF}.part" 2>/dev/null || echo 0)
+    awk "BEGIN{printf \"  %.2f of %.2f GB (%d%%)\n\", $have/1e9, $BYTES/1e9, 100*$have/$BYTES}"
+  done
+  wait "$pid" || { echo "download failed — the .part is kept; run --fetch again to resume" >&2; exit 1; }
+  trap - EXIT
   mv "${GGUF}.part" "$GGUF"
-  echo "$(stat -c '%s %Y' "$GGUF") $SHA" > "${GGUF}.verified"
+  # A complete download with the wrong hash is discarded, not kept as a .part: resuming it
+  # would only append to the wrong bytes.
+  hash_check || { rm -f "$GGUF" "${GGUF}.mismatch"
+                  echo "the download did not match its pinned sha256 and was discarded" >&2; exit 1; }
   echo "==> ${GGUF}"
   exit 0
 fi
 
 if [ ! -f "$GGUF" ]; then
   echo "Fortuna model not found: ${GGUF}" >&2
-  echo "Fetch it (pinned commit, sha256-checked): ${SCRIPT_DIR}/start.sh --fetch" >&2
+  echo "Fetch it (pinned commit, sha256-checked): ${SCRIPT_DIR}/start.sh --fetch ${NAME}" >&2
   exit 1
 fi
 # Hash once, then trust the file while its size and mtime match the stamp: 4.5 GB on every start
 # would add seconds to `stack up` for nothing. A file dropped in by hand is checked the first time.
-stamp="$(stat -c '%s %Y' "$GGUF") $SHA"
-if [ "$(cat "${GGUF}.verified" 2>/dev/null)" != "$stamp" ]; then
-  echo "checking ${FILE} sha256 (first start with this file)…"
-  echo "${SHA}  ${GGUF}" | sha256sum -c --quiet - \
-    || { echo "sha256 mismatch for ${GGUF} — not starting. Re-fetch: rm it, then start.sh --fetch" >&2; exit 1; }
-  echo "$stamp" > "${GGUF}.verified"
-fi
+case "$(state)" in
+  verified) ;;
+  mismatch) echo "sha256 mismatch for ${GGUF} (recorded) — not starting. Delete it, then start.sh --fetch ${NAME}" >&2; exit 1 ;;
+  *) hash_check >&2 || { echo "not starting." >&2; exit 1; } ;;
+esac
 
 if ! podman image exists "${IMAGE}"; then
   echo "Image not found — building ${IMAGE} (llama.cpp ${HOST_LLM_BACKEND} base + adapter)…"

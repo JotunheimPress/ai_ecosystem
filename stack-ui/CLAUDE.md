@@ -2,7 +2,8 @@
 
 Web frontend for the stack itself. **Phases 0–5 built:** service status and control, streamed
 logs, model inventory with selection and delete, HuggingFace + Civitai browsing and downloads,
-and a VRAM planner across both backends.
+and a VRAM planner across the backends (KoboldCPP's layers around a ComfyUI checkpoint and
+Fortuna's model).
 
 **pytincture + wapyt since 2026-10-26.** The page is Python in the browser (Pyodide) built
 from wapyt widgets — the same stack as the Pytinc apps (`~/Development/Pytinc/basilisk_wapyt`
@@ -15,7 +16,7 @@ actions and the **workspace switch**), a sidebar of screens, and the screen. Two
 - **Infrastructure** (`#/infrastructure`, the landing page): the router (where each
   capability is served, the text route control), one card per **capability** (text, image
   and sound, decision) with what it has loaded, and the GPU. Its sidebar screens: language
-  models (installed GGUFs + HuggingFace search), image and audio models (ComfyUI files +
+  models (installed GGUFs + HuggingFace search + Fortuna's models), image and audio models (ComfyUI files +
   Civitai search), VRAM planner; plus logs, custom nodes and doctor under System.
 - **Frontends** (`#/frontends`): installed apps only, HTTPS links where a frontend offers
   them, the `frontend.json` problems `stack` found, and "Stop all frontends".
@@ -105,13 +106,15 @@ service.py             # ASGI entry: create_app + the GET event streams; binds 0
 Containerfile          # python 3.13 + wapyt wheels + podman CLIENT + the systemctl shim
 run-podman.sh          # the run flags, each one load-bearing — read the header
 shim/systemctl         # systemctl -> D-Bus translation (see above)
-tests/                 # test_backends.py, test_gpu.py, test_status.py (pytest), smoke.py (Playwright)
+tests/                 # test_backends.py, test_gpu.py, test_status.py, test_context.py,
+                       #   test_fortuna.py (pytest), smoke.py (Playwright)
 appcode/               # pytincture modules_path
   stackui.py           # the page: toolbar, sidebar, routing, action console, download strip
   ui/                  # browser-only screens (pytincture ships what the page imports)
     common.py          #   spawn, esc, toast, failed(), Stream (EventSource), Listeners
     dashboard.py       #   InfrastructureView (router + capability cards + GPU), FrontendsView
-    llms.py            #   Language models: Installed + Find on HuggingFace
+    llms.py            #   Language models: Installed + Find on HuggingFace + Fortuna
+    fortuna_models.py  #   its Fortuna tab: models.table rows, integrity, select/download/verify
     images.py          #   Image models: Installed + Find on Civitai + Find on HuggingFace
     vramview.py        #   VRAM planner
     system.py          #   Logs, Custom nodes, Doctor
@@ -203,6 +206,10 @@ Deliberate, not incidental:
 - **Targets come from the registry, not the request.** An app name is accepted only if
   `stack status` currently lists it; an empty registry refuses rather than falling back to
   trusting the request. `down` additionally accepts the group names all/backends/frontends.
+- **Fortuna's model verbs take a table name, nothing else.** `fortuna_fetch` / `fortuna_verify`
+  run `stack fortuna-model fetch|verify NAME`, and `resolve()` accepts NAME only if
+  `fortuna/models.table` lists it. The recipe maps it to the file, the pinned URL and the hash, so
+  the browser can't name a file, a URL or a commit.
 - **The text route is two fixed verbs**, `route_text_local` and `route_text_halo`, with no
   target: the browser picks one of them, never a host. Halo's address comes from
   `ai-stack/halo.env` on the stack's side.
@@ -385,6 +392,30 @@ and `inventory.kobold()` / `inventory.checkpoints()` join on the filename.
 - The store is a cache of provenance, not a source of truth about what exists: missing,
   unreadable or corrupt degrades to "no entry" and never blocks a listing, and a failed
   write never turns a finished 7 GB download into an error.
+
+## Fortuna's models (Language models → Fortuna)
+
+Fortuna doesn't load whatever is in its directory: it serves only the rows of
+`ai-stack/fortuna/models.table`, each pinned by sha256 to one Hub commit with its own
+calibration temperatures. So the tab lists every row, downloaded or not, and the column that
+matters is **integrity** — read from the stamps `start.sh` writes, never computed here
+(`fortuna/CLAUDE.md` → *Verification*).
+
+- **Use** writes `MODEL=` into `$ECO/fortuna/fortuna.env` (`inventory.select_fortuna`), keeping
+  every other line (API_KEY…), atomically. It refuses a name not in the table, a file that isn't
+  downloaded and one that failed its sha256 — `start.sh` would refuse them at the next start,
+  which may be a boot. An unchecked file asks first. It never restarts: `restart_needed` compares
+  the selection with the model `/health` names, and the tab and the decision card offer the restart.
+- **Download / Verify are stack actions**, streamed in the console: the downloader is the recipe's
+  own (`curl` into a `.part`, a progress line every 5 s because curl's `\r` meter shows as nothing
+  in the console), not `downloads.py` — the pinned URL and the hash live in one place.
+- **Delete** goes through `_safe_target("fortuna", file)` like every delete, refuses the file
+  Fortuna boots or has loaded, and removes its stamps.
+- **The default** (no `MODEL=`) depends on the GPU, as in `start.sh`: `inventory.host_gpu()` reads
+  `STACK_GPU` (set by run-podman.sh), then `host.env`, then a coarser detection than
+  `lib/host.sh` (a CDI spec → NVIDIA, `/dev/kfd` → AMD) for the host-side dev server.
+- **VRAM planner:** Fortuna's boot model is counted by default — its file plus the KV cache of its
+  16,384-token context (`vram.fortuna_bytes`) — and can be set to "not counted".
 
 ## HuggingFace image models
 

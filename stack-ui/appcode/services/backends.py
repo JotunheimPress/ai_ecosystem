@@ -144,10 +144,17 @@ def comfy() -> dict:
 
 
 def fortuna() -> dict:
+    """What Fortuna has loaded, plus what it boots next and whether that file is verified —
+    the card offers the restart when the two differ, as the text card does."""
     h = _get(f"{FORTUNA}/health")
-    if not isinstance(h, dict) or not h.get("ok"):
-        return {"up": False}
-    return {"up": True, "model": h.get("model") if isinstance(h.get("model"), str) else None}
+    up = isinstance(h, dict) and bool(h.get("ok"))
+    model = h.get("model") if up and isinstance(h.get("model"), str) else None
+    inv = inventory.fortuna_models(running=model)
+    out = {"up": up, "selected": inv["selected"], "selected_integrity": inv["selected_integrity"],
+           "restart_needed": inv["restart_needed"]}
+    if up:
+        out["model"] = model
+    return out
 
 
 # One adapter per capability (`stack status --json`), so a card is chosen by what a backend

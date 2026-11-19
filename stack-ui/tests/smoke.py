@@ -43,6 +43,12 @@ def main() -> int:
                 page.evaluate(f"location.hash = '#/{screen}'")
                 page.wait_for_timeout(2500)
                 page.screenshot(path=str(SHOTS / f"{scheme}-{screen}.png"))
+            # Language models -> Fortuna: the pinned table with each file's integrity.
+            page.evaluate("location.hash = '#/llms'")
+            page.wait_for_timeout(1500)
+            page.get_by_text("Fortuna", exact=True).first.click()
+            page.wait_for_selector("#ft-status b", timeout=15_000)
+            page.screenshot(path=str(SHOTS / f"{scheme}-llms-fortuna.png"))
             if not os.environ.get("STACKUI_OFFLINE"):
                 page.evaluate("location.hash = '#/llms'")
                 page.wait_for_timeout(1500)

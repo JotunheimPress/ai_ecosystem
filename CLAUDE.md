@@ -71,6 +71,8 @@ stack down         # stop everything   (also: down backends | down frontends | d
 stack restart <app>  # restart router = replace it in place, no stop first
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
 stack route [local|halo]  # show / set where text is served (halo needs HALO_HOST in halo.env)
+stack fortuna-model [list|fetch NAME|verify NAME]  # Fortuna's pinned model files
+                   #   (fortuna/models.table): sha256-checked download, or re-hash one
 
 stack install      # one-time setup, idempotent: build backend images, create ai-net,
                    #   install the systemd unit, link onto PATH.
@@ -87,7 +89,7 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 | router     | container | 5001, `HOST_COMFY_PORT`, 127.0.0.1:8009 | — | `ai-stack/router/start.sh` — container `backend-router`, aliases `koboldcpp`, `comfyui`, `fortuna`; started first, since every backend is health-probed through it |
 | koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
 | comfyui    | container | (via router) | —        | `ai-stack/comfyui/start.sh` (detached, on `ai-net`, container `comfyui-local`) |
-| fortuna    | container | (via router) | — | `ai-stack/fortuna/start.sh` (container `fortuna-local`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; model fetched only by `start.sh --fetch` (`fortuna/CLAUDE.md`) |
+| fortuna    | container | (via router) | — | `ai-stack/fortuna/start.sh` (container `fortuna-local`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; models from `fortuna/models.table`, fetched only by `stack fortuna-model fetch` and sha256-verified; `stack doctor` reports the configured one (`fortuna/CLAUDE.md`) |
 | *frontends* | container | from `frontend.json` | varies | whatever is installed — see below. Today: `companion` 7861, `ai-story-maker` 7860, `iguana_studio` 7862, `nocturne` 7864 |
 
 ## Topology

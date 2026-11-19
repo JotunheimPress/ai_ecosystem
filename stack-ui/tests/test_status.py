@@ -135,8 +135,16 @@ def test_missing_route_file_means_local(kobold_dir):
 
 
 def test_fortuna_adapter(monkeypatch):
+    def inv(running=None):
+        return {"selected": "jevk5-4b-q8", "selected_integrity": "verified",
+                "restart_needed": bool(running) and running != "jevk5-4b-q8"}
+    monkeypatch.setattr(backends.inventory, "fortuna_models", inv)
     monkeypatch.setattr(backends, "_get", lambda url, timeout=2.0: {"ok": True, "model": "jevk5-4b-q8"})
-    assert backends.fortuna() == {"up": True, "model": "jevk5-4b-q8"}
+    assert backends.fortuna() == {"up": True, "model": "jevk5-4b-q8", "selected": "jevk5-4b-q8",
+                                  "selected_integrity": "verified", "restart_needed": False}
+    monkeypatch.setattr(backends, "_get", lambda url, timeout=2.0: {"ok": True, "model": "jevk5-4b-q4"})
+    assert backends.fortuna()["restart_needed"] is True
     monkeypatch.setattr(backends, "_get", lambda url, timeout=2.0: None)
-    assert backends.fortuna() == {"up": False}
+    assert backends.fortuna() == {"up": False, "selected": "jevk5-4b-q8",
+                                  "selected_integrity": "verified", "restart_needed": False}
     assert backends.ADAPTERS["decision"] == "fortuna"

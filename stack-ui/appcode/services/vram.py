@@ -173,7 +173,19 @@ def free_vram() -> dict:
 
 
 # --- planning ----------------------------------------------------------------
-def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: int) -> dict:
+# Fortuna runs llama-server at a 16,384-token context (fortuna/entrypoint.sh FORTUNA_CTX), fully
+# offloaded, all the time. Its share is the file plus that context's KV cache; for its hybrid
+# Qwen3.5 that cache is small. Compute buffers are not counted, like everywhere in this module.
+FORTUNA_CTX = 16384
+
+
+def fortuna_bytes(path: Path) -> int:
+    """Estimated GPU memory Fortuna holds with this model loaded: weights + KV cache."""
+    return path.stat().st_size + (kv_cache_bytes(gguf_meta(path), FORTUNA_CTX) or 0)
+
+
+def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: int,
+         fortuna_size: int = 0) -> dict:
     """How many layers of this model fit alongside that checkpoint.
 
     Approximation, deliberately simple and stated as such: VRAM for N offloaded layers is
@@ -188,6 +200,7 @@ def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: in
         "n_layers": n_layers or None,
         "model_size": model_size,
         "checkpoint_size": checkpoint_size,
+        "fortuna_size": fortuna_size,
         "vram_total": vram_total,
         "approximate": True,
     }
@@ -196,7 +209,7 @@ def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: in
                        if not n_layers else "VRAM total unknown — start ComfyUI")
         return out
 
-    budget = vram_total - checkpoint_size - DESKTOP_HEADROOM
+    budget = vram_total - checkpoint_size - fortuna_size - DESKTOP_HEADROOM
     per_layer = model_size / n_layers + KV_PER_LAYER
     fit = int(budget // per_layer) if per_layer > 0 else 0
     suggested = max(0, min(n_layers, fit))
@@ -211,7 +224,9 @@ def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: in
         "estimated_vram": int(per_layer * suggested),
     })
     if suggested <= 0:
-        out["note"] = "that checkpoint leaves no room — pick a smaller one, or run them apart"
+        out["note"] = ("that checkpoint and Fortuna leave no room — pick smaller ones, or run them apart"
+                       if fortuna_size else
+                       "that checkpoint leaves no room — pick a smaller one, or run them apart")
     elif suggested >= n_layers:
         out["note"] = f"all {n_layers} layers fit alongside it"
     else:

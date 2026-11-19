@@ -23,19 +23,41 @@ player intent, does this need a roll…). Added 2026-11-17.
 | `Containerfile` | `FROM` the official llama.cpp server image (b11146, pinned **by digest**, one per GPU runtime — `lib/host.sh` `fortuna_base_image`), plus JevK5's three stdlib files fetched at commit `f944fe3` (tag v0.3.3) and **sha256-checked**. No pip, no apt. |
 | `server.py` | The adapter: `POST /v1/systemone`, `GET /v1/models`, `GET /health`. Stdlib only. Request/response shape follows `jevk5/server.py` (which imports torch, so it can't be used on this path). |
 | `entrypoint.sh` | Runs llama-server on **127.0.0.1:8080 inside the container** + the adapter on :8009; if either dies both stop and podman restarts the container. |
-| `start.sh` | The recipe: model table, `--fetch`, `--models`, run. State in `$ECO/fortuna/` (`models/`, `fortuna.env`). |
+| `models.table` | The files Fortuna will serve: name, file, sha256, size, calibration temperatures, and which GPU boots it by default. Pinned to one Hub commit. Read by `start.sh` **and** stack-ui, so the two can't disagree. |
+| `start.sh` | The recipe: run, `--fetch [NAME]`, `--verify [NAME]`, `--check`, `--models`. State in `$ECO/fortuna/` (`models/`, `fortuna.env`). |
 
 ## Models
 
-`start.sh` knows four files from `alibiserikbay/JevK5-GGUF` at Hub commit `ec67b0b`, each with its
-sha256 and **its own calibration temperatures** (from the model card — the wrong pair silently
-mis-calibrates every probability). Default: `jevk5-4b-q8` (4.5 GB; 229/231 answers identical to
-bf16) on AMD, `jevk5-4b-q4` (2.7 GB) on the 12 GB 4070, where it shares VRAM with KoboldCPP. Pick
-another with `MODEL=` in `$ECO/fortuna/fortuna.env` (`start.sh --models` lists them).
+`models.table` lists four files from `alibiserikbay/JevK5-GGUF` at Hub commit `ec67b0b`, each with
+its sha256, its size and **its own calibration temperatures** (from the model card — the wrong pair
+silently mis-calibrates every probability). Default: `jevk5-4b-q8` (4.5 GB; 229/231 answers
+identical to bf16) on AMD, `jevk5-4b-q4` (2.7 GB) on the 12 GB 4070, where it shares VRAM with
+KoboldCPP — the table's last column, one row per GPU. Pick another with `MODEL=` in
+`$ECO/fortuna/fortuna.env`, or in the dashboard: **Language models → Fortuna** (it writes that line
+and keeps the rest of the file). Selecting never restarts; the tab and the dashboard's decision card
+offer the restart when Fortuna has another model loaded. Adding a file = a row in the table.
 
-**Weights are fetched only by `start.sh --fetch`** (explicit, pinned commit, hash-checked into a
-`.part` first) — `stack install` never downloads them, as for every backend. A file is hashed on its
-first start and trusted afterwards while its size+mtime match `<file>.verified`.
+**Weights are fetched only by `start.sh --fetch NAME`** (`stack fortuna-model fetch NAME`, or
+Download in the dashboard): explicit, pinned commit, into a `.part`, then sha256-checked.
+`stack install` never downloads them, as for every backend. A complete download whose hash is wrong
+is **discarded**, not kept as a `.part` (resuming it would only append to the wrong bytes).
+
+### Verification
+
+Two stamps next to each file, both `<size> <mtime> <sha256>` of the file as it was hashed:
+`<file>.verified` (matched) and `<file>.mismatch` (didn't). A stamp vouches for the file only while
+its size and mtime still match, so a file changed after hashing reads as *unchecked* again.
+
+- **Written by** `--fetch`, `--verify NAME` (`stack fortuna-model verify NAME`, Verify in the
+  dashboard), and the first start with a file. A start trusts a matching `.verified` (hashing
+  4.5 GB on every `stack up` would cost seconds for nothing), refuses a matching `.mismatch`, and
+  hashes anything else first.
+- **Read by** `start.sh --check` (one line about the configured model; exit 0 only when present and
+  verified), which `stack doctor` and `stack install fortuna` print, and by stack-ui
+  (`inventory.fortuna_models`), which shows each file as verified / not checked yet / failed
+  sha256 / partial / not downloaded. Neither ever hashes.
+- The dashboard refuses to select a file that is missing or failed its check, asks before selecting
+  one that is unchecked, and refuses to delete the file Fortuna boots or has loaded.
 
 ## Security
 

@@ -1,6 +1,7 @@
 """VRAM planner: live use, the release button, and "how many layers fit next to that".
 
-Both backends share one 12 GB card. The recurring failure: ComfyUI holds VRAM after a job,
+Every backend shares one card: KoboldCPP's layers are planned around a ComfyUI checkpoint and
+Fortuna's model (weights + its 16K-context KV cache), each of which can be left out. The recurring failure: ComfyUI holds VRAM after a job,
 KoboldCPP OOMs the instant it starts. "Release VRAM" is the fix and needs no restart.
 
 The layer count comes from the GGUF header (exact); the VRAM those layers take is an
@@ -26,7 +27,7 @@ class VramView:
     def mount(self, root) -> None:
         page = _div(root, "su-page")
         _div(page, "su-page-head",
-             '<h1>VRAM planner</h1><span class="su-dim">one card, two backends and a desktop</span>')
+             '<h1>VRAM planner</h1><span class="su-dim">one GPU shared by every backend and the desktop</span>')
         _div(page, "su-panel",
              '<div class="su-panel-head"><h2>Now</h2>'
              '<button class="su-btn" id="vr-free" disabled '
@@ -35,10 +36,12 @@ class VramView:
              '<div id="vr-now" class="su-dim">loading…</div>')
         _div(page, "su-panel",
              '<div class="su-panel-head"><h2>Plan</h2>'
-             '<span class="su-dim">how many layers of a GGUF fit next to a checkpoint</span></div>'
+             '<span class="su-dim">how many layers of a GGUF fit next to a checkpoint and '
+             'Fortuna</span></div>'
              '<div class="su-planner">'
              '<label>Language model<select id="vr-model"></select></label>'
              '<label>Alongside<select id="vr-ckpt"></select></label>'
+             '<label>Fortuna<select id="vr-fortuna"></select></label>'
              '</div>'
              '<div id="vr-out" class="su-plan-out"></div>'
              '<div class="su-actions">'
@@ -46,6 +49,7 @@ class VramView:
         self.listeners.on(by_id("vr-free"), "click", lambda _e: spawn(self._free(), "free"))
         self.listeners.on(by_id("vr-model"), "change", lambda _e: spawn(self._plan(), "plan"))
         self.listeners.on(by_id("vr-ckpt"), "change", lambda _e: spawn(self._plan(), "plan"))
+        self.listeners.on(by_id("vr-fortuna"), "change", lambda _e: spawn(self._plan(), "plan"))
         self.listeners.on(by_id("vr-apply"), "click", lambda _e: spawn(self._apply(), "apply"))
         spawn(self.load(), "load vram")
 
@@ -68,6 +72,11 @@ class VramView:
         by_id("vr-ckpt").innerHTML = '<option value="">no checkpoint</option>' + "".join(
             f'<option value="{esc(c["name"])}">{esc(c["name"])} ({fmt_bytes(c["size"])})</option>'
             for c in r.get("checkpoints") or [])
+        # Fortuna runs whenever the stack is up, so its boot model is counted by default.
+        by_id("vr-fortuna").innerHTML = '<option value="">not counted</option>' + "".join(
+            f'<option value="{esc(m["name"])}"{" selected" if m.get("selected") else ""}>'
+            f'{esc(m["name"])} ({fmt_bytes(m["size"])}){" — boots" if m.get("selected") else ""}'
+            '</option>' for m in r.get("fortuna") or [])
         await self._plan()
 
     def _render_now(self) -> None:
@@ -96,12 +105,13 @@ class VramView:
     async def _plan(self) -> None:
         model = str(by_id("vr-model").value or "")
         ckpt = str(by_id("vr-ckpt").value or "")
+        fortuna = str(by_id("vr-fortuna").value or "")
         out, btn = by_id("vr-out"), by_id("vr-apply")
         btn.hidden = True
         if not model:
             out.innerHTML = ""
             return
-        r = await ModelsApi().plan_async(model, ckpt)
+        r = await ModelsApi().plan_async(model, ckpt, fortuna)
         if not isinstance(r, dict) or not r.get("ok"):
             out.innerHTML = f'<span class="su-bad">{esc((r or {}).get("error"))}</span>'
             return
@@ -111,8 +121,10 @@ class VramView:
             return
         n, total = int(r["suggested_layers"]), int(r.get("n_layers") or 0)
         cls = "su-good" if r.get("fits_fully") else ("su-warn" if n > 0 else "su-bad")
-        alongside = (f", leaving room for {fmt_bytes(r.get('checkpoint_size'))} of checkpoint"
-                     if ckpt else "")
+        room = [f"{fmt_bytes(r.get('checkpoint_size'))} of checkpoint" if ckpt else "",
+                f"{fmt_bytes(r.get('fortuna_size'))} for Fortuna" if fortuna else ""]
+        room = [x for x in room if x]
+        alongside = f", leaving room for {' and '.join(room)}" if room else ""
         out.innerHTML = (
             f'<div class="su-plan-big {cls}">{n}<span>/ {total} layers</span></div>'
             f'<div><b>{esc(r.get("note"))}</b><br>'
