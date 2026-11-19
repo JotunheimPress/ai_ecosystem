@@ -1,208 +1,133 @@
 # ai-stack
 
-One command to run a local, self-hosted AI stack. It manages the shared GPU **backends**
-(LLM + image generation) and the **frontends** that use them — so you bring the backends up
-once, then pick whichever app you want.
+One command, `stack`, runs a local, self-hosted AI stack: shared GPU **backends** for text,
+image and sound, and decisions, behind one **router**; the **frontends** that use them; and
+**AI Ecosystem**, a dashboard for all of it. Bring the backends up once, then use whichever apps
+you want.
 
-**Documentation:** the [wiki](docs/wiki/README.md) has a user guide (install, running, the
-dashboard, models, frontends, troubleshooting) and a developer guide.
+**Documentation:** the [wiki](docs/wiki/README.md) has the full user guide (install, running,
+the dashboard, models, frontends, troubleshooting) and a developer guide.
 
-## Components
+![AI Ecosystem: the router, the text, image and decision backends with what each has loaded, and the GPU](stack-ui/docs/dashboard.png)
 
-**Backends (shared)** — both are Podman containers on the `ai-net` network, GPU via CDI.
+## What's in it
 
-| Backend | Port | What |
-|---|---|---|
-| **KoboldCPP** | 5001 | local LLM text generation |
-| **ComfyUI** | 8188 | image / video generation |
+**Backends** (shared by every app; all Podman containers on the `ai-net` network)
 
-**Frontends** (run side-by-side on their own ports, each its own repo)
+| Capability | Backend | Name on `ai-net` | On this machine |
+|---|---|---|---|
+| Text | **KoboldCPP** (GGUF models) | `http://koboldcpp:5001` | `localhost:5001` |
+| Image and sound | **ComfyUI** | `http://comfyui:8188` | `localhost:8188` (8189 where `host.env` sets `COMFYUI_PORT`) |
+| Decisions | **Fortuna**: yes/no, choice and score answers as calibrated probabilities | `http://fortuna:8009` | `127.0.0.1:8009` |
 
-| App | Port | Directory | Repo | What |
-|-----|------|-----------|------|------|
-| `companion` | 7861 | `companion/` | `JotunheimPress/npc_maker` | **Pantheon** — character-card AI companion |
-| `story` | 7860 | `ai_story_maker/` | `JotunheimPress/narrative_engine` | **Rhapsode** — the Narrative Engine |
-| `iguana` | 7862 | `iguana_studio/` | `JotunheimPress/iguana_studio` | ComfyUI web GUI |
+Every request goes through the **router** (nginx), which owns those names and ports. Frontends
+never need to know which copy serves them, and text can be moved to another machine with
+`stack route` without changing anything else.
 
-You only need the frontends you actually use; `stack` starts each on demand. The backends are
-useful on their own (KoboldCPP and ComfyUI both ship their own web UI).
+**Frontends** are separate repos, each with a `frontend.json`; the stack discovers whichever are
+cloned next to it (`stack frontends` lists them). Today's set includes Whimsy (`companion`, 7861),
+the Narrative Engine (`ai-story-maker`, 7860), Iguana Studio (7862), Nocturne (7864), the
+`npc_maker` and `narrative_engine` forks (7865, 7866) and Cantinero (`companion-assistant`, 7867).
 
-**Control**
-
-| App | Port | Directory | What |
-|-----|------|-----------|------|
-| `stackui` | 7863 | `stack-ui/` (in this repo) | **AI Ecosystem** — dashboard for the stack itself |
-
-A container like the rest, but one that controls the host: it mounts the podman socket and the
-user session bus so it can drive them, and runs with `--network=host` so the health probes work.
-It's bound to loopback and has no auth, so it is reachable only from this machine. `stack down all`
-deliberately leaves it running; stop it with `stack down stackui`.
+**AI Ecosystem** (`stack-ui/`, port 7863) is the control dashboard: start and stop, start at
+boot, what each backend has loaded, model downloads and selection (HuggingFace, Civitai,
+Fortuna's pinned files), the VRAM planner, logs, the doctor, and six colour themes.
 
 ## Requirements
 
-- **Podman** and an **NVIDIA GPU** with the container toolkit — `nvidia-smi` must work on the host
-  and `nvidia-ctk cdi list` must show `nvidia.com/gpu=all`. `stack doctor` checks both.
-- **git** (used to fetch pinned ComfyUI custom nodes) and **curl** (health checks).
-- Optional: `jq`, for the GPU-verification commands in the install guides.
+- **Podman** (rootless).
+- A GPU, detected automatically (pin it in `host.env`, from `host.env.example`):
+  - **NVIDIA** with the container toolkit: `nvidia-smi` works and `nvidia-ctk cdi list` shows
+    `nvidia.com/gpu=all`. The reference machine is an RTX 4070 (12 GB).
+  - **AMD** Strix Halo (gfx1151, 128 GB unified memory), on Vulkan or ROCm: `/dev/kfd`,
+    `/dev/dri`, and your user in `render` and `video`. See [`HALO_PLAN.md`](HALO_PLAN.md).
+- **git** and **curl**.
 
-Designed for an immutable Fedora/Bazzite workstation — nothing here needs `dnf install`, and
-distrobox is no longer used.
+`stack doctor` checks all of it.
 
 ## Install
 
 ```bash
 git clone https://github.com/JotunheimPress/ai-stack.git
 cd ai-stack
-./stack install          # idempotent — safe to re-run any time
+./stack install          # idempotent: safe to re-run any time
 ```
 
-`stack install` is the executable form of the two INSTALL guides, so they can't drift from the real
-thing. It checks prerequisites, links `stack` onto your PATH, renders the systemd unit for *this*
-checkout, creates the `ai-net` network, builds both backend images plus the AI Ecosystem
-dashboard, lays out `koboldcpp/` and `ComfyUI/` next to the checkout, and clones the pinned
-ComfyUI custom nodes.
+`stack install` checks prerequisites, puts `stack` on your PATH, installs the systemd unit for
+this checkout, creates `ai-net`, builds the backend images and the dashboard, lays out
+`koboldcpp/` and `ComfyUI/` next to the checkout, and clones the pinned ComfyUI custom nodes.
+Targets: `all` (default), `backends`, `router`, `koboldcpp`, `comfyui`, `fortuna`, `stackui`,
+`service`, `path`.
 
-Targets: `all` (default) · `backends` · `koboldcpp` · `comfyui` · `stackui` · `service` · `path`.
-
-**It never downloads model weights** — they're third-party and ~73 GB. A fresh install therefore
-ends with *"install done, N item(s) need you"*: the images are built, but nothing can start until
-you supply at least
-
-- a **GGUF** in `koboldcpp/models/` — see [`koboldcpp/INSTALL.md`](koboldcpp/INSTALL.md) §2
-- a **checkpoint** in `ComfyUI/models/checkpoints/` — see [`comfyui/INSTALL.md`](comfyui/INSTALL.md) §8
-  (start with `absolutereality_v181`, 2 GB)
-
-Install reports exactly what's missing and where it goes. Then:
+**It never downloads model weights.** A fresh install ends with *"install done, N item(s) need
+you"* and says what's missing: a GGUF for KoboldCPP, a checkpoint for ComfyUI, a model file for
+Fortuna. Get them from the dashboard's model screens, `stack fortuna-model fetch NAME`, or by hand
+([`koboldcpp/INSTALL.md`](koboldcpp/INSTALL.md) §2, [`comfyui/INSTALL.md`](comfyui/INSTALL.md) §8).
+Then:
 
 ```bash
-stack doctor             # read-only: prerequisites + what's installed, changes nothing
-stack on                 # start the backends now
-stack boot on            # and at every boot (optional; a separate setting)
+stack doctor        # read-only check of everything
+stack on            # start the backends now
+stack boot on       # optional: also start them at every boot (+ loginctl enable-linger)
+stack stackui       # the dashboard: http://localhost:7863
 ```
 
-The two INSTALL guides cover the rest — reference hardware, version pins, the flags that matter,
-how to verify the GPU is actually visible, and the model shopping list.
+The dashboard reaches the host's podman through your user's socket:
+`systemctl --user enable --now podman.socket`.
 
 ### Frontends
 
-Clone the ones you want as **siblings** of this checkout. Directory names differ from the repo
-names, so pass the target explicitly:
+Clone the ones you want into the same parent directory as `ai-stack/`, then start one by its
+repo name, e.g. `stack iguana_studio`. Each builds its own image on its first start; see its own
+README. They are private repos; ask for access.
 
 ```bash
-cd ..                                                              # the ecosystem root
-git clone https://github.com/JotunheimPress/npc_maker.git        companion
-git clone https://github.com/JotunheimPress/narrative_engine.git ai_story_maker
-git clone https://github.com/JotunheimPress/iguana_studio.git    iguana_studio
-git clone https://github.com/JotunheimPress/muninn.git           muninn   # memory library; companion and ai_story_maker build against it
+cd ..
+git clone https://github.com/JotunheimPress/iguana_studio.git
+git clone https://github.com/JotunheimPress/nocturne.git
+git clone https://github.com/JotunheimPress/muninn.git    # memory library some frontends build against
 ```
-
-Each builds its own image on first `stack <app>`; see that repo's own README/`CLAUDE.md` for its
-configuration. They're separate private repos — ask for access.
-
-### AI Ecosystem (the control dashboard)
-
-![AI Ecosystem dashboard: the two backends with KoboldCPP's loaded model and ComfyUI's VRAM, GPU use, and the frontends below](stack-ui/docs/dashboard.png)
-
-The home screen shows the shared backends and what each has loaded, then the frontends; the
-sidebar has the model managers (installed GGUFs + HuggingFace search, ComfyUI files + Civitai),
-the VRAM planner, logs, custom-node pins and the doctor. Built with pytincture + wapyt.
-
-Ships in this repo (`stack-ui/`) and is built by `stack install`, so there's nothing extra to clone:
-
-```bash
-stack install stackui                        # or just `stack install`
-systemctl --user enable --now podman.socket  # how it reaches the host engine
-stack stackui                                # serves http://localhost:7863
-```
-
-`stack install` warns if that socket isn't active — without it the dashboard builds fine and then
-can't do anything.
 
 ## Usage
 
 ```bash
-stack on          # start the backends now (same as stack up)
-stack off         # stop them now — frees the GPU to game (same as stack down backends)
-stack boot on|off # whether they start at boot — separate; starts or stops nothing now
-stack             # interactive: show status, ensure backends, then pick a frontend
-stack up          # start the backends now
-stack status      # what's running (+ whether it starts at boot)
-stack companion   # launch a frontend  (companion | story | iguana)
-stack stackui     # launch AI Ecosystem, the dashboard, on :7863
-stack down        # stop everything    (also: down backends | down frontends | down <app>)
-                  #   — leaves stackui alone; stop that with `down stackui`
+stack on | off           # start / stop the backends now (never changes start at boot)
+stack boot [on|off]      # start at boot: show / set (never starts or stops anything now)
+stack                    # interactive: status, start the backends, pick a frontend
+stack status             # what's up, and whether the backends start at boot
+stack <app>              # start one app: a backend, stackui, or a frontend by repo name
 stack restart <app>
 stack logs <app>
-stack install [target]   # one-time setup, idempotent
-stack doctor             # check prerequisites + what's installed
+stack down               # stop everything except the dashboard (also: down backends | frontends | <app>)
+stack frontends          # the installed frontends
+stack route [local|halo] # where text is served
+stack fortuna-model [list | fetch NAME | verify NAME]
+stack install [target]
+stack doctor
 ```
 
-## Other devices on the LAN
+**To free the GPU for a game:** `stack off`, plus `stack boot off` if it should stay off after a
+reboot.
 
-Every app answers on the whole local network over plain HTTP, no extra setup:
-`http://<hostname>.local:7861` (Pantheon), `:7860` (Rhapsode), `:7862` (Iguana Studio), `:7864`
-(Nocturne). Pantheon asks for its own accounts; the others have no login. It is a local product
-for whoever installs it. Browsers allow the microphone only on this computer or over HTTPS, so
-Pantheon's voice input works here but not from a phone. The dashboard is on the LAN too, at
-`:7863`.
+## On the LAN
 
-## Game ⇄ AI
-
-`stack off` stops every backend now, freeing all GPU memory for gaming; `stack on` starts them
-again. Whether they start at boot is a separate setting: `stack boot off` keeps them off after a
-reboot too, `stack boot on` brings them up at every boot. In the dashboard these are the
-*Start/Stop backends* buttons and the *Start at boot* toggle.
-
-Both backends share **12 GB of VRAM** on the reference machine: a ~9B LLM at Q4 plus an SD 1.5
-checkpoint fits, an LLM plus SDXL does not. ComfyUI also holds VRAM after a job — see the
-`/free` call in [`comfyui/CLAUDE.md`](comfyui/CLAUDE.md).
-
-## Boot auto-start
-
-A systemd **user** service (`ai-stack-backends.service`) brings the backends up at login/boot so
-they're ready and you just pick a frontend. `stack install service` renders and installs it —
-the shipped file is a template whose `@SELF@` placeholder becomes this checkout's path, so it
-works wherever you cloned. Don't `cp` it by hand.
-
-```bash
-loginctl enable-linger   # optional: start at boot even before you log in
-stack boot on            # start at every boot (stack boot off to stop that)
-```
-
-## How it works
-
-- Containers share the **`ai-net`** Podman network and reach the backends by name through one
-  router — `http://koboldcpp:5001` (text), `http://comfyui:8188` (image and sound) and
-  `http://fortuna:8009` (decision). The router also publishes them to the host
-  (`localhost:5001`, `localhost:8188` or the `COMFYUI_PORT` in `host.env`, `127.0.0.1:8009`).
-- The app list is a small **registry** at the top of the `stack` script — adding a new frontend is
-  one row plus one start line.
-- Backend recipes live in this repo (`koboldcpp/`, `comfyui/`) and are the canonical copies;
-  `stack install` wires them into the sibling directories where they run, so what you run and what
-  you publish can't diverge.
+Every app answers on the whole local network over plain HTTP at `http://<hostname>.local:<port>`,
+including the dashboard on `:7863`. **The dashboard has no login**, so anyone on your network
+can drive the stack. Browsers allow the microphone only on this computer or over HTTPS; frontends
+that need it from a phone offer an HTTPS port (see [Frontends](docs/wiki/frontends.md)).
 
 ## Layout
 
-`stack` expects the projects as **sibling directories** next to this checkout:
-
 ```
-ai_ecosystem/
-├── ai-stack/       # this repo
-├── koboldcpp/      # backend — created by `stack install`; you add models/
-├── ComfyUI/        # backend state — created by `stack install`; you add models/
-├── companion/      # frontend — you clone
-├── ai_story_maker/ # frontend — you clone
-└── iguana_studio/  # frontend — you clone
+ai_ecosystem/            # the ecosystem root ($AI_ECOSYSTEM, else this checkout's parent)
+├── ai-stack/            # this repo: stack, the recipes, the dashboard
+├── koboldcpp/           # made by stack install: links into ai-stack/koboldcpp + your models/
+├── ComfyUI/             # ComfyUI's state: models, input, output, user, custom_nodes
+├── fortuna/             # Fortuna's models/ and fortuna.env
+├── router/              # route.conf: where text goes
+└── <frontends>/         # the frontends you cloned
 ```
 
-The two backend directories are made for you: `koboldcpp/` is a symlink farm back into this repo
-plus a real `models/`, and `ComfyUI/` holds only mutable state (`models`, `input`, `output`, `user`,
-`custom_nodes`) — the ComfyUI code itself ships inside the image, so there's no upstream checkout to
-clone.
-
-The root is found automatically from the script's own location, so cloning side by side is all
-that's needed — nothing to configure. To keep the projects elsewhere, set `AI_ECOSYSTEM`:
-
-```bash
-export AI_ECOSYSTEM=/path/to/your/projects
-```
+Recipes (Containerfiles, start scripts, configs) live in this repo; state lives in the sibling
+directories and is never committed. More in the wiki's [Architecture](docs/wiki/architecture.md)
+page and in [`CLAUDE.md`](CLAUDE.md).
