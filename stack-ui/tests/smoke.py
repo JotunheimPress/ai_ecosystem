@@ -18,6 +18,7 @@ from playwright.sync_api import sync_playwright
 URL = os.environ.get("STACKUI_URL", "http://127.0.0.1:7863").rstrip("/")
 CHROME = os.path.expanduser(os.environ.get("CHROME", ""))
 SHOTS = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/shots")
+THEMES = ["bone", "ember", "moss", "dusk", "harbor", "daylight"]
 SCREENS = ["infrastructure", "frontends", "llms", "images", "vram", "logs", "nodes", "doctor"]
 
 
@@ -43,6 +44,23 @@ def main() -> int:
                 page.evaluate(f"location.hash = '#/{screen}'")
                 page.wait_for_timeout(2500)
                 page.screenshot(path=str(SHOTS / f"{scheme}-{screen}.png"))
+            # Every theme, on the overview: click its swatch under the sidebar.
+            page.evaluate("location.hash = '#/infrastructure'")
+            page.wait_for_timeout(1200)
+            for theme in THEMES:
+                page.click(f'.su-swatch[data-theme="{theme}"]')
+                page.wait_for_timeout(500)
+                assert page.evaluate("document.documentElement.dataset.sutheme") == theme, theme
+                page.screenshot(path=str(SHOTS / f"theme-{theme}.png"))
+            # The choice survives a reload (localStorage, per browser).
+            page.click('.su-swatch[data-theme="ember"]')
+            page.reload()
+            page.wait_for_selector(".su-card-title", timeout=120_000)
+            assert page.evaluate("document.documentElement.dataset.sutheme") == "ember"
+            # Back to the OS default for the rest of the run.
+            page.evaluate("localStorage.removeItem('stackui.theme')")
+            page.reload()
+            page.wait_for_selector(".su-card-title", timeout=120_000)
             # Language models -> Fortuna: the pinned table with each file's integrity.
             page.evaluate("location.hash = '#/llms'")
             page.wait_for_timeout(1500)

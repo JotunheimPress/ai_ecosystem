@@ -21,6 +21,16 @@ Start/Stop, the separate **Start at boot** toggle, and the **workspace switch**)
 - **Frontends** (`#/frontends`): installed apps only, HTTPS links where a frontend offers
   them, the `frontend.json` problems `stack` found, and "Stop all frontends".
 
+**Themes** (since 2026-11-19, like Whimsy's): swatches under the sidebar pick one of Whimsy's five
+dark colourways (Bone, Ember, Moss, Dusk, Harbor, same palettes) or Daylight. `ui/themes.py` sets
+`<html data-sutheme>` and wapyt's dark or light mode. Every colour in `static/stackui.css` is a
+variable from that attribute, and wapyt's own tokens (and the accents it hard-codes in blue:
+toolbar, sidebar, tabs, table selection, dialogs, progress) are pointed at the same variables, so
+one attribute restyles the page. The choice is per browser (localStorage `stackui.theme`, guarded);
+with none stored the page follows the OS (dark → Harbor, light → Daylight). The smoke test clicks
+through every theme. wapyt gives toolbar text no id, so `stackui.py` tags the brand and the
+running state with `data-su` for the CSS.
+
 Screens route by URL hash, so a reload keeps your place; the old `#/dashboard` lands on
 Infrastructure. Toolbar actions apply to the backends ("Stop backends" leaves frontends
 running); stopping or restarting the router asks first and names what goes offline.
@@ -112,13 +122,15 @@ appcode/               # pytincture modules_path
   stackui.py           # the page: toolbar, sidebar, routing, action console, download strip
   ui/                  # browser-only screens (pytincture ships what the page imports)
     common.py          #   spawn, esc, toast, failed(), Stream (EventSource), Listeners
+    themes.py          #   the theme swatches: Whimsy's five colourways + Daylight
     dashboard.py       #   InfrastructureView (router + capability cards + GPU), FrontendsView
     llms.py            #   Language models: Installed + Find on HuggingFace + Fortuna
     fortuna_models.py  #   its Fortuna tab: models.table rows, integrity, select/download/verify
     images.py          #   Image models: Installed + Find on Civitai + Find on HuggingFace
     vramview.py        #   VRAM planner
     system.py          #   Logs, Custom nodes, Doctor
-  static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load)
+  static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load);
+                       #   the palettes and wapyt's tokens mapped onto them
   wapyt-99.99.99-*.whl # the BROWSER's wapyt (git-ignored; dev_wheel.sh / the Containerfile)
 appcode/services/
   stack_api.py         # BFF: overview, action, current_job, doctor, nodes

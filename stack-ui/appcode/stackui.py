@@ -45,12 +45,15 @@ from wapyt import (
 
 from services.models_api import ModelsApi
 from services.stack_api import StackApi
-from ui.common import (Listeners, Stream, by_id, container_of, failed, fmt_bytes, link,
-                       spawn, toast)
+from ui.common import (Listeners, Stream, attr, by_id, closest, container_of, failed,
+                       fmt_bytes, link, spawn, toast)
 from ui.dashboard import FrontendsView, InfrastructureView
 from ui.images import ImagesView
 from ui.llms import LlmsView
 from ui.system import DoctorView, LogsView, NodesView
+from ui.themes import apply as apply_theme
+from ui.themes import current as current_theme
+from ui.themes import picker_html
 from ui.vramview import VramView
 
 APP_ENTRYPOINT = "StackUI"
@@ -103,8 +106,8 @@ class StackUI(MainWindow):
         self._poll_proxy = None
 
         self._load_css()
-        dark = bool(js.window.matchMedia("(prefers-color-scheme: dark)").matches)
-        self.set_theme("dark" if dark else "light")
+        # Before any widget is built, so the first paint is already in the chosen colours.
+        apply_theme(self, current_theme())
         js.document.title = "AI Ecosystem"
 
         self.toolbar = self.add_toolbar("header", ToolbarConfig(label="Stack", items=[
@@ -133,6 +136,11 @@ class StackUI(MainWindow):
                           show_label=False, label="Refresh"),
         ]))
         self.toolbar.on_click(self._on_toolbar)
+        # wapyt gives toolbar text no id; tag the brand and the running state for the CSS
+        # (the brand's logo tile, the bold state).
+        texts = container_of(self.get_cell("header")).querySelectorAll(".wapyt-toolbar-text")
+        for el, role in zip(texts, ("brand", "state")):
+            el.setAttribute("data-su", role)
 
         self.sidebar = self.add_sidebar("nav", SidebarConfig(
             collapse_button=True,
@@ -156,6 +164,14 @@ class StackUI(MainWindow):
             ],
         ))
         self.sidebar.on_select(lambda p: self.go((p or {}).get("id") or "infrastructure"))
+        # Theme swatches under the sidebar, as in Whimsy's rail.
+        nav = container_of(self.get_cell("nav"))
+        nav.classList.add("su-nav-host")
+        foot = js.document.createElement("div")
+        foot.innerHTML = picker_html()
+        nav.appendChild(foot.firstElementChild)
+        self._listeners.on(nav, "click", self._on_swatch)
+        apply_theme(self, current_theme())          # marks the active swatch
 
         self.attach_html("dlbar", (
             '<div class="su-dl" id="su-dl">'
@@ -188,13 +204,18 @@ class StackUI(MainWindow):
         spawn(self._resume(), "resume")
         self._poll_proxy = js.setInterval(_proxy(self._tick), POLL_MS)
 
+    def _on_swatch(self, ev) -> None:
+        sw = closest(ev, ".su-swatch")
+        if sw:
+            apply_theme(self, attr(sw, "data-theme"), remember=True)
+
     def _load_css(self) -> None:
         if by_id("su-css"):
             return
         el = js.document.createElement("link")
         el.id = "su-css"
         el.rel = "stylesheet"
-        el.href = "/static/stackui.css?v=2"
+        el.href = "/static/stackui.css?v=3"
         js.document.head.appendChild(el)
 
     # --- routing ---------------------------------------------------------------

@@ -1,46 +1,86 @@
-/* AI Ecosystem — styles for the parts wapyt does not draw (cards, banners, the console).
-   Colours are tokens, redefined for wapyt's dark theme, so both themes come from one set. */
+/* AI Ecosystem — styles for the parts wapyt does not draw (cards, banners, the console), and
+   the themes. Every colour is a variable set by <html data-sutheme> (ui/themes.py): five dark
+   colourways shared with Whimsy (Bone, Ember, Moss, Dusk, Harbor) and Daylight. wapyt's own
+   widgets are pointed at the same variables further down, so one attribute restyles the page. */
 
-:root {
-  --su-bg: #ffffff;
-  --su-surface: #f8fafc;
-  --su-raised: #ffffff;
-  --su-border: #e2e8f0;
-  --su-text: #0f172a;
-  --su-dim: #64748b;
-  --su-accent: #2563eb;
-  --su-accent-soft: rgba(37, 99, 235, 0.10);
-  --su-good: #059669;
-  --su-good-soft: rgba(5, 150, 105, 0.12);
-  --su-warn: #b45309;
-  --su-warn-soft: rgba(217, 119, 6, 0.12);
-  --su-bad: #dc2626;
-  --su-bad-soft: rgba(220, 38, 38, 0.10);
-  --su-code-bg: #0f172a;
-  --su-code-text: #e2e8f0;
-  --su-radius: 10px;
-  --su-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+/* --- palettes ----------------------------------------------------------------
+   bg: page · bg2: chrome (toolbar, sidebar) · card/card2: raised surfaces · line: borders ·
+   txt/mut: text · acc: accent · grad: filled buttons and the logo · ink: text on grad ·
+   accSoft/accLine/accText: tinted backgrounds, borders and text. The values are Whimsy's. */
+:root, [data-sutheme="harbor"] {
+  --bg:#0b0f14; --bg2:#10161d; --card:#141b24; --card2:#1a232e; --line:rgba(180,210,235,.10);
+  --txt:#ecf2f8; --mut:#93a3b5; --acc:#7fb4d8; --grad:linear-gradient(135deg,#8cc4e6,#5a8fd0);
+  --ink:#0e1a24; --accSoft:rgba(127,180,216,.13); --accLine:rgba(127,180,216,.45); --accText:#c4e0f2;
+}
+[data-sutheme="bone"] {
+  --bg:#0e0e12; --bg2:#141419; --card:#17171e; --card2:#1e1e27; --line:rgba(245,241,232,.09);
+  --txt:#f5f1e8; --mut:#a39c8f; --acc:#f5f1e8; --grad:#f5f1e8; --ink:#141419;
+  --accSoft:rgba(245,241,232,.12); --accLine:rgba(245,241,232,.45); --accText:#f3ddae;
+}
+[data-sutheme="ember"] {
+  --bg:#100d0b; --bg2:#161110; --card:#1a1412; --card2:#211917; --line:rgba(240,200,160,.10);
+  --txt:#f5efe4; --mut:#a89a86; --acc:#e8a33d; --grad:linear-gradient(135deg,#f0b64c,#cf4f2e);
+  --ink:#241505; --accSoft:rgba(232,163,61,.12); --accLine:rgba(232,163,61,.45); --accText:#f3ddae;
+}
+[data-sutheme="moss"] {
+  --bg:#0c120e; --bg2:#111814; --card:#151d17; --card2:#1b241d; --line:rgba(200,230,190,.09);
+  --txt:#eef3e6; --mut:#97a48f; --acc:#9ec978; --grad:#9ec978; --ink:#101a10;
+  --accSoft:rgba(158,201,120,.12); --accLine:rgba(158,201,120,.45); --accText:#cfe8bd;
+}
+[data-sutheme="dusk"] {
+  --bg:#100e16; --bg2:#151221; --card:#1a1626; --card2:#211c30; --line:rgba(210,190,245,.10);
+  --txt:#f1ecf9; --mut:#a298b8; --acc:#b79df0; --grad:linear-gradient(135deg,#c5aef5,#e08bb8);
+  --ink:#1c1530; --accSoft:rgba(183,157,240,.13); --accLine:rgba(183,157,240,.45); --accText:#dccdfb;
+}
+[data-sutheme="daylight"] {
+  --bg:#f4f6f9; --bg2:#ffffff; --card:#ffffff; --card2:#f8fafc; --line:#e2e8f0;
+  --txt:#0f172a; --mut:#64748b; --acc:#2563eb; --grad:linear-gradient(135deg,#3b82f6,#6366f1);
+  --ink:#ffffff; --accSoft:rgba(37,99,235,.09); --accLine:rgba(37,99,235,.40); --accText:#1e40af;
 }
 
-[data-wapyt-theme="dark"] {
-  --su-bg: #0f172a;
-  --su-surface: #111c31;
-  --su-raised: #1e293b;
-  --su-border: #2b3a52;
-  --su-text: #f1f5f9;
-  --su-dim: #94a3b8;
-  --su-accent: #60a5fa;
-  --su-accent-soft: rgba(96, 165, 250, 0.14);
+/* The dashboard's own tokens, from the palette. Status colours depend only on dark vs light. */
+:root, [data-sutheme] {
+  --su-bg: var(--bg);
+  --su-surface: var(--bg);
+  --su-chrome: var(--bg2);
+  --su-raised: var(--card);
+  --su-raised2: var(--card2);
+  --su-border: var(--line);
+  --su-text: var(--txt);
+  --su-dim: var(--mut);
+  --su-accent: var(--acc);
+  --su-accent-soft: var(--accSoft);
+  --su-accent-line: var(--accLine);
+  --su-accent-text: var(--accText);
   --su-good: #34d399;
   --su-good-soft: rgba(52, 211, 153, 0.14);
   --su-warn: #fbbf24;
-  --su-warn-soft: rgba(251, 191, 36, 0.14);
+  --su-warn-soft: rgba(251, 191, 36, 0.13);
   --su-bad: #f87171;
   --su-bad-soft: rgba(248, 113, 113, 0.14);
-  --su-code-bg: #020617;
+  --su-code-bg: color-mix(in srgb, var(--bg) 60%, #000);
+  --su-code-text: color-mix(in srgb, var(--txt) 88%, var(--mut));
+  --su-radius: 14px;
+  --su-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --su-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --su-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --wapyt-font-family: var(--su-sans);
+  color-scheme: dark;
+}
+[data-sutheme="daylight"] {
+  --su-good: #059669;
+  --su-good-soft: rgba(5, 150, 105, 0.11);
+  --su-warn: #b45309;
+  --su-warn-soft: rgba(217, 119, 6, 0.11);
+  --su-bad: #dc2626;
+  --su-bad-soft: rgba(220, 38, 38, 0.09);
+  --su-code-bg: #0f172a;
+  --su-code-text: #e2e8f0;
+  --su-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
+  color-scheme: light;
 }
 
-body { background: var(--su-bg); }
+body { background: var(--su-bg); color: var(--su-text); font-family: var(--su-sans); }
 
 /* --- the screen area ---------------------------------------------------- */
 .su-main { background: var(--su-surface); }
@@ -74,9 +114,7 @@ a.su-btn { text-decoration: none; }
 #fe-warn .su-banner { margin: 0 0 10px; }
 .su-card { background: var(--su-raised); border: 1px solid var(--su-border);
   border-radius: var(--su-radius); padding: 14px 16px; display: flex; flex-direction: column;
-  gap: 10px; min-width: 0; border-top: 3px solid var(--su-border); }
-.su-card.up { border-top-color: var(--su-good); }
-.su-card.down { border-top-color: var(--su-border); }
+  gap: 10px; min-width: 0; }
 .su-card.su-skeleton { min-height: 150px; opacity: 0.5; }
 .su-card-head { display: flex; align-items: center; gap: 12px; }
 .su-card-icon { font-size: 24px; color: var(--su-accent); width: 28px; text-align: center; }
@@ -228,3 +266,156 @@ td.su-warn { color: var(--su-warn); }
   text-overflow: ellipsis; white-space: nowrap; }
 .su-dl-bar { flex: 1; min-width: 160px; }
 .su-btn[hidden] { display: none; }
+
+
+/* =============================================================================
+   wapyt's widgets follow the theme. wapyt reads these tokens (the -dark ones in its dark
+   theme); pointing both sets at ours restyles every widget at once.
+   ============================================================================= */
+:root, [data-sutheme] {
+  --wapyt-bg: var(--card); --wapyt-surface: var(--bg2); --wapyt-border: var(--line);
+  --wapyt-divider: var(--line); --wapyt-text: var(--txt);
+  --wapyt-bg-dark: var(--card); --wapyt-surface-dark: var(--bg2); --wapyt-border-dark: var(--line);
+  --wapyt-divider-dark: var(--line); --wapyt-text-dark: var(--txt);
+  --wapyt-toast-accent: var(--acc);
+}
+#maindiv, .wapyt-layout { background: var(--bg) !important; }
+.wapyt-cell { border-color: var(--line) !important; }
+
+/* Accents wapyt hard-codes in blue, in both of its themes. */
+.wapyt-toolbar { background: var(--bg2) !important; border-bottom: 1px solid var(--line) !important;
+  min-height: 52px; padding: 8px 14px; }
+.wapyt-toolbar .wapyt-toolbar-btn { border-radius: 999px; }
+.wapyt-toolbar .wapyt-toolbar-btn:hover:not(:disabled) { background: var(--accSoft);
+  border-color: var(--accLine); }
+.wapyt-toolbar .wapyt-toolbar-btn[aria-pressed="true"] { background: var(--accSoft);
+  border-color: var(--accLine); color: var(--accText); }
+.wapyt-toolbar-btn[data-variant="primary"] { background: var(--grad) !important;
+  border-color: transparent !important; color: var(--ink) !important; font-weight: 650; }
+.wapyt-toolbar-btn[data-variant="primary"]:hover:not(:disabled) { filter: brightness(1.08); }
+.wapyt-toolbar-sep { background: var(--line) !important; }
+.wapyt-toolbar-text { opacity: 1; color: var(--mut); font-size: 12.5px; }
+/* The brand: a logo tile in the theme's gradient, like Whimsy's. */
+.wapyt-toolbar-text[data-su="brand"] { color: var(--txt); font-size: 15px; font-weight: 750;
+  letter-spacing: .2px; display: inline-flex; align-items: center; gap: 10px; overflow: visible; }
+.wapyt-toolbar-text[data-su="brand"]::before { content: "AI"; display: inline-flex;
+  align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px;
+  background: var(--grad); color: var(--ink); font: 800 12.5px var(--su-sans); letter-spacing: .5px; }
+.wapyt-toolbar-text[data-su="state"] { color: var(--txt); font-weight: 600; }
+
+.wapyt-sidebar { --wapyt-sidebar-accent: var(--acc); background: var(--bg2) !important;
+  border-right: 1px solid var(--line) !important; height: auto !important; flex: 1 1 auto;
+  min-height: 0; width: 100% !important; }
+.wapyt-sidebar-item { border-radius: 10px; }
+.wapyt-sidebar-item:hover:not(:disabled),
+[data-wapyt-theme="dark"] .wapyt-sidebar-item:hover:not(:disabled) { background: var(--accSoft); }
+.wapyt-sidebar-item[data-active="true"],
+[data-wapyt-theme="dark"] .wapyt-sidebar-item[data-active="true"] { background: var(--accSoft);
+  color: var(--accText); box-shadow: inset 3px 0 0 var(--acc); }
+.wapyt-sidebar-item[data-active="true"] .wapyt-sidebar-icon { opacity: 1; color: var(--acc); }
+.wapyt-sidebar-item:focus-visible { outline-color: var(--accLine); }
+
+.wapyt-tab { border-radius: 9px 9px 0 0; color: var(--mut); }
+.wapyt-tab[data-active="true"], [data-wapyt-theme="dark"] .wapyt-tab[data-active="true"] {
+  background: var(--card) !important; border-color: var(--line) !important;
+  border-bottom-color: var(--card) !important; color: var(--txt); box-shadow: inset 0 2px 0 var(--acc); }
+
+.wapyt-datatable-table tbody tr[data-selected="true"] { background: var(--accSoft) !important; }
+.wapyt-datatable-sortable:hover { color: var(--acc); }
+.wapyt-datatable-filter:focus { border-color: var(--accLine); }
+.wapyt-datatable-checkbox { accent-color: var(--acc); }
+
+.wapyt-progress { --wapyt-progress-fill: var(--acc); }
+
+.wapyt-cmenu-item:hover, .wapyt-cmenu-item:focus, .wapyt-cmenu-item[aria-expanded="true"],
+[data-wapyt-theme="dark"] .wapyt-cmenu-item:hover, [data-wapyt-theme="dark"] .wapyt-cmenu-item:focus,
+[data-wapyt-theme="dark"] .wapyt-cmenu-item[aria-expanded="true"] { background: var(--accSoft); }
+.wapyt-cmenu { border-radius: 12px; box-shadow: var(--su-shadow); }
+.wapyt-msg-dialog { border-radius: 18px !important; box-shadow: var(--su-shadow);
+  background: var(--card) !important; color: var(--txt) !important; border-color: var(--line) !important; }
+.wapyt-msg-overlay { backdrop-filter: blur(5px); }
+.wapyt-msg-btn { border-radius: 999px !important; }
+.wapyt-msg-btn-primary { background: var(--grad) !important; border-color: transparent !important;
+  color: var(--ink) !important; }
+.wapyt-msg-btn:focus-visible, .wapyt-msg-input:focus, .wapyt-toolbar-btn:focus-visible {
+  outline-color: var(--accLine) !important; }
+.wapyt-toast { background: var(--card2) !important; color: var(--txt) !important;
+  border: 1px solid var(--line) !important; border-radius: 12px !important; box-shadow: var(--su-shadow); }
+
+/* =============================================================================
+   The dashboard's own surfaces, tuned to the themes
+   ============================================================================= */
+.su-main { background: radial-gradient(1100px 420px at 100% -10%, var(--accSoft), transparent 65%),
+  var(--bg) !important; }
+.su-page-head h1 { font-size: 22px; font-weight: 750; letter-spacing: .1px; }
+.su-section-head h2, .su-panel-head h2 { color: var(--mut); letter-spacing: .09em; font-size: 12px; }
+
+.su-card { border-radius: var(--su-radius); border: 1px solid var(--line);
+  background: radial-gradient(520px 170px at 0% 0%, var(--accSoft), transparent 70%), var(--card);
+  border-top: 1px solid var(--line); position: relative; overflow: hidden;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+.su-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: var(--line); }
+.su-card.up::before { background: linear-gradient(90deg, var(--su-good), color-mix(in srgb, var(--su-good) 30%, transparent)); }
+.su-card:hover { border-color: var(--accLine); box-shadow: var(--su-shadow); transform: translateY(-1px); }
+.su-card-icon { width: 40px; height: 40px; border-radius: 12px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 22px; background: var(--accSoft);
+  color: var(--accText); flex: none; }
+.su-card.down .su-card-icon { background: var(--card2); color: var(--mut); }
+.su-card-title { font-weight: 700; }
+.su-card-title a:hover { color: var(--accText); }
+
+.su-btn { border-radius: 999px; border-color: var(--line); background: var(--card2); padding: 5px 13px;
+  transition: border-color .12s ease, color .12s ease, background .12s ease; }
+.su-btn:hover:not(:disabled) { border-color: var(--accLine); color: var(--accText); background: var(--accSoft); }
+.su-btn.su-primary, [data-wapyt-theme="dark"] .su-btn.su-primary { background: var(--grad);
+  border-color: transparent; color: var(--ink); font-weight: 650; }
+.su-btn.su-primary:hover:not(:disabled), [data-wapyt-theme="dark"] .su-btn.su-primary:hover:not(:disabled) {
+  color: var(--ink); filter: brightness(1.08); background: var(--grad); }
+.su-btn.su-ghost:hover:not(:disabled) { background: transparent; color: var(--accText); }
+
+.su-link, .su-tag { color: var(--accText); }
+.su-tag { background: var(--accSoft); border-radius: 999px; padding: 1px 8px; }
+.su-pill { letter-spacing: .07em; }
+.su-banner { border-radius: 12px; border: 1px solid color-mix(in srgb, var(--su-warn) 30%, transparent); }
+.su-gpu, .su-panel { border-radius: var(--su-radius); background: var(--card); border-color: var(--line); }
+.su-status, .su-searchbar { border-radius: 12px; background: var(--card); border-color: var(--line); }
+.su-searchbar input, .su-searchbar select, .su-planner select { border-radius: 10px;
+  background: var(--bg); border-color: var(--line); color: var(--txt); }
+.su-searchbar input:focus, .su-searchbar select:focus, .su-planner select:focus {
+  outline: none; border-color: var(--accLine); box-shadow: 0 0 0 3px var(--accSoft); }
+.su-chip { background: var(--card2); border-color: var(--line); }
+.su-plan-big.su-good { color: var(--su-good); }
+.su-log, .su-raw { border-radius: 12px; border: 1px solid var(--line); }
+.su-console { background: var(--su-code-bg); border-top: 1px solid var(--line); }
+.su-console-head { border-bottom-color: var(--line); color: var(--mut); }
+.su-console-head .su-btn.su-ghost { color: var(--mut); }
+.su-spin { border-color: var(--mut); border-top-color: var(--acc); }
+.su-dl { background: var(--accSoft); border-bottom-color: var(--line); }
+.su-dl > .mdi { color: var(--acc); }
+
+/* --- the theme picker, under the sidebar (Whimsy's rail swatches) -------------- */
+.su-nav-host { display: flex; flex-direction: column; height: 100%; background: var(--bg2);
+  border-right: 1px solid var(--line); box-sizing: border-box; }
+.su-nav-host > .wapyt-sidebar { border-right: 0 !important; }
+.su-themes { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 7px; }
+.su-themes-head { display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: var(--mut); }
+.su-themes-head b { color: var(--txt); font-weight: 800; }
+.su-swatches { display: flex; gap: 5px; }
+.su-swatch { flex: 1; height: 24px; min-width: 0; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--card); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  padding: 0; }
+.su-swatch i { width: 14px; height: 5px; border-radius: 999px; display: block; }
+.su-swatch:hover { border-color: var(--accLine); }
+.su-swatch.on { border-color: var(--txt); box-shadow: 0 0 0 1px var(--txt) inset; }
+/* Collapsed sidebar: just the swatches, stacked. */
+.su-nav-host:has(.wapyt-sidebar[data-collapsed="true"]) .su-themes-head { display: none; }
+.su-nav-host:has(.wapyt-sidebar[data-collapsed="true"]) .su-swatches { flex-direction: column; }
+.su-nav-host:has(.wapyt-sidebar[data-collapsed="true"]) .su-themes { padding: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .su-card, .su-btn { transition: none; }
+  .su-card:hover { transform: none; }
+}
