@@ -62,17 +62,19 @@ stack on / stack off  # SINGLE SWITCH for the AI backend (the one to remember):
                       #   on  = start backends now + re-arm boot auto-start
 stack              # interactive: show status, offer to start backends, then pick a frontend
 stack up           # start backends now WITHOUT changing the boot toggle
+                   #   (skips the local text model while text is routed to Halo)
 stack status       # what's up (+ shows the ON/OFF switch state)
+stack status --json  # the same for stack-ui and scripts (shape: status_json in `stack`)
 stack companion    # start one app: a backend, stackui, or a frontend by repo name
 stack frontends    # installed frontends (--json for stack-ui)
 stack down         # stop everything   (also: down backends | down frontends | down <app>)
-stack restart <app>
+stack restart <app>  # restart router = replace it in place, no stop first
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
 stack route [local|halo]  # show / set where text is served (halo needs HALO_HOST in halo.env)
 
 stack install      # one-time setup, idempotent: build backend images, create ai-net,
                    #   install the systemd unit, link onto PATH.
-                   #   targets: all|backends|koboldcpp|comfyui|fortuna|stackui|service|path
+                   #   targets: all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path
 stack doctor       # check prerequisites + what's installed; changes nothing
 ```
 
@@ -112,7 +114,9 @@ one by cloning it next to ai-stack; remove it by removing the clone.
   "health": "http://127.0.0.1:7861/api/health", // must be on localhost / 127.0.0.1
   "container": "companion",                     // podman name, for stop + logs
   "start": "run-podman.sh",                     // inside the repo, executable
-  "icon": "mdi-account-heart-outline"           // optional, stack-ui card icon
+  "icon": "mdi-account-heart-outline",          // optional, stack-ui card icon
+  "https_port": 7868,                           // optional: same app over HTTPS (mic from the LAN)
+  "https_setup": "/ca"                          // optional: page on the HTTP port for trusting its cert
 }
 ```
 
@@ -161,7 +165,12 @@ points at the relevant INSTALL.md section instead. Because of that, a fresh inst
 *"install done, N item(s) need you"* rather than "complete": the images are built but nothing can
 start until you supply a GGUF and a checkpoint.
 
+It also pulls the router's stock nginx image, so the first `stack up` (at boot, maybe offline)
+doesn't have to.
+
 `stack doctor` is the read-only half — prerequisites, images, network, unit, plus `stack status`.
+The unit check compares the whole installed file with what `stack install service` would write,
+so an old unit (wrong path, or the old 240 s start timeout) is reported.
 
 ## The on/off switch (gaming ↔ AI) + boot auto-start
 
@@ -188,7 +197,26 @@ journalctl --user -u ai-stack-backends -f   # boot logs
 
 Reuses the stack's own start logic (DRY), verified under the systemd `--user` context. Frontends stay manual — the switch only governs the shared backends.
 
+## `stack status --json`
+
+What stack-ui reads instead of scraping the text. Only JSON goes to stdout; the shape is documented
+above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `label`, `capability`
+(from the `CAP` table: routing, text, image-sound, decision), `port`, `up`. Backends also carry
+`local`: the state of **this machine's copy** (`up`, `loading`, `stopped`, `absent`, or `down`).
+
+- `up` is the **served** state, through the router where there is one. With text routed to Halo,
+  `koboldcpp.up` is the Halo box.
+- `local` is probed (`podman exec <container> sh -c "$LOCAL_PROBE"`) only when served can't stand
+  for it: the app is routed elsewhere, or the router is down. Otherwise `probed: false` and the state
+  is inferred. Not podman's health field, which reads "starting" for days on `koboldcpp-local`.
+- `route.router_config` is `stale` when the running router was created from an older template,
+  image or port set (`router/start.sh --check`); the next `stack up` recreates it.
+- Health probes run in parallel, so status costs one timeout (3 s) however many apps are down.
+
 ## Notes / gotchas
+
+- **`stack up` exits non-zero if any backend failed**, after trying all of them, and names them.
+  Backends stop in reverse order (router last), so text answers until the model behind it is gone.
 
 - `koboldcpp/start.sh` runs the container **detached** (`podman run -d`) but returns only once the
   model has loaded (or failed): it waits for the old container's VRAM, asks ComfyUI to unload its

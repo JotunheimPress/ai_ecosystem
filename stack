@@ -7,7 +7,7 @@
 #                           off = stop backends + no boot restart (free the GPU to game)
 #                           on  = start backends now + at boot
 #   stack up              start the backends now (without touching the boot toggle)
-#   stack status          show what's up
+#   stack status [--json] show what's up (--json: for stack-ui and scripts)
 #   stack <app>           start one app: a backend (router|koboldcpp|comfyui|fortuna),
 #                           stackui, or an installed frontend by its repo name (stack frontends)
 #   stack frontends [--json]  list the installed frontends (each repo's frontend.json)
@@ -17,7 +17,7 @@
 #   stack route [local|halo]  show / set where text is served (backend router)
 #   stack install [target]  one-time setup: build backend images, create the network,
 #                           install the systemd unit, link onto PATH. Idempotent.
-#                           all|backends|koboldcpp|comfyui|fortuna|stackui|service|path
+#                           all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path
 #   stack doctor          check prerequisites + what's installed, change nothing
 #
 # Backends are shared; frontends run side-by-side on their own ports.
@@ -79,6 +79,25 @@ declare -A LABEL=(
   [stackui]="AI Ecosystem"
 )
 
+# What each backend provides. stack-ui groups its Infrastructure view by this, and
+# `status --json` carries it, so a new backend is a row here rather than a name check in
+# the UI. Only backends have one.
+declare -A CAP=(
+  [router]=routing
+  [koboldcpp]=text
+  [comfyui]=image-sound
+  [fortuna]=decision
+)
+
+# How to ask THIS machine's copy of a backend whether it is up, bypassing the router: run
+# inside its own container with `podman exec … sh -c`. Needed only where the served address
+# can be another machine (text, via `stack route halo`) or goes through the router. Not
+# podman's health field: it is unreliable for koboldcpp-local, which reads "starting" for
+# days. An app without a row is served by its local copy directly.
+declare -A LOCAL_PROBE=(
+  [koboldcpp]="curl -sf -m 3 -o /dev/null http://127.0.0.1:5001/api/v1/model"
+)
+
 # ---- frontends: discovered, not registered ---------------------------------------------
 # A frontend is any repo directly under $ECO with a frontend.json at its root. So the list
 # is exactly what's installed, and a fork (npc_maker next to companion) shows up as itself
@@ -91,7 +110,11 @@ declare -A LABEL=(
 #     "health": "http://127.0.0.1:7861/api/health",   200 = up; must be on localhost
 #     "container": "companion",                  podman name: stop + logs
 #     "start": "run-podman.sh",                  path inside the repo, executable
-#     "icon": "mdi-account-heart-outline" }      optional, for stack-ui
+#     "icon": "mdi-account-heart-outline",       optional, for stack-ui
+#     "https_port": 7868,                        optional: the same app over HTTPS (needed
+#                                                  for the microphone from another device)
+#     "https_setup": "/ca" }                     optional: path on the HTTP port that explains
+#                                                  trusting its certificate
 #
 # Parsed with python3 (it's in the stack-ui image too; jq isn't). Bad manifests are
 # skipped and reported by `stack doctor`, never fatal: one broken clone mustn't take the
@@ -110,6 +133,7 @@ from pathlib import Path
 mode, eco, reserved = sys.argv[1], Path(sys.argv[2]), set(sys.argv[3:])
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 ICON = re.compile(r"^mdi-[a-z0-9-]+$")
+URLPATH = re.compile(r"^/[A-Za-z0-9._~/-]{0,127}$")
 HEALTH = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?(/\S*)?$")
 CTRL = re.compile(r"[\x00-\x1f\x7f]")
 US = "\x1f"   # field separator: tabs would collapse empty fields under bash `read`
@@ -162,6 +186,13 @@ for d in sorted(p for p in eco.iterdir() if p.is_dir() and not p.name.startswith
         icon = m.get("icon") or ""
         if icon and not (isinstance(icon, str) and ICON.match(icon)):
             raise ValueError("icon must look like mdi-name")
+        https_port = m.get("https_port")
+        if https_port is not None and (not isinstance(https_port, int) or isinstance(https_port, bool)
+                                       or not 1024 <= https_port <= 65535 or https_port == port):
+            raise ValueError("https_port must be an integer 1024-65535, not the same as port")
+        https_setup = m.get("https_setup") or ""
+        if https_setup and not (isinstance(https_setup, str) and URLPATH.match(https_setup)):
+            raise ValueError("https_setup must be a path like /ca")
     except (OSError, ValueError) as e:
         warns.append(f"{d.name}/frontend.json skipped: {e}")
         continue
@@ -180,32 +211,37 @@ for d in sorted(p for p in eco.iterdir() if p.is_dir() and not p.name.startswith
                 warns.append(f"{repo} and {other['repo']} share {what} {mine} — "
                              f"they can't run at the same time")
     apps.append(dict(repo=repo, brand=brand, description=desc, port=port, health=health,
-                     container=container, start=str(sp), dir=str(d), icon=icon))
+                     container=container, start=str(sp), dir=str(d), icon=icon,
+                     https_port=https_port, https_setup=https_setup))
 
 if mode == "json":
-    print(json.dumps({"frontends": [{k: a[k] for k in ("repo", "brand", "description", "port", "icon", "dir")}
+    print(json.dumps({"frontends": [{k: a[k] for k in ("repo", "brand", "description", "port", "icon", "dir",
+                                                       "https_port", "https_setup")}
                                     for a in apps], "warnings": warns}))
 else:
     for a in apps:
+        # description last: it is the only free-text field.
         print(US.join(["F", a["repo"], a["brand"], str(a["port"]), a["health"], a["container"],
-                       a["start"], a["dir"], a["icon"], a["description"]]))
+                       a["start"], a["dir"], a["icon"], str(a["https_port"] or ""), a["https_setup"],
+                       a["description"]]))
     for w in warns:
         print(US.join(["W", w]))
 PY
 }
 
-declare -A FSTART FDIR FICON
+declare -A FSTART FDIR FICON FHTTPS FHTTPS_SETUP
 FRONTEND_WARN=()
 load_frontends() {
   if ! command -v python3 >/dev/null 2>&1; then
     FRONTEND_WARN+=("python3 not found — can't read frontend.json, so no frontends are listed")
     return 0
   fi
-  local kind repo brand port health cname start dir icon desc
-  while IFS=$'\x1f' read -r kind repo brand port health cname start dir icon desc; do
+  local kind repo brand port health cname start dir icon https setup desc
+  while IFS=$'\x1f' read -r kind repo brand port health cname start dir icon https setup desc; do
     case $kind in
       F) reg "$repo" "$port" "$health" "$desc" container "$cname"
          LABEL[$repo]=$brand; FSTART[$repo]=$start; FDIR[$repo]=$dir; FICON[$repo]=$icon
+         FHTTPS[$repo]=$https; FHTTPS_SETUP[$repo]=$setup
          FRONTENDS+=("$repo") ;;
       W) FRONTEND_WARN+=("$repo") ;;
     esac
@@ -234,7 +270,41 @@ is_up() { curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null; }
 # kept as the extension point for a future host-side app.
 port_pid() { ss -tlnHp 2>/dev/null | grep -F ":$1" | grep -oP 'pid=\K[0-9]+' | head -1; }
 
-wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do is_up "$a" && return 0; sleep 2; done; return 1; }
+wait_up() { local a=$1 n=${2:-60} i; for ((i=0;i<n;i++)); do ready "$a" && return 0; sleep 2; done; return 1; }
+
+# Is what the router serves for this app THIS machine's copy? Only text can be routed
+# elsewhere (`stack route halo`); everything else is always served locally.
+route_is_local() { [[ "$(route_now)" == koboldcpp-local:* ]]; }
+serves_local()   { [[ $1 != koboldcpp ]] || route_is_local; }
+
+# This machine's copy of a backend, bypassing the router:
+#   absent (no container) | stopped | loading (running, not answering yet) | up
+local_state() {
+  local a=$1 c=${CNAME[$1]} st
+  st=$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null) || { echo absent; return; }
+  [[ $st == running ]] || { echo stopped; return; }
+  if [[ -n ${LOCAL_PROBE[$a]:-} ]]; then
+    podman exec "$c" sh -c "${LOCAL_PROBE[$a]}" >/dev/null 2>&1 && echo up || echo loading
+  else
+    is_up "$a" && echo up || echo loading
+  fi
+}
+
+# "Up" for starting and waiting: the local copy whenever the served address isn't it, so
+# `stack koboldcpp` while text is routed to Halo loads and waits for THIS copy instead of
+# reporting the Halo box as already up.
+ready() { if serves_local "$1"; then is_up "$1"; else [[ $(local_state "$1") == up ]]; fi; }
+
+# Health of many apps at once, into UP[app]=1/0. In parallel: one sequential pass is
+# 3 s per app that's down, and stack-ui polls this every few seconds.
+declare -A UP
+probe_all() {
+  local a tmp; tmp=$(mktemp -d) || return 1
+  for a in "$@"; do ( is_up "$a" && : > "$tmp/$a" ) & done
+  wait
+  for a in "$@"; do [[ -e "$tmp/$a" ]] && UP[$a]=1 || UP[$a]=0; done
+  rm -rf "$tmp"
+}
 
 start_app() {
   case "$1" in
@@ -267,26 +337,108 @@ stop_app() {
   return 0
 }
 
-dot() { is_up "$1" && printf "%bup  %b" "$C_GREEN" "$C_OFF" || printf "%bdown%b" "$C_RED" "$C_OFF"; }
+dot() {
+  local u=${UP[$1]:-}
+  [[ -n $u ]] || { is_up "$1" && u=1 || u=0; }
+  ((u)) && printf "%bup  %b" "$C_GREEN" "$C_OFF" || printf "%bdown%b" "$C_RED" "$C_OFF"
+}
 
 row() { printf "  %-16s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${PORT[$1]}" "$C_OFF" "$C_DIM" "${DESC[$1]}" "$C_OFF"; }
 
+# The local copy is probed only when the served state can't stand for it: text routed to
+# another machine, or the router down (then every routed app reads down).
+needs_local_probe() { [[ -n ${LOCAL_PROBE[$1]:-} ]] && { ! serves_local "$1" || [[ ${UP[router]:-0} == 0 ]]; }; }
+
 cmd_status() {
+  [[ ${1:-} == --json ]] && { status_json; return; }
+  [[ -z ${1:-} ]] || { echo "usage: stack status [--json]"; return 1; }
+  probe_all "${BACKENDS[@]}" "${FRONTENDS[@]}" "${CONTROL[@]}"
   if have_svc; then
     if svc_enabled; then echo "AI backend switch: ${C_GREEN}ON${C_OFF}  (auto-starts at boot)"
     else                 echo "AI backend switch: ${C_RED}OFF${C_OFF} (gaming mode — won't start at boot)"; fi
   fi
   DESC[router]="Routes text → $(route_name)"
-  echo "${C_B}Backends${C_OFF} (network: $NET)"; for a in "${BACKENDS[@]}"; do row "$a"; done
+  local a
+  echo "${C_B}Backends${C_OFF} (network: $NET)"
+  for a in "${BACKENDS[@]}"; do
+    row "$a"
+    needs_local_probe "$a" && printf "  %-16s %blocal copy: %s%b\n" "" "$C_DIM" "$(local_state "$a")" "$C_OFF"
+  done
   echo "${C_B}Frontends${C_OFF}";               for a in "${FRONTENDS[@]}"; do row "$a"; done
   echo "${C_B}Control${C_OFF}";                 for a in "${CONTROL[@]}"; do row "$a"; done
+}
+
+# Machine-readable status for stack-ui and scripts. Only the JSON goes to stdout. Shape:
+#   { "version": 1, "switch": "on"|"off"|null,          null = no systemd unit installed
+#     "route": { "text": "koboldcpp-local:5001", "where": "local"|"halo",
+#                "router_config": "current"|"stale"|null },   null = router not running
+#     "apps": [ { "name", "group": backend|frontend|control, "label", "capability"|null,
+#                 "port", "up", "container", "description",
+#                 backends:  "local": { "state": up|loading|stopped|absent|down, "probed" }
+#                            (probed false = inferred from "up", no podman call made)
+#                 frontends: "icon", "https_port"|null, "https_setup" } ],
+#     "warnings": [ "…" ] }                              frontend.json problems
+status_json() {
+  command -v python3 >/dev/null 2>&1 || { echo '{"error": "python3 not found"}'; return 1; }
+  local all=("${BACKENDS[@]}" "${FRONTENDS[@]}" "${CONTROL[@]}") a g sw="" cfg="" loc probed w
+  local US=$'\x1f'
+  probe_all "${all[@]}"
+  if have_svc; then svc_enabled && sw=on || sw=off; fi
+  if [[ "$(podman inspect -f '{{.State.Status}}' "${CNAME[router]}" 2>/dev/null)" == running ]]; then
+    "$SELF/router/start.sh" --check && cfg=current || cfg=stale
+  fi
+  {
+    echo "S$US$sw$US$(route_now)$US$(route_is_local && echo local || echo halo)$US$cfg"
+    for a in "${all[@]}"; do
+      g=backend
+      [[ " ${FRONTENDS[*]} " == *" $a "* ]] && g=frontend
+      [[ " ${CONTROL[*]} " == *" $a "* ]] && g=control
+      loc="" probed=""
+      if [[ $g == backend && $a != router ]]; then
+        if needs_local_probe "$a"; then loc=$(local_state "$a"); probed=1
+        else ((UP[$a])) && loc=up || loc=down; probed=0; fi
+      fi
+      echo "A$US$a$US$g$US${LABEL[$a]:-$a}$US${CAP[$a]:-}$US${PORT[$a]}$US${UP[$a]}$US${CNAME[$a]}$US$loc$US$probed$US${FICON[$a]:-}$US${FHTTPS[$a]:-}$US${FHTTPS_SETUP[$a]:-}$US${DESC[$a]}"
+    done
+    for w in "${FRONTEND_WARN[@]}"; do echo "W$US$w"; done
+  } | python3 -c '
+import json, sys
+out = {"version": 1, "switch": None, "route": {}, "apps": [], "warnings": []}
+for line in sys.stdin:
+    f = line.rstrip("\n").split("\x1f")
+    if f[0] == "S":
+        out["switch"] = f[1] or None
+        out["route"] = {"text": f[2], "where": f[3], "router_config": f[4] or None}
+    elif f[0] == "A":
+        name, group, label, cap, port, up, cname, loc, probed, icon, https, setup, desc = f[1:14]
+        app = {"name": name, "group": group, "label": label, "capability": cap or None,
+               "port": int(port), "up": up == "1", "container": cname, "description": desc}
+        if loc:
+            app["local"] = {"state": loc, "probed": probed == "1"}
+        if group == "frontend":
+            app.update(icon=icon, https_port=int(https) if https else None, https_setup=setup)
+        out["apps"].append(app)
+    elif f[0] == "W":
+        out["warnings"].append(f[1])
+print(json.dumps(out))
+'
 }
 
 start_one() {
   local a=$1
   # Reached through the router, so it has to be up first (see BACKENDS).
   if [[ $a == koboldcpp ]] && ! is_up router; then start_one router || return 1; fi
-  if is_up "$a"; then echo "  $a already up (:${PORT[$a]})"; return 0; fi
+  # A running router keeps the config it started with; recreate it when that has changed
+  # (template, image, ports). route.conf isn't part of this: `stack route` reloads it live.
+  if [[ $a == router ]] && is_up router && ! "$SELF/router/start.sh" --check; then
+    echo "==> router config changed — recreating it"
+    if "$SELF/router/start.sh" >/dev/null; then echo "  ${C_GREEN}✓${C_OFF} router up at http://localhost:${PORT[router]}"; return 0; fi
+    echo "  ${C_RED}✗${C_OFF} router did not come back — check: stack logs router"; return 1
+  fi
+  if ready "$a"; then
+    serves_local "$a" && echo "  $a already up (:${PORT[$a]})" || echo "  $a local copy already up"
+    return 0
+  fi
   # Health says down, but for a `proc` app the port may still be held — by an instance
   # that's mid-startup, or wedged. Starting now would just lose the port race, and the
   # loser's exit says nothing about the process actually serving the port. Report the
@@ -304,7 +456,8 @@ start_one() {
   if wait_up "$a" "$([[ $a == koboldcpp ]] && echo 60 || echo 30)"; then
     local note=""
     [[ "${KIND[$a]}" == proc ]] && note=" ${C_DIM}(pid $(port_pid "${PORT[$a]}"))${C_OFF}"
-    echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}$note"
+    if serves_local "$a"; then echo "  ${C_GREEN}✓${C_OFF} $a up at http://localhost:${PORT[$a]}$note"
+    else echo "  ${C_GREEN}✓${C_OFF} $a local copy up ${C_DIM}(text is routed to $(route_now); stack route local serves it)${C_OFF}"; fi
   else
     echo "  ${C_RED}✗${C_OFF} $a did not come up — check: stack logs $a"
     [[ "${KIND[$a]}" == container ]] && podman logs --tail 3 "${CNAME[$a]}" 2>&1 | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
@@ -317,7 +470,7 @@ start_one() {
 # a validated host name, never from free-form input.
 ROUTE_FILE="$ECO/router/route.conf"
 route_now() { grep -oP 'set \$kobold_up \K[^;]+' "$ROUTE_FILE" 2>/dev/null || echo "koboldcpp-local:5001"; }
-route_name() { case "$(route_now)" in koboldcpp-local:*) echo "local (4070)" ;; *) echo "halo ($(route_now | cut -d: -f1))" ;; esac; }
+route_name() { route_is_local && echo "local" || echo "halo ($(route_now | cut -d: -f1))"; }
 halo_host() {   # HALO_HOST from ai-stack/halo.env (git-ignored), parsed, never sourced
   local v; v=$(grep -oP '^HALO_HOST=\K.*' "$SELF/halo.env" 2>/dev/null | tr -d "\"'" | head -1)
   [[ "$v" =~ ^[A-Za-z0-9.-]+$ ]] && echo "$v"
@@ -348,13 +501,53 @@ cmd_route() {
   echo "  ${C_GREEN}✓${C_OFF} text → $k"
 }
 
-cmd_up() { ensure_net; for a in "${BACKENDS[@]}"; do start_one "$a"; done; }
+# Backends `stack up` brings up. The local text model is skipped while text is routed to
+# another machine: loading it would take the GPU for a copy nothing is sent to. An explicit
+# `stack koboldcpp` (or restart) still loads it.
+backend_wanted() {
+  if [[ $1 == koboldcpp ]] && ! route_is_local; then
+    echo "  koboldcpp: text is routed to $(route_now) — local copy not loaded ${C_DIM}(stack koboldcpp loads it)${C_OFF}"
+    return 1
+  fi
+}
+
+# Every backend is attempted, and every failure reported: the exit status says whether
+# ALL of them came up (systemd and stack-ui read it), not just the last one.
+cmd_up() {
+  ensure_net
+  local a failed=()
+  for a in "${BACKENDS[@]}"; do
+    backend_wanted "$a" || continue
+    start_one "$a" || failed+=("$a")
+  done
+  ((${#failed[@]} == 0)) && return 0
+  echo "  ${C_RED}✗${C_OFF} not up: ${failed[*]}"; return 1
+}
+
+# Backends stop in reverse start order, so the router goes last: while text is still
+# being served it keeps answering, rather than 502ing in front of a model being stopped.
+backends_reversed() { local i; for ((i=${#BACKENDS[@]}-1; i>=0; i--)); do echo "${BACKENDS[$i]}"; done; }
+
+cmd_restart() {
+  local a=${1:?usage: stack restart <app>}
+  [[ -n "${KIND[$a]:-}" ]] || { echo "unknown app: $a (try: stack status)"; return 1; }
+  ensure_net
+  if [[ $a == router ]]; then
+    # No stop first: start.sh replaces the container itself, after checking the port, so
+    # text is unreachable for the moment of the swap rather than for a stop + start.
+    echo "==> restarting router …"
+    if "$SELF/router/start.sh" >/dev/null; then echo "  ${C_GREEN}✓${C_OFF} router up at http://localhost:${PORT[router]}"; return 0; fi
+    echo "  ${C_RED}✗${C_OFF} router did not come back — check: stack logs router"; return 1
+  fi
+  stop_app "$a"; sleep 1; start_one "$a"
+}
 
 cmd_down() {
-  local t=${1:-all} list=()
+  local t=${1:-all} list=() rev
+  mapfile -t rev < <(backends_reversed)
   case "$t" in
-    all)       list=("${FRONTENDS[@]}" "${BACKENDS[@]}") ;;
-    backends)  list=("${BACKENDS[@]}") ;;
+    all)       list=("${FRONTENDS[@]}" "${rev[@]}") ;;
+    backends)  list=("${rev[@]}") ;;
     frontends) list=("${FRONTENDS[@]}") ;;
     *)         [[ -n "${KIND[$t]:-}" ]] && list=("$t") || { echo "unknown target: $t"; return 1; } ;;
   esac
@@ -389,7 +582,7 @@ cmd_menu() {
   cmd_status; echo
   # ensure backends
   local need=()
-  for a in "${BACKENDS[@]}"; do is_up "$a" || need+=("$a"); done
+  for a in "${BACKENDS[@]}"; do is_up "$a" || { backend_wanted "$a" && need+=("$a"); }; done
   if ((${#need[@]})); then
     read -rp "Start backends (${need[*]})? [Y/n] " ans
     [[ "${ans:-Y}" =~ ^[Nn] ]] || { ensure_net; for a in "${need[@]}"; do start_one "$a"; done; echo; }
@@ -421,6 +614,8 @@ IMG_KOBOLD="$(kobold_image)"     # :latest (CUDA), :vulkan or :rocm — lib/host
 IMG_COMFY="$(comfy_image)"       # :latest (CUDA) or :rocm
 IMG_FORTUNA="$(fortuna_image)"   # :vulkan, :cuda or :rocm — llama.cpp base pinned in lib/host.sh
 IMG_STACKUI="localhost/stackui:latest"
+# Stock nginx, pinned in router/start.sh; read from there so the two can't disagree.
+IMG_ROUTER="$(grep -oP '^IMAGE="\K[^"]+' "$SELF/router/start.sh" 2>/dev/null)"
 
 # ComfyUI custom nodes the frontends depend on. Cloned into the bind-mounted
 # custom_nodes/ state dir, pinned to a commit so a rebuild can't silently pull in
@@ -517,13 +712,15 @@ install_path() {
   fi
 }
 
+# The shipped unit is a template: @SELF@ becomes this checkout's path, so the unit
+# points at the stack wherever it was cloned. It used to hardcode
+# ~/Development/ai_ecosystem/ai-stack — the one place the "clone anywhere" promise
+# broke, and silently: `stack on` enables a unit whose ExecStart doesn't exist.
+render_unit() { sed "s|@SELF@|$SELF|g" "$SELF/$SVC"; }
+
 install_service() {
   local dst="$HOME/.config/systemd/user/$SVC" rendered
-  # The shipped unit is a template: @SELF@ becomes this checkout's path, so the unit
-  # points at the stack wherever it was cloned. It used to hardcode
-  # ~/Development/ai_ecosystem/ai-stack — the one place the "clone anywhere" promise
-  # broke, and silently: `stack on` enables a unit whose ExecStart doesn't exist.
-  rendered=$(sed "s|@SELF@|$SELF|g" "$SELF/$SVC")
+  rendered=$(render_unit)
   # COPY, never symlink: `systemctl disable` deletes a symlinked unit, which then
   # breaks `stack on`.
   if [ -f "$dst" ] && [ "$rendered" = "$(cat "$dst")" ]; then
@@ -573,6 +770,20 @@ link_koboldcpp_recipe() {
     fi
   done
   ((n)) && ok "linked $n recipe file(s) into $dir" || ok "recipe linked at $dir"
+}
+
+install_router() {
+  step "router"
+  if [ -z "$IMG_ROUTER" ]; then
+    warn "no IMAGE= line in $SELF/router/start.sh"; return 1
+  elif podman image exists "$IMG_ROUTER"; then
+    ok "image $IMG_ROUTER present"
+  else
+    # Pulled now rather than at the first `stack up`, which runs at boot, possibly offline.
+    echo "  pulling $IMG_ROUTER …"
+    podman pull -q "$IMG_ROUTER" >/dev/null || { warn "pull failed"; return 1; }
+    ok "image pulled"
+  fi
 }
 
 install_koboldcpp() {
@@ -727,15 +938,17 @@ install_stackui() {
 
 cmd_install() {
   local t=${1:-all} rc=0
-  case "$t" in all|backends|koboldcpp|comfyui|fortuna|stackui|service|path) ;;
-    *) echo "unknown install target: $t (all|backends|koboldcpp|comfyui|fortuna|stackui|service|path)"; return 1 ;;
+  case "$t" in all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path) ;;
+    *) echo "unknown install target: $t (all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path)"; return 1 ;;
   esac
   echo "${C_B}ai-stack install${C_OFF} — target: $t   ${C_DIM}(idempotent; weights are never downloaded)${C_OFF}"
   echo "${C_B}Prerequisites${C_OFF}"; check_prereqs || rc=1
   [[ "$t" == all || "$t" == path ]]    && { echo "${C_B}PATH${C_OFF}";    install_path; }
   [[ "$t" == all || "$t" == service ]] && { echo "${C_B}systemd${C_OFF}"; install_service; }
+  if [[ "$t" == router ]]; then echo "${C_B}Backends${C_OFF}"; ensure_net; install_router || rc=1; fi
   if [[ "$t" == all || "$t" == backends || "$t" == koboldcpp || "$t" == comfyui ]]; then
     echo "${C_B}Backends${C_OFF}"; ensure_net
+    [[ "$t" == all || "$t" == backends ]] && { install_router || rc=1; }
     [[ "$t" == comfyui   ]] || install_koboldcpp || rc=1
     [[ "$t" == koboldcpp ]] || install_comfyui   || rc=1
   fi
@@ -766,6 +979,8 @@ cmd_doctor() {
   podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
   podman image exists "$IMG_FORTUNA" && ok "$IMG_FORTUNA" || warn "$IMG_FORTUNA missing — stack install fortuna"
   podman image exists "$IMG_STACKUI" && ok "$IMG_STACKUI" || warn "$IMG_STACKUI missing — stack install stackui"
+  [ -n "$IMG_ROUTER" ] && podman image exists "$IMG_ROUTER" && ok "$IMG_ROUTER" \
+    || warn "${IMG_ROUTER:-router image} missing — stack install router"
   podman network exists "$NET" 2>/dev/null && ok "network $NET" || warn "network $NET missing — stack install"
   if [ ! -x "$ECO/koboldcpp/start.sh" ]; then
     warn "no $ECO/koboldcpp/start.sh — stack install koboldcpp"
@@ -776,13 +991,17 @@ cmd_doctor() {
     ok "koboldcpp recipe at $ECO/koboldcpp"
   fi
   # An installed unit isn't enough: one rendered for a different checkout enables fine
-  # and then fails at boot, which is the failure this check exists to name.
-  if [ ! -f "$HOME/.config/systemd/user/$SVC" ]; then
+  # and then fails at boot, and an older one can carry a start timeout too short for a
+  # cold model load. So the whole installed file is compared with what install would write.
+  local unit="$HOME/.config/systemd/user/$SVC"
+  if [ ! -f "$unit" ]; then
     warn "$SVC not installed — stack install service"
-  elif grep -qF "ExecStart=$SELF/stack" "$HOME/.config/systemd/user/$SVC"; then
+  elif [ "$(render_unit)" = "$(cat "$unit")" ]; then
     ok "systemd unit $SVC"
-  else
+  elif ! grep -qF "ExecStart=$SELF/stack" "$unit"; then
     warn "$SVC points at another path, not $SELF — stack install service"
+  else
+    warn "$SVC is out of date with this checkout — stack install service"
   fi
   local state="${COMFYUI_STATE:-$ECO/ComfyUI}" row name pin patch dir
   for row in "${CUSTOM_NODES[@]}"; do
@@ -813,9 +1032,9 @@ case "${1:-}" in
   on|enable)  cmd_on ;;
   off|disable|gaming) cmd_off ;;
   up|backends) cmd_up ;;
-  status|st) cmd_status ;;
+  status|st) cmd_status "${2:-}" ;;
   down)      cmd_down "${2:-all}" ;;
-  restart)   a=${2:?usage: stack restart <app>}; stop_app "$a"; sleep 1; ensure_net; start_one "$a" ;;
+  restart)   cmd_restart "${2:-}" ;;
   logs)      cmd_logs "${2:-}" ;;
   route)     cmd_route "${2:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;

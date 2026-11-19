@@ -3,17 +3,19 @@
 # unit works wherever the stack is cloned. systemd rejects the placeholder as-is, so a
 # stray manual copy fails loudly instead of pointing at a path that doesn't exist.
 [Unit]
-Description=AI stack backends (KoboldCPP + ComfyUI)
+Description=AI stack backends (router, text, image and sound, decisions)
 Documentation=file:@SELF@/CLAUDE.md
 After=default.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Reuses the stack's own start logic (koboldcpp/start.sh + comfyui/start.sh).
+# Reuses the stack's own start logic (each backend's start.sh, router first).
+# 900 s: a cold start loads the text model, ComfyUI and Fortuna one after another, and
+# KoboldCPP alone may wait up to 300 s plus out-of-memory retries.
 ExecStart=@SELF@/stack up
 ExecStop=@SELF@/stack down backends
-TimeoutStartSec=240
+TimeoutStartSec=900
 
 [Install]
 WantedBy=default.target

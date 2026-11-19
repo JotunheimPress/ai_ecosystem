@@ -17,7 +17,7 @@ need to know which machine serves them. It is the groundwork for moving text to 
 
 | File | What |
 |---|---|
-| `start.sh` | Runs container `backend-router` from stock `docker.io/library/nginx:1.28-alpine`. No image of our own. It also removes the pre-router `koboldcpp` container and the retired Orpheus TTS containers if they exist. |
+| `start.sh` | Runs container `backend-router` from stock `docker.io/library/nginx:1.28-alpine` (pulled by `stack install`). No image of our own. Labels it with a hash of its config; `--check` compares. It also removes the pre-router `koboldcpp` container and the retired Orpheus TTS containers if they exist. |
 | `router.conf.template` | The nginx config, rendered by the image's entrypoint (only `${NGINX_LOCAL_RESOLVERS}` is substituted). |
 | `$ECO/router/route.conf` | **State, never committed.** One `set $kobold_up …;` line, mounted read-only at `/etc/nginx/route/`. Written only by `stack route`. |
 
@@ -48,5 +48,13 @@ stack logs router            # errors only (access log is off)
   first. Otherwise a running model reads as down and gets reloaded.
 - `HALO_HOST` is validated (`^[A-Za-z0-9.-]+$`) before it reaches `route.conf`, which is nginx
   syntax. Never write free-form input there.
+- **Config changes recreate it.** The template is rendered once when nginx starts, so a running
+  router keeps the old one. `start.sh` labels the container `ai-stack.config=<hash>` of its run
+  flags and template; `stack up` (and `stack router`) recreate it when `start.sh --check` says the
+  label doesn't match. `route.conf` isn't hashed: `stack route` reloads it live.
+- **Replacing it checks the port first.** If 5001 is held by something that isn't a running
+  router, `start.sh` stops before removing anything, so a failed swap can't leave text unrouted.
+- **`stack restart router` doesn't stop it first** (start.sh replaces it), and **it stops last** in
+  `stack down`.
 - **Anything about "the copy on this GPU" must bypass the router**, because through it the request
   could reach the Halo box instead.
