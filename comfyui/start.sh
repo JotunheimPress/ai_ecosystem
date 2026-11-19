@@ -66,6 +66,9 @@ echo "Starting ComfyUI as ${CONTAINER_NAME} (state: ${STATE}); the router serves
 # `stack down`/`stack off` use — counts as a deliberate stop and is never restarted.
 # Without --rm a dead container also keeps its logs for `stack logs` post-mortem;
 # the `podman rm -f` above clears it before the next start.
+# --database-url: ComfyUI places its database next to its code (/opt/ComfyUI/user/comfyui.db)
+# whatever --base-directory says, and that dir doesn't exist in the image, so every start logged
+# "Failed to initialize database". It belongs with the rest of the mutable state, in user/.
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
@@ -82,6 +85,7 @@ podman run -d \
     --listen 0.0.0.0 \
     --port 8188 \
     --base-directory /data \
+    --database-url "sqlite:////data/user/comfyui.db" \
     "${AMD_ARGS[@]}" \
     "$@"
 

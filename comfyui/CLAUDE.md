@@ -28,6 +28,12 @@ stack logs comfyui     # podman logs -f comfyui-local
 
 UI/API at http://localhost:8188. Cold start ~5 s.
 
+**Its database lives in `user/comfyui.db`** (`--database-url` in `start.sh`, since 2026-11-19).
+ComfyUI puts the database next to its *code* (`/opt/ComfyUI/user/`) regardless of
+`--base-directory`, and that directory doesn't exist in the image, so until then every start logged
+"Failed to initialize database… unable to open database file". Harmless today (only the optional
+assets feature uses it), but upstream says it will become required.
+
 ## Custom nodes
 
 Custom nodes themselves are **mutable state** — they live in
