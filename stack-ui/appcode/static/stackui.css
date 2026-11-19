@@ -65,6 +65,13 @@ body { background: var(--su-bg); }
 /* --- cards ---------------------------------------------------------------- */
 .su-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .su-grid-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.su-grid-3 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.su-router .su-card-body { min-height: 0; }
+.su-infra-line { margin-top: 16px; font-size: 13px; display: flex; align-items: center; gap: 6px;
+  flex-wrap: wrap; }
+.su-banner code { font-family: var(--su-mono); font-size: 12px; }
+a.su-btn { text-decoration: none; }
+#fe-warn .su-banner { margin: 0 0 10px; }
 .su-card { background: var(--su-raised); border: 1px solid var(--su-border);
   border-radius: var(--su-radius); padding: 14px 16px; display: flex; flex-direction: column;
   gap: 10px; min-width: 0; border-top: 3px solid var(--su-border); }

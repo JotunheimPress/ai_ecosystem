@@ -26,6 +26,9 @@ from services import inventory, vram
 
 KOBOLD = "http://localhost:5001"
 COMFY = vram.COMFY
+# Fortuna's own /health, not /v1/models: that needs the API key when one is set, and
+# /health already names the model ({"ok": true, "model": "jevk5-4b-q8"}).
+FORTUNA = "http://127.0.0.1:8009"
 
 # File types a ComfyUI loader input names. Matching on the value's extension (rather than a
 # list of loader node classes) keeps custom-node loaders working without a table to maintain.
@@ -56,6 +59,8 @@ def kobold() -> dict:
         "gpu_layers": inv.get("gpu_layers"),
         "restart_needed": inv.get("restart_needed"),
         "restart_for": inv.get("restart_for") or [],
+        "text_local": inv.get("text_local", True),
+        "text_route": inv.get("text_route"),
     }
     if not running:
         return out
@@ -138,5 +143,17 @@ def comfy() -> dict:
     return out
 
 
+def fortuna() -> dict:
+    h = _get(f"{FORTUNA}/health")
+    if not isinstance(h, dict) or not h.get("ok"):
+        return {"up": False}
+    return {"up": True, "model": h.get("model") if isinstance(h.get("model"), str) else None}
+
+
+# One adapter per capability (`stack status --json`), so a card is chosen by what a backend
+# provides rather than by its name.
+ADAPTERS = {"text": "kobold", "image-sound": "comfy", "decision": "fortuna"}
+
+
 def snapshot() -> dict:
-    return {"kobold": kobold(), "comfy": comfy(), "at": time.time()}
+    return {"kobold": kobold(), "comfy": comfy(), "fortuna": fortuna(), "at": time.time()}

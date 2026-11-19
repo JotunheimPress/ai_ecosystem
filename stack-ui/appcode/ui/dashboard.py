@@ -1,12 +1,16 @@
-"""The home screen: the shared backends on top, the frontends below.
+"""The two workspaces: Infrastructure (the landing page) and Frontends.
 
-Backends get the detail, because they are what the frontends contend for: which model
-KoboldCPP has in VRAM (and whether that differs from the one selected to boot), and what
-ComfyUI is holding. ComfyUI cannot name its resident models, so its card says how much
-VRAM it holds and which files the last job used — see services/backends.py.
+**Infrastructure** is the shared backends, grouped by what they provide rather than by
+name: the router on top (where each capability is served, and where text is routed), then
+one card per capability (text, image and sound, decision), then the GPU. Which card body a
+backend gets comes from its `capability` in `stack status --json`, via
+``services.backends.ADAPTERS``, so a new backend is a row in the stack, not a name check here.
 
-Rendered as escaped HTML with one delegated click listener; every value that reaches the
-markup goes through ``esc``.
+**Frontends** is the apps that use them: cards for the installed ones only, with HTTPS links
+where a frontend offers them, and the problems `stack` found in their frontend.json.
+
+Rendered as escaped HTML with one delegated click listener per view; every value that
+reaches the markup goes through ``esc``.
 """
 from __future__ import annotations
 
@@ -16,16 +20,113 @@ from services.models_api import ModelsApi
 from ui.common import Listeners, ago, attr, by_id, closest, esc, failed, fmt_bytes, spawn, toast
 
 _ICONS = {
-    "koboldcpp": "mdi-text-box-outline",
-    "comfyui": "mdi-image-filter-hdr",
-    "fortuna": "mdi-dice-multiple-outline",
+    "router": "mdi-router-network",
+    "text": "mdi-text-box-outline",
+    "image-sound": "mdi-image-filter-hdr",
+    "decision": "mdi-dice-multiple-outline",
 }  # frontends bring their own icon in frontend.json (`icon`)
+
+# Capability -> heading, and the stable address frontends use on ai-net.
+_CAPS = {
+    "text": ("Text", "koboldcpp:5001"),
+    "image-sound": ("Image and sound", "comfyui:8188"),
+    "decision": ("Decision", "fortuna:8009"),
+}
+_CAP_ORDER = ["text", "image-sound", "decision"]
 
 _KIND_LABEL = {"ckpt": "checkpoint", "unet": "diffusion model", "lora": "LoRA", "vae": "VAE",
                "clip": "text encoder", "control_net": "ControlNet"}
 
+# What stopping or restarting a backend takes away, named in the confirm dialog.
+_CONFIRM = {
+    ("down", "router"): "Stop the router? Every frontend loses text until it starts again. "
+                        "The model stays loaded.",
+    ("restart", "router"): "Restart the router? Text is unreachable for a moment, and a reply "
+                           "streaming right now is cut off. The model stays loaded.",
+    ("route_text_halo", ""): "Send text to the Halo box (HALO_HOST in ai-stack/halo.env)? "
+                             "Replies already streaming finish here. The local model stays loaded.",
+    ("route_text_local", ""): "Serve text from this machine's copy again?",
+    ("down", "frontends"): "Stop every frontend? The infrastructure keeps running.",
+}
 
-class DashboardView:
+
+def _host() -> str:
+    # The name this page was opened with, so a phone's links point at the stack's host
+    # and not at the phone itself.
+    import js
+    return str(js.window.location.hostname) or "localhost"
+
+
+class _Cards:
+    """Markup shared by both workspaces."""
+
+    app = None
+
+    def _dis(self) -> str:
+        return " disabled" if self.app.busy else ""
+
+    def _buttons(self, a: dict, compact: bool = False, up: bool | None = None,
+                 noun: str = "") -> str:
+        """Start or Stop+Restart, then Logs. ``up`` overrides a.up (the local copy's state)."""
+        dis = self._dis()
+        name = esc(a["name"])
+        noun = f" {noun}" if noun else ""
+        if a.get("up") if up is None else up:
+            btns = (f'<button class="su-btn" data-act="down" data-target="{name}"{dis}>'
+                    f'<i class="mdi mdi-stop"></i>Stop{noun}</button>'
+                    f'<button class="su-btn" data-act="restart" data-target="{name}"{dis}>'
+                    f'<i class="mdi mdi-restart"></i>Restart{noun}</button>')
+        else:
+            btns = (f'<button class="su-btn su-primary" data-act="start" data-target="{name}"{dis}>'
+                    f'<i class="mdi mdi-play"></i>Start{noun}</button>')
+        label = "" if compact else "Logs"
+        return btns + (f'<button class="su-btn su-ghost" data-logs="{name}" title="Follow its log">'
+                       f'<i class="mdi mdi-text-long"></i>{label}</button>')
+
+    @staticmethod
+    def _pill(up: bool, text: str = "") -> str:
+        return f'<span class="su-pill {"up" if up else "down"}">{esc(text or ("up" if up else "down"))}</span>'
+
+    def _head(self, a: dict, sub: str, title_html: str = "", pill: str = "") -> str:
+        up = a.get("up")
+        icon = (a.get("icon") or _ICONS.get(a.get("capability") or "")
+                or _ICONS.get(a["name"], "mdi-application-outline"))
+        title = title_html or esc(a.get("label") or a["name"])
+        return (
+            '<div class="su-card-head">'
+            f'<i class="mdi {icon} su-card-icon"></i>'
+            f'<div class="su-card-titles"><div class="su-card-title">{title}</div>'
+            f'<div class="su-dim">{sub}</div></div>'
+            f'{pill or self._pill(up)}'
+            '</div>')
+
+    @staticmethod
+    def _kv(label: str, value_html: str) -> str:
+        return f'<div class="su-kv"><span>{esc(label)}</span><div>{value_html}</div></div>'
+
+    def _on_click(self, ev) -> None:
+        btn = closest(ev, "button")
+        if not btn or btn.disabled:
+            return
+        if attr(btn, "data-act"):
+            verb, target = attr(btn, "data-act"), attr(btn, "data-target") or ""
+            self.app.act(verb, target, confirm=_CONFIRM.get((verb, target), ""))
+        elif attr(btn, "data-logs"):
+            self.app.open_logs(attr(btn, "data-logs"))
+        elif attr(btn, "data-go"):
+            self.app.go(attr(btn, "data-go"))
+        elif attr(btn, "data-free"):
+            btn.disabled = True
+            spawn(self._free(), "free vram")
+
+    async def _free(self) -> None:
+        r = await ModelsApi().free_vram_async()
+        if not failed(r, "release VRAM"):
+            toast("ComfyUI released its models.", "success")
+        await self.app.refresh()
+
+
+class InfrastructureView(_Cards):
     def __init__(self, app, **_):
         self.app = app
         self.root = None
@@ -37,26 +138,25 @@ class DashboardView:
         root.innerHTML = (
             '<div class="su-page">'
             '<section class="su-section">'
-            '<div class="su-section-head"><h2>Backends</h2>'
-            '<span class="su-dim">shared by every app on ai-net</span></div>'
-            '<div class="su-grid su-grid-2" id="db-backends">'
-            '<div class="su-card su-skeleton"></div><div class="su-card su-skeleton"></div>'
-            '</div>'
-            '<div class="su-gpu" id="db-gpu"></div>'
+            '<div class="su-section-head"><h2>Router</h2>'
+            '<span class="su-dim">one stable address per capability, for every frontend</span></div>'
+            '<div id="in-router"><div class="su-card su-skeleton"></div></div>'
             '</section>'
             '<section class="su-section">'
-            '<div class="su-section-head"><h2>Frontends</h2>'
-            '<span class="su-dim">open, start or stop the apps that use the backends</span></div>'
-            '<div class="su-grid" id="db-frontends"></div>'
-            '<pre class="su-raw" id="db-raw" hidden></pre>'
+            '<div class="su-section-head"><h2>Capabilities</h2>'
+            '<span class="su-dim">shared by every app on ai-net</span></div>'
+            '<div class="su-grid su-grid-3" id="in-caps">'
+            '<div class="su-card su-skeleton"></div><div class="su-card su-skeleton"></div>'
+            '<div class="su-card su-skeleton"></div></div>'
+            '<div class="su-gpu" id="in-gpu"></div>'
             '</section>'
+            '<pre class="su-raw" id="in-raw" hidden></pre>'
             '</div>')
         self.listeners.on(root, "click", self._on_click)
 
     def unmount(self) -> None:
         self.listeners.clear()
 
-    # --- data ------------------------------------------------------------------
     def on_overview(self, ov: dict) -> None:
         self.ov = ov
         self._render()
@@ -64,92 +164,103 @@ class DashboardView:
     def on_busy(self, _busy: bool) -> None:
         self._render()
 
+    # --- render -----------------------------------------------------------------
     def _render(self) -> None:
         ov = self.ov
-        if not ov or not by_id("db-backends"):
+        if not ov or not by_id("in-caps"):
             return
-        apps = ov.get("apps") or []
-        raw = by_id("db-raw")
+        raw = by_id("in-raw")
+        raw.hidden = bool(ov.get("parsed"))
         if not ov.get("parsed"):
-            # `stack status` is scraped text; when the parse finds nothing, show the text
-            # rather than an empty page.
-            raw.hidden = False
             raw.textContent = ov.get("raw") or ""
+        backends = [a for a in ov.get("apps") or [] if a.get("group") == "backends"]
+        router = next((a for a in backends if a["name"] == "router"), None)
+        by_id("in-router").innerHTML = self._router(router) if router else ""
+        caps = [a for a in backends if a["name"] != "router"]
+        caps.sort(key=lambda a: _CAP_ORDER.index(a.get("capability"))
+                  if a.get("capability") in _CAP_ORDER else len(_CAP_ORDER))
+        by_id("in-caps").innerHTML = "".join(self._cap_card(a) for a in caps)
+        by_id("in-gpu").innerHTML = self._gpu_line()
+
+    def _route(self) -> dict:
+        return self.ov.get("route") or {}
+
+    def _router(self, a: dict) -> str:
+        r = self._route()
+        dis = self._dis()
+        where, target = r.get("where") or "local", r.get("text") or ""
+        if where == "local":
+            served = "this machine's copy"
+            switch = (f'<button class="su-btn" data-act="route_text_halo"{dis} '
+                      'title="stack route halo">'
+                      '<i class="mdi mdi-swap-horizontal"></i>Route text to Halo</button>')
         else:
-            raw.hidden = True
-        by_id("db-backends").innerHTML = "".join(
-            self._backend_card(a) for a in apps if a.get("group") == "backends")
-        by_id("db-frontends").innerHTML = "".join(
-            self._frontend_card(a) for a in apps if a.get("group") == "frontends") or (
-            '<p class="su-dim">No frontends installed — clone a frontend repo next to ai-stack '
-            '(any repo with a frontend.json).</p>')
-        by_id("db-gpu").innerHTML = self._gpu_line()
-
-    # --- markup ----------------------------------------------------------------
-    def _buttons(self, a: dict, compact: bool = False) -> str:
-        dis = " disabled" if self.app.busy else ""
-        name = esc(a["name"])
-        if a.get("up"):
-            btns = (f'<button class="su-btn" data-act="down" data-target="{name}"{dis}>'
-                    '<i class="mdi mdi-stop"></i>Stop</button>'
-                    f'<button class="su-btn" data-act="restart" data-target="{name}"{dis}>'
-                    '<i class="mdi mdi-restart"></i>Restart</button>')
-        else:
-            btns = (f'<button class="su-btn su-primary" data-act="start" data-target="{name}"{dis}>'
-                    '<i class="mdi mdi-play"></i>Start</button>')
-        label = "" if compact else "Logs"
-        return btns + (f'<button class="su-btn su-ghost" data-logs="{name}" title="Follow its log">'
-                       f'<i class="mdi mdi-text-long"></i>{label}</button>')
-
-    def _head(self, a: dict, sub: str) -> str:
-        up = a.get("up")
-        icon = a.get("icon") or _ICONS.get(a["name"], "mdi-application-outline")
-        title = esc(a.get("label") or a["name"])
-        if up and a.get("group") == "frontends":
-            # The name this page was opened with, so a phone's links point at the stack's
-            # host and not at the phone itself.
-            import js
-            host = str(js.window.location.hostname) or "localhost"
-            title = (f'<a href="http://{esc(host)}:{int(a["port"])}/" target="_blank" '
-                     f'rel="noreferrer">{title}<i class="mdi mdi-open-in-new"></i></a>')
-        return (
-            '<div class="su-card-head">'
-            f'<i class="mdi {icon} su-card-icon"></i>'
-            f'<div class="su-card-titles"><div class="su-card-title">{title}</div>'
-            f'<div class="su-dim">{sub}</div></div>'
-            f'<span class="su-pill {"up" if up else "down"}">{"up" if up else "down"}</span>'
-            '</div>')
-
-    def _backend_card(self, a: dict) -> str:
-        b = (self.ov.get("backends") or {})
+            served = f'the Halo box ({esc(target.rsplit(":", 1)[0])})'
+            switch = (f'<button class="su-btn" data-act="route_text_local"{dis} '
+                      'title="stack route local">'
+                      '<i class="mdi mdi-swap-horizontal"></i>Serve text locally</button>')
+        rows = [self._kv("Text", f'served by {served} <span class="su-dim">· {esc(target)}</span>')]
+        rows.append(self._kv("Image and sound", 'this machine <span class="su-dim">· direct, not yet routed</span>'))
+        rows.append(self._kv("Decision", 'this machine <span class="su-dim">· direct, not yet routed</span>'))
+        if r.get("router_config") == "stale":
+            rows.append(
+                '<div class="su-banner"><i class="mdi mdi-information-outline"></i>'
+                '<span>The router runs an older config. Restart it (or run <code>stack up</code>) '
+                'to apply the current one.</span>'
+                f'<button class="su-btn su-primary" data-act="restart" data-target="router"{dis}>'
+                'Restart router</button></div>')
         sub = f'{esc(a.get("desc"))} · :{int(a["port"])}'
-        if a["name"] == "koboldcpp":
-            body = self._kobold_body(a, b.get("kobold") or {})
-        elif a["name"] == "comfyui":
+        return (f'<div class="su-card su-backend su-router {"up" if a.get("up") else "down"}">'
+                f'{self._head(a, sub)}<div class="su-card-body">{"".join(rows)}</div>'
+                f'<div class="su-actions">{self._buttons(a)}{switch}</div></div>')
+
+    def _cap_card(self, a: dict) -> str:
+        cap = a.get("capability") or ""
+        heading, addr = _CAPS.get(cap, (cap or "Backend", ""))
+        b = self.ov.get("backends") or {}
+        sub = (f'{esc(heading)}{" · " + esc(addr) if addr else ""}'
+               f' <span class="su-dim">· {esc(a.get("desc"))}</span>')
+        local = a.get("local") or {}
+        remote = cap == "text" and self._route().get("where") == "halo"
+        if cap == "text":
+            body = self._kobold_body(a, b.get("kobold") or {}, local, remote)
+        elif cap == "image-sound":
             body = self._comfy_body(a, b.get("comfy") or {})
+        elif cap == "decision":
+            body = self._fortuna_body(a, b.get("fortuna") or {})
         else:
             body = ""
+        if remote:
+            # Every button acts on the local copy, and says so; the pill shows what is served.
+            local_up = local.get("state") in ("up", "loading")
+            actions = self._buttons(a, up=local_up, noun="local copy")
+        else:
+            actions = self._buttons(a)
         return (f'<div class="su-card su-backend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub)}<div class="su-card-body">{body}</div>'
-                f'<div class="su-actions">{self._buttons(a)}{self._extra(a)}</div></div>')
+                f'<div class="su-actions">{actions}{self._extra(a)}</div></div>')
 
     def _extra(self, a: dict) -> str:
-        if a["name"] == "koboldcpp":
+        cap = a.get("capability")
+        if cap == "text":
             return ('<button class="su-btn su-ghost" data-go="llms">'
                     '<i class="mdi mdi-swap-horizontal"></i>Change model</button>')
-        if a["name"] == "comfyui" and a.get("up"):
-            dis = " disabled" if self.app.busy else ""
+        if cap == "image-sound" and a.get("up"):
             return ('<button class="su-btn su-ghost" data-free="1"'
-                    f'{dis} title="Ask ComfyUI to unload its models and give the VRAM back">'
+                    f'{self._dis()} title="Ask ComfyUI to unload its models and give the memory back">'
                     '<i class="mdi mdi-broom"></i>Release VRAM</button>')
         return ""
 
-    @staticmethod
-    def _kv(label: str, value_html: str) -> str:
-        return f'<div class="su-kv"><span>{esc(label)}</span><div>{value_html}</div></div>'
-
-    def _kobold_body(self, a: dict, k: dict) -> str:
+    # --- adapters, one per capability ----------------------------------------------
+    def _kobold_body(self, a: dict, k: dict, local: dict, remote: bool) -> str:
         rows = []
+        if remote:
+            rows.append(self._kv("Served by", f'Halo <span class="su-dim">({esc(k.get("text_route") or "")})</span>'))
+            state = local.get("state") or "unknown"
+            cls = "su-good" if state == "up" else "su-dim"
+            rows.append(self._kv("Local copy", f'<span class="{cls}">{esc(state)}</span>'
+                                 + ('' if state == "up" else
+                                    ' <span class="su-dim">· not needed while text is routed away</span>')))
         if a.get("up") and k.get("loaded"):
             rows.append(self._kv("Loaded", f'<b class="su-model">{esc(k.get("file") or k["loaded"])}</b>'))
             facts = []
@@ -158,7 +269,7 @@ class DashboardView:
             if k.get("arch"):
                 facts.append(esc(k["arch"]))
             # model.env's layer count describes the *selected* model; while a restart is
-            # pending that is not the one in VRAM, so it would be a wrong number here.
+            # pending that is not the one in memory, so it would be a wrong number here.
             if k.get("gpu_layers") and k.get("n_layers") and not k.get("restart_needed"):
                 facts.append(f'{esc(k["gpu_layers"])} of {int(k["n_layers"])} layers on GPU')
             elif k.get("n_layers"):
@@ -175,18 +286,18 @@ class DashboardView:
         sel = k.get("selected")
         if sel and not k.get("selected_present"):
             rows.append(self._kv("Boots", f'<span class="su-bad">{esc(sel)} — missing from models/</span>'))
-        elif sel and (not a.get("up") or k.get("restart_needed")):
+        elif sel and (not a.get("up") or k.get("restart_needed") or remote):
             src = esc(k.get("selected_source") or "")
-            rows.append(self._kv("Boots", f'{esc(sel)} <span class="su-dim">({src})</span>'))
+            rows.append(self._kv("Boots" if not remote else "Local boots",
+                                 f'{esc(sel)} <span class="su-dim">({src})</span>'))
         if k.get("restart_needed"):
-            dis = " disabled" if self.app.busy else ""
             rows.append(
                 '<div class="su-banner">'
                 '<i class="mdi mdi-information-outline"></i>'
-                + (f'<span>Selected <b>{esc(sel)}</b> — restart KoboldCPP to load it.</span>'
+                + (f'<span>Selected <b>{esc(sel)}</b> — restart Oracle to load it.</span>'
                    if "model" in (k.get("restart_for") or ["model"]) else
-                   '<span>New context window — restart KoboldCPP to apply it.</span>')
-                + f'<button class="su-btn su-primary" data-act="restart" data-target="koboldcpp"{dis}>'
+                   '<span>New context window — restart Oracle to apply it.</span>')
+                + f'<button class="su-btn su-primary" data-act="restart" data-target="{esc(a["name"])}"{self._dis()}>'
                 'Restart</button></div>')
         return "".join(rows)
 
@@ -196,7 +307,7 @@ class DashboardView:
         rows = []
         held = c.get("held") or 0
         if c.get("resident"):
-            rows.append(self._kv("Holding", f'<b>{fmt_bytes(held)}</b> of VRAM '
+            rows.append(self._kv("Holding", f'<b>{fmt_bytes(held)}</b> of GPU memory '
                                             '<span class="su-dim">(models kept from the last job)</span>'))
         else:
             rows.append(self._kv("Holding", '<span class="su-dim">no models resident</span>'))
@@ -218,6 +329,13 @@ class DashboardView:
             rows.append(self._kv("Last job", '<span class="su-dim">none since it started</span>'))
         return "".join(rows)
 
+    def _fortuna_body(self, a: dict, f: dict) -> str:
+        if not a.get("up") or not f.get("up"):
+            return self._kv("Loaded", '<span class="su-dim">nothing — not running</span>')
+        return (self._kv("Loaded", f'<b class="su-model">{esc(f.get("model") or "unnamed")}</b>')
+                + self._kv("Answers", '<span class="su-dim">yes/no, choice and score questions '
+                                      '(/v1/systemone)</span>'))
+
     def _gpu_line(self) -> str:
         g = self.ov.get("gpu") or {}
         icon = '<i class="mdi mdi-expansion-card-variant"></i>'
@@ -232,35 +350,93 @@ class DashboardView:
                 + (f'<span>{int(busy)}% busy</span>' if busy is not None else "")
                 + f'<span class="su-dim">every backend and the desktop share it · {esc(g.get("source"))}</span>')
 
-    def _frontend_card(self, a: dict) -> str:
+
+class FrontendsView(_Cards):
+    def __init__(self, app, **_):
+        self.app = app
+        self.root = None
+        self.listeners = Listeners()
+        self.ov: dict = {}
+
+    def mount(self, root) -> None:
+        self.root = root
+        root.innerHTML = (
+            '<div class="su-page">'
+            '<section class="su-section">'
+            '<div class="su-section-head"><h2>Frontends</h2>'
+            '<span class="su-dim">the installed apps that use the infrastructure</span>'
+            '<span class="su-flex"></span>'
+            '<button class="su-btn" id="fe-stop" data-act="down" data-target="frontends">'
+            '<i class="mdi mdi-stop"></i>Stop all frontends</button></div>'
+            '<div id="fe-warn"></div>'
+            '<div class="su-grid" id="fe-cards">'
+            '<div class="su-card su-skeleton"></div><div class="su-card su-skeleton"></div></div>'
+            '<p class="su-dim su-infra-line" id="fe-infra"></p>'
+            '</section>'
+            '<pre class="su-raw" id="fe-raw" hidden></pre>'
+            '</div>')
+        self.listeners.on(root, "click", self._on_click)
+
+    def unmount(self) -> None:
+        self.listeners.clear()
+
+    def on_overview(self, ov: dict) -> None:
+        self.ov = ov
+        self._render()
+
+    def on_busy(self, _busy: bool) -> None:
+        self._render()
+
+    def _render(self) -> None:
+        ov = self.ov
+        if not ov or not by_id("fe-cards"):
+            return
+        raw = by_id("fe-raw")
+        raw.hidden = bool(ov.get("parsed"))
+        if not ov.get("parsed"):
+            raw.textContent = ov.get("raw") or ""
+        apps = ov.get("apps") or []
+        fronts = [a for a in apps if a.get("group") == "frontends"]
+        by_id("fe-stop").disabled = self.app.busy or not any(a.get("up") for a in fronts)
+        by_id("fe-cards").innerHTML = "".join(self._card(a) for a in fronts) or (
+            '<p class="su-dim">No frontends installed — clone a frontend repo next to ai-stack '
+            '(any repo with a frontend.json).</p>')
+        warns = ov.get("warnings") or []
+        by_id("fe-warn").innerHTML = "".join(
+            f'<div class="su-banner"><i class="mdi mdi-alert-outline"></i><span>{esc(w)}</span></div>'
+            for w in warns)
+        caps = [a for a in apps if a.get("group") == "backends" and a.get("capability") in _CAPS]
+        caps.sort(key=lambda a: _CAP_ORDER.index(a["capability"]))
+        by_id("fe-infra").innerHTML = (
+            'Infrastructure: ' + " · ".join(
+                f'{esc(_CAPS[a["capability"]][0].lower())} '
+                f'<span class="{"su-good" if a.get("up") else "su-bad"}">{"up" if a.get("up") else "down"}</span>'
+                for a in caps)
+            + ' <button class="su-btn su-ghost" data-go="infrastructure">Open</button>') if caps else ""
+
+    def _card(self, a: dict) -> str:
         # The repo name is the identity; say it whenever the brand differs, so a fork
         # (npc_maker) can't pass for the original (companion) on looks alone.
         repo = "" if a.get("label") == a["name"] else f'{esc(a["name"])} · '
-        sub = f'{repo}:{int(a["port"])}'
+        host = esc(_host())
+        port = int(a["port"])
+        sub = f'{repo}:{port}'
+        title = esc(a.get("label") or a["name"])
+        links = ""
+        if a.get("up"):
+            title = (f'<a href="http://{host}:{port}/" target="_blank" rel="noreferrer">'
+                     f'{title}<i class="mdi mdi-open-in-new"></i></a>')
+            hp = a.get("https_port")
+            if hp:
+                # HTTPS is what lets another device use the microphone; the setup page on
+                # the plain port explains trusting the app's certificate first.
+                links = (f'<a class="su-btn su-ghost" href="https://{host}:{int(hp)}/" target="_blank" '
+                         f'rel="noreferrer"><i class="mdi mdi-lock-outline"></i>HTTPS</a>')
+                if a.get("https_setup"):
+                    links += (f'<a class="su-btn su-ghost" href="http://{host}:{port}{esc(a["https_setup"])}" '
+                              'target="_blank" rel="noreferrer" title="Trust its certificate on this device">'
+                              '<i class="mdi mdi-certificate-outline"></i>Certificate</a>')
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
-                f'{self._head(a, sub)}'
+                f'{self._head(a, sub, title_html=title)}'
                 f'<div class="su-card-body"><p class="su-desc">{esc(a.get("desc"))}</p></div>'
-                f'<div class="su-actions">{self._buttons(a, compact=True)}</div></div>')
-
-    # --- events ----------------------------------------------------------------
-    def _on_click(self, ev) -> None:
-        btn = closest(ev, "button")
-        if not btn or btn.disabled:
-            return
-        if attr(btn, "data-act"):
-            self.app.act(attr(btn, "data-act"), attr(btn, "data-target"))
-        elif attr(btn, "data-logs"):
-            self.app.open_logs(attr(btn, "data-logs"))
-        elif attr(btn, "data-go"):
-            self.app.go(attr(btn, "data-go"))
-        elif attr(btn, "data-free"):
-            btn.disabled = True
-            spawn(self._free(), "free vram")
-
-    async def _free(self) -> None:
-        r = await ModelsApi().free_vram_async()
-        if not failed(r, "release VRAM"):
-            v = r.get("vram") or {}
-            toast(f"ComfyUI released its models — {fmt_bytes(v.get('free'))} free" if v.get("available")
-                  else "ComfyUI released its models", "success")
-        await self.app.refresh()
+                f'<div class="su-actions">{self._buttons(a, compact=True)}{links}</div></div>')

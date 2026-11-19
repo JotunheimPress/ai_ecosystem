@@ -30,15 +30,13 @@ class StackApi:
         from services import backends, gpu, jobs, stackctl
 
         try:
-            res = stackctl.run("status")
+            st = stackctl.status()
         except stackctl.StackError as exc:
             return _err(exc)
         job = jobs.current()
         return {
             "ok": True,
-            **stackctl.parse_status(res["output"]),
-            "raw": res["output"],
-            "duration_ms": res["duration_ms"],
+            **st,
             "busy": bool(job and not job.done),
             "job": job.public() if job and not job.done else None,
             "backends": backends.snapshot(),

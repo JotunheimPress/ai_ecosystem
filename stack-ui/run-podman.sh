@@ -48,11 +48,6 @@ if [[ "$REBUILD" -eq 1 ]] || ! podman image exists "$IMAGE"; then
   podman build --format docker -t "$IMAGE" -f "$SCRIPT_DIR/Containerfile" "$SCRIPT_DIR"
 fi
 
-if podman container exists "$CONTAINER"; then
-  echo "==> Removing existing container $CONTAINER …"
-  podman rm -f "$CONTAINER" >/dev/null
-fi
-
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 SOCK="$RUNTIME_DIR/podman/podman.sock"
 BUS="$RUNTIME_DIR/bus"
@@ -61,11 +56,20 @@ BUS="$RUNTIME_DIR/bus"
 # inside and 1000 outside, the two disagree, and the bus answers REJECTED. keep-id makes
 # them the same number, which is what lets the systemctl shim reach the host manager.
 
+# Checked BEFORE the running dashboard is removed: without the socket the new one can't
+# start, and removing first left no dashboard at all (2026-11-19: the unit said "listening"
+# but the socket file was gone; a restart of the unit re-creates it).
 if [[ ! -S "$SOCK" ]]; then
-  echo "!! no podman socket at $SOCK" >&2
-  echo "   enable it: systemctl --user enable --now podman.socket" >&2
+  echo "!! no podman socket at $SOCK — the running dashboard was left as it is" >&2
+  echo "   enable it:  systemctl --user enable --now podman.socket" >&2
+  echo "   or, if that unit is already active:  systemctl --user restart podman.socket" >&2
   exit 1
 fi
+if podman container exists "$CONTAINER"; then
+  echo "==> Removing existing container $CONTAINER …"
+  podman rm -f "$CONTAINER" >/dev/null
+fi
+
 # The bus is only needed by `stack on`/`off`; everything else works without it, so this
 # is a warning rather than a hard failure.
 BUS_ARGS=()

@@ -29,6 +29,8 @@ MODEL_ENV = ECO / "koboldcpp" / "model.env"
 # right value differs per quant, which is exactly why it's worth remembering.
 PRESETS = ECO / "koboldcpp" / "model-presets.json"
 START_SH = ECO / "ai-stack" / "koboldcpp" / "start.sh"
+# Where the backend router sends text (`stack route`); written only by `stack`.
+ROUTE_FILE = ECO / "router" / "route.conf"
 COMFY_MODELS = Path(os.environ.get("COMFYUI_STATE") or (ECO / "ComfyUI")) / "models"
 
 # Subtrees worth showing separately. Anything else under models/ is rolled up as "other".
@@ -112,6 +114,19 @@ def write_preset(model: str, gpu_layers: int | None) -> None:
     os.replace(tmp, PRESETS)
 
 
+def text_route() -> str:
+    """The router's text target, e.g. koboldcpp-local:5001. Read, never written, here."""
+    try:
+        m = re.search(r"set \$kobold_up\s+([^;\s]+)\s*;", ROUTE_FILE.read_text())
+    except OSError:
+        m = None
+    return m.group(1) if m else "koboldcpp-local:5001"
+
+
+def text_is_local() -> bool:
+    return text_route().startswith("koboldcpp-local:")
+
+
 def running_model() -> str | None:
     """What KoboldCPP has actually LOADED, straight from its own API.
 
@@ -186,11 +201,15 @@ def kobold() -> dict:
     ctx = env.get("KOBOLDCPP_CONTEXT")
     context = int(ctx) if ctx and ctx.isdigit() else None
     running_ctx = running_context() if running else None
-    model_pending = bool(running) and bool(active) and Path(active).stem != running
-    context_pending = bool(running_ctx) and running_ctx != (context or DEFAULT_CONTEXT)
+    # localhost:5001 is the router. With text routed to another machine, `running` is THAT
+    # machine's model: comparing it with this machine's selection would offer a restart of
+    # the local copy to fix a difference the restart can't touch.
+    local = text_is_local()
+    model_pending = local and bool(running) and bool(active) and Path(active).stem != running
+    context_pending = local and bool(running_ctx) and running_ctx != (context or DEFAULT_CONTEXT)
     for f in files:
         # Kobold strips the .gguf when reporting, so compare on the stem.
-        f["running"] = bool(running) and Path(f["name"]).stem == running
+        f["running"] = local and bool(running) and Path(f["name"]).stem == running
     return {
         "dir": str(KOBOLD_MODELS),
         "models": files,
@@ -202,6 +221,8 @@ def kobold() -> dict:
         # An active model that isn't on disk is a start.sh hard failure, so surface it here.
         "active_present": any(f["active"] for f in files) if active else False,
         "running": running,
+        "text_local": local,
+        "text_route": text_route(),
         "presets": read_presets(),
         # The selection only reaches VRAM on a restart; the UI needs to say so plainly
         # rather than showing a green tick over a model that isn't loaded.

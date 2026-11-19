@@ -8,11 +8,21 @@ and a VRAM planner across both backends.
 from wapyt widgets — the same stack as the Pytinc apps (`~/Development/Pytinc/basilisk_wapyt`
 is the closest sibling; its and Monguana's CLAUDE.md files document the framework traps).
 The vanilla-JS page and the JSON API it called are gone; `services/` carried over unchanged
-apart from moving into `appcode/`. Layout: a header toolbar (the switch and whole-stack
-actions), a sidebar of screens, and a **dashboard home** — backends and what they have
-*loaded* on top, frontends below. Language models (installed GGUFs + HuggingFace search),
-image models (ComfyUI files + Civitai search), VRAM planner, logs, custom nodes and doctor
-are sidebar screens. Screens route by URL hash (`#/llms`), so a reload keeps your place.
+apart from moving into `appcode/`. Layout: a header toolbar (the switch, the backend
+actions and the **workspace switch**), a sidebar of screens, and the screen. Two workspaces
+(since 2026-11-19):
+
+- **Infrastructure** (`#/infrastructure`, the landing page): the router (where each
+  capability is served, the text route control), one card per **capability** (text, image
+  and sound, decision) with what it has loaded, and the GPU. Its sidebar screens: language
+  models (installed GGUFs + HuggingFace search), image and audio models (ComfyUI files +
+  Civitai search), VRAM planner; plus logs, custom nodes and doctor under System.
+- **Frontends** (`#/frontends`): installed apps only, HTTPS links where a frontend offers
+  them, the `frontend.json` problems `stack` found, and "Stop all frontends".
+
+Screens route by URL hash, so a reload keeps your place; the old `#/dashboard` lands on
+Infrastructure. Toolbar actions apply to the backends ("Stop backends" leaves frontends
+running); stopping or restarting the router asks first and names what goes offline.
 
 Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* the ai-stack
 repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
@@ -95,12 +105,12 @@ service.py             # ASGI entry: create_app + the GET event streams; binds 0
 Containerfile          # python 3.13 + wapyt wheels + podman CLIENT + the systemctl shim
 run-podman.sh          # the run flags, each one load-bearing — read the header
 shim/systemctl         # systemctl -> D-Bus translation (see above)
-tests/                 # test_backends.py, test_gpu.py (pytest), smoke.py (Playwright)
+tests/                 # test_backends.py, test_gpu.py, test_status.py (pytest), smoke.py (Playwright)
 appcode/               # pytincture modules_path
   stackui.py           # the page: toolbar, sidebar, routing, action console, download strip
   ui/                  # browser-only screens (pytincture ships what the page imports)
     common.py          #   spawn, esc, toast, failed(), Stream (EventSource), Listeners
-    dashboard.py       #   home: backend cards (loaded models) + frontend cards
+    dashboard.py       #   InfrastructureView (router + capability cards + GPU), FrontendsView
     llms.py            #   Language models: Installed + Find on HuggingFace
     images.py          #   Image models: Installed + Find on Civitai + Find on HuggingFace
     vramview.py        #   VRAM planner
@@ -193,6 +203,9 @@ Deliberate, not incidental:
 - **Targets come from the registry, not the request.** An app name is accepted only if
   `stack status` currently lists it; an empty registry refuses rather than falling back to
   trusting the request. `down` additionally accepts the group names all/backends/frontends.
+- **The text route is two fixed verbs**, `route_text_local` and `route_text_halo`, with no
+  target: the browser picks one of them, never a host. Halo's address comes from
+  `ai-stack/halo.env` on the stack's side.
 - **It won't act on itself.** `stackui` is rejected as a target for mutating verbs — a
   `restart stackui` through the UI kills the server mid-request, leaving the page waiting
   on a reply that can never arrive. Stop it from a terminal.
@@ -204,11 +217,19 @@ Deliberate, not incidental:
 
 ## Gotchas
 
-- **`stack status` is scraped text.** `stackctl.parse_status()` regexes the human output;
-  it's the one brittle seam. Every response carries `raw`, and the UI shows the raw text
-  whenever the parse yields nothing, so it fails visibly instead of rendering an empty
-  page. The real fix is a `stack status --json` mode — worth doing whenever a later phase
-  needs structured data anyway.
+- **Status is `stack status --json`** (`stackctl.status()`, stdout only, since 2026-11-19).
+  It carries each backend's `capability`, its `local` copy state, the text `route` and the
+  manifest `warnings`. A stack without it falls back to `parse_status()` scraping the text,
+  and the UI shows the raw text whenever that parse yields nothing.
+- **Cards follow capability, not name.** `services/backends.ADAPTERS` maps a capability to
+  the adapter whose figures fill its card (`kobold`, `comfy`, `fortuna`). Fortuna's adapter
+  reads `/health` (it names the model), not `/v1/models`, which needs the API key when set.
+- **With text routed to Halo, `localhost:5001` is the Halo box.** `inventory.kobold()` reads
+  the route from `$ECO/router/route.conf` and then reports no "restart to apply": a restart
+  of the local copy can't change what Halo serves. The text card's buttons say "local copy",
+  and its state comes from `local` in the status JSON.
+- **`run-podman.sh` checks the podman socket before removing the running dashboard**, so a
+  missing socket leaves the old one up instead of no dashboard at all.
 - **The Kobold default filename is read out of `start.sh`** (`inventory._DEFAULT` regex)
   rather than duplicated here, so the two can't drift. If that line ever changes shape the
   UI reports "unknown" instead of guessing — deliberately no hardcoded fallback name.

@@ -11,6 +11,9 @@ Three rules this module exists to enforce:
 3. **Targets come from the registry, not the request.** An app name is only accepted if
    `stack status` currently lists it. The browser can't name a process to act on.
 
+Status is read from `stack status --json` (stdout only). A stack without it falls back to
+scraping the text, the way this module worked before.
+
 `stack` is found the way `stack` finds everything else: AI_ECOSYSTEM if set, else the
 parent of this project, with the checkout expected as a sibling.
 """
@@ -52,6 +55,7 @@ class Verb:
 VERBS: dict[str, Verb] = {
     # read-only
     "status":  Verb(["status"], False),
+    "status_json": Verb(["status", "--json"], False),
     "doctor":  Verb(["doctor"], False, timeout=60),
     # Installed frontends (repo = identity, brand = facing name), from their frontend.json.
     "frontends": Verb(["frontends", "--json"], False),
@@ -70,6 +74,10 @@ VERBS: dict[str, Verb] = {
     # container, is a throwaway directory. Exposing the whole verb would offer two
     # buttons that quietly do nothing useful.
     "install_comfyui": Verb(["install", "comfyui"], True, stream=True, timeout=600),
+    # Where text is served (the backend router). Fixed argvs, no target: the browser picks
+    # one of two verbs, never a host. `halo` reads HALO_HOST from ai-stack/halo.env.
+    "route_text_local": Verb(["route", "local"], True, stream=True),
+    "route_text_halo":  Verb(["route", "halo"], True, stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -132,7 +140,7 @@ def known_apps(force: bool = False) -> list[str]:
     global _APPS
     if not force and time.monotonic() - _APPS[0] < _APPS_TTL and _APPS[1]:
         return _APPS[1]
-    names = [a["name"] for a in parse_status(run("status")["output"])["apps"]]
+    names = [a["name"] for a in status()["apps"]]
     if names:
         _APPS = (time.monotonic(), names)
     return names
@@ -184,6 +192,7 @@ def run(verb_key: str, target: str | None = None) -> dict:
     return {
         "verb": verb_key, "target": target, "exit_code": p.returncode,
         "output": strip_ansi(p.stdout + p.stderr).rstrip(),
+        "stdout": p.stdout,
         "duration_ms": int((time.monotonic() - started) * 1000),
     }
 
@@ -224,11 +233,61 @@ def stream(verb_key: str, target: str | None = None) -> Iterator[tuple[str, obje
             p.stdout.close()
 
 
-# --- parsing -----------------------------------------------------------------
-# `stack status` prints for humans, so this is text-scraping and it is the one brittle
-# seam in the app. Everything degrades to showing the raw text if a line doesn't match,
-# and `raw` is always returned so the UI can fall back wholesale. The real fix is a
-# `stack status --json` mode.
+# --- status ------------------------------------------------------------------
+_GROUPS = {"backend": "backends", "frontend": "frontends", "control": "control"}
+
+
+def status() -> dict:
+    """`stack status` in one shape, whichever way the stack can report it.
+
+    {switch: "ON"|"OFF"|None, apps: [...], parsed, route: {...}|None, warnings: [...],
+     raw, duration_ms, source: "json"|"text"}. Each app: name, label, icon, up, port, desc,
+    group (backends/frontends/control), self, and from JSON also capability, local (this
+    machine's copy of a backend), https_port and https_setup.
+    """
+    try:
+        res = run("status_json")
+        data = json.loads(res["stdout"]) if res["exit_code"] == 0 else None
+    except (StackError, ValueError):
+        data = None
+    if isinstance(data, dict) and data.get("version") == 1 and isinstance(data.get("apps"), list):
+        return _from_json(data, res["duration_ms"])
+    res = run("status")
+    return {**parse_status(res["output"]), "route": None, "warnings": [], "raw": res["output"],
+            "duration_ms": res["duration_ms"], "source": "text"}
+
+
+def _from_json(data: dict, duration_ms: int) -> dict:
+    apps = []
+    for a in data["apps"]:
+        if not isinstance(a, dict) or not isinstance(a.get("name"), str):
+            continue
+        local = a.get("local") if isinstance(a.get("local"), dict) else None
+        apps.append({
+            "name": a["name"],
+            "label": str(a.get("label") or a["name"]),
+            "icon": str(a.get("icon") or ""),
+            "up": bool(a.get("up")),
+            "port": int(a.get("port") or 0),
+            "desc": str(a.get("description") or ""),
+            "group": _GROUPS.get(a.get("group"), "other"),
+            "self": a["name"] == SELF_APP,
+            "capability": a.get("capability") if isinstance(a.get("capability"), str) else None,
+            "local": local,
+            "https_port": a["https_port"] if isinstance(a.get("https_port"), int) else None,
+            "https_setup": str(a.get("https_setup") or ""),
+        })
+    sw = data.get("switch")
+    route = data.get("route") if isinstance(data.get("route"), dict) else None
+    return {"switch": sw.upper() if sw in ("on", "off") else None, "apps": apps,
+            "parsed": bool(apps), "route": route,
+            "warnings": [w for w in data.get("warnings") or [] if isinstance(w, str)],
+            "raw": "", "duration_ms": duration_ms, "source": "json"}
+
+
+# --- parsing (fallback) -------------------------------------------------------
+# `stack status` prints for humans, so this is text-scraping. Used only when the stack has
+# no `status --json`. Everything degrades to showing the raw text if a line doesn't match.
 
 _ROW = re.compile(r"^\s+(?P<name>\S+)\s+\[(?P<state>up|down)\s*\]\s+:(?P<port>\d+)\s+(?P<desc>.*?)\s*$")
 

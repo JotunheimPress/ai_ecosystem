@@ -1,10 +1,12 @@
 """AI Ecosystem — the stack's control dashboard. Runs in the browser (Pyodide + wapyt).
 
-Shape: a header toolbar (the backend switch and the whole-stack actions), a sidebar of
-screens, and the screen itself. The home screen is the dashboard — backends and what they
-have loaded on top, frontends below. The rest are under the sidebar: language models
-(installed GGUFs + HuggingFace search), image models (ComfyUI files + Civitai search), the
-VRAM planner, logs, custom-node pins and the doctor.
+Shape: a header toolbar (the backend switch, the backend actions, and the workspace switch),
+a sidebar of screens, and the screen itself. Two workspaces:
+
+* **Infrastructure** (the landing page, ``#/infrastructure``): the router, one card per
+  capability (text, image and sound, decision) and the GPU. Its sidebar screens are language
+  models, image and audio models, the VRAM planner, logs, custom-node pins and the doctor.
+* **Frontends** (``#/frontends``): the installed apps that use the infrastructure.
 
 Conventions (shared with the Pytinc apps):
 
@@ -44,7 +46,7 @@ from services.models_api import ModelsApi
 from services.stack_api import StackApi
 from ui.common import (Listeners, Stream, by_id, container_of, failed, fmt_bytes, link,
                        spawn, toast)
-from ui.dashboard import DashboardView
+from ui.dashboard import FrontendsView, InfrastructureView
 from ui.images import ImagesView
 from ui.llms import LlmsView
 from ui.system import DoctorView, LogsView, NodesView
@@ -55,7 +57,8 @@ APP_ENTRYPOINT = "StackUI"
 POLL_MS = 10_000
 
 SCREENS = {
-    "dashboard": DashboardView,
+    "infrastructure": InfrastructureView,
+    "frontends": FrontendsView,
     "llms": LlmsView,
     "images": ImagesView,
     "vram": VramView,
@@ -63,6 +66,8 @@ SCREENS = {
     "nodes": NodesView,
     "doctor": DoctorView,
 }
+# Old bookmarks: the single dashboard became the Infrastructure workspace.
+ALIASES = {"dashboard": "infrastructure", "": "infrastructure"}
 
 # `stack install` runs its prerequisite check first, and the CDI spec check (nvidia-ctk)
 # cannot pass from inside this container — so it exits 1 even when the node work succeeded.
@@ -112,9 +117,14 @@ class StackUI(MainWindow):
                           tooltip="Stop the backends and keep them off at boot (stack off)"),
             ToolbarSeparator(),
             ToolbarButton(id="up", label="Start backends", icon="mdi-play",
-                          tooltip="Start KoboldCPP and ComfyUI without changing the switch"),
-            ToolbarButton(id="downall", label="Stop all", icon="mdi-stop", variant="danger",
-                          tooltip="Stop every backend and frontend (not this dashboard)"),
+                          tooltip="Start the router and every backend without changing the switch"),
+            ToolbarButton(id="downbk", label="Stop backends", icon="mdi-stop", variant="danger",
+                          tooltip="Stop the router and every backend; frontends keep running"),
+            ToolbarSeparator(),
+            ToolbarButton(id="ws-infra", label="Infrastructure", icon="mdi-server-network",
+                          group="ws", active=True, tooltip="The shared backends and the router"),
+            ToolbarButton(id="ws-front", label="Frontends", icon="mdi-apps", group="ws",
+                          tooltip="The installed apps that use them"),
             ToolbarSpacer(),
             ToolbarText(id="updated", text=""),
             ToolbarButton(id="refresh", icon="mdi-refresh", tooltip="Refresh now",
@@ -124,23 +134,26 @@ class StackUI(MainWindow):
 
         self.sidebar = self.add_sidebar("nav", SidebarConfig(
             collapse_button=True,
-            active="dashboard",
+            active="infrastructure",
             items=[
-                SidebarItem(id="dashboard", label="Dashboard", icon="mdi-view-dashboard-outline"),
-                SidebarHeading(label="Models"),
+                SidebarHeading(label="Infrastructure"),
+                SidebarItem(id="infrastructure", label="Overview", icon="mdi-server-network"),
                 SidebarItem(id="llms", label="Language models",
                             icon="mdi-text-box-multiple-outline",
                             tooltip="Installed GGUFs for KoboldCPP, and HuggingFace search"),
-                SidebarItem(id="images", label="Image models", icon="mdi-image-multiple-outline",
+                SidebarItem(id="images", label="Image and audio",
+                            icon="mdi-image-multiple-outline",
                             tooltip="ComfyUI checkpoints, LoRAs and VAEs, and Civitai search"),
                 SidebarItem(id="vram", label="VRAM planner", icon="mdi-memory"),
+                SidebarHeading(label="Frontends"),
+                SidebarItem(id="frontends", label="Installed apps", icon="mdi-apps"),
                 SidebarHeading(label="System"),
                 SidebarItem(id="logs", label="Logs", icon="mdi-text-long"),
                 SidebarItem(id="nodes", label="Custom nodes", icon="mdi-puzzle-outline"),
                 SidebarItem(id="doctor", label="Doctor", icon="mdi-stethoscope"),
             ],
         ))
-        self.sidebar.on_select(lambda p: self.go((p or {}).get("id") or "dashboard"))
+        self.sidebar.on_select(lambda p: self.go((p or {}).get("id") or "infrastructure"))
 
         self.attach_html("dlbar", (
             '<div class="su-dl" id="su-dl">'
@@ -179,7 +192,7 @@ class StackUI(MainWindow):
         el = js.document.createElement("link")
         el.id = "su-css"
         el.rel = "stylesheet"
-        el.href = "/static/stackui.css?v=1"
+        el.href = "/static/stackui.css?v=2"
         js.document.head.appendChild(el)
 
     # --- routing ---------------------------------------------------------------
@@ -194,7 +207,8 @@ class StackUI(MainWindow):
 
     def _route(self) -> None:
         raw = str(js.window.location.hash or "").lstrip("#/")
-        screen_id = raw if raw in SCREENS else "dashboard"
+        raw = ALIASES.get(raw, raw)
+        screen_id = raw if raw in SCREENS else "infrastructure"
         args = getattr(self, "_pending_args", None) or {}
         self._pending_args = {}
         if self.screen and self.screen_id == screen_id:
@@ -218,6 +232,7 @@ class StackUI(MainWindow):
             self.screen.on_overview(self.overview)
         if self.sidebar.get_active() != screen_id:
             self.sidebar.set_active(screen_id)
+        self.toolbar.set_active("ws-front" if screen_id == "frontends" else "ws-infra", True)
 
     # --- polling ---------------------------------------------------------------
     def _tick(self, *_):
@@ -261,11 +276,19 @@ class StackUI(MainWindow):
         elif item == "on":
             self.act("on")
         elif item == "off":
-            self.act("off", confirm="Stop both backends and disable boot auto-start?")
+            self.act("off", confirm="Stop the router and every backend, and keep them off at boot? "
+                                    "Frontends lose text, images and decisions until it is on again.")
         elif item == "up":
             self.act("up")
-        elif item == "downall":
-            self.act("down", "all", confirm="Stop all backends and frontends?")
+        elif item == "downbk":
+            self.act("down", "backends",
+                     confirm="Stop the router and every backend? Frontends keep running but lose "
+                             "text, images and decisions until the backends start again. "
+                             "The boot switch is unchanged.")
+        elif item == "ws-infra":
+            self.go("infrastructure")
+        elif item == "ws-front":
+            self.go("frontends")
 
     def act(self, verb: str, target: str = "", confirm: str = "") -> None:
         if self.busy:
@@ -319,7 +342,7 @@ class StackUI(MainWindow):
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy
-        for item in ("on", "off", "up", "downall"):
+        for item in ("on", "off", "up", "downbk"):
             self.toolbar.set_disabled(item, busy)
         if self.screen and hasattr(self.screen, "on_busy"):
             self.screen.on_busy(busy)

@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 URL = os.environ.get("STACKUI_URL", "http://127.0.0.1:7863").rstrip("/")
 CHROME = os.path.expanduser(os.environ.get("CHROME", ""))
 SHOTS = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/shots")
-SCREENS = ["dashboard", "llms", "images", "vram", "logs", "nodes", "doctor"]
+SCREENS = ["infrastructure", "frontends", "llms", "images", "vram", "logs", "nodes", "doctor"]
 
 
 def main() -> int:
@@ -32,11 +32,11 @@ def main() -> int:
             page.on("console", lambda m: errors.append(f"[{scheme}] {m.text}")
                     if m.type == "error" else None)
             page.on("pageerror", lambda e: errors.append(f"[{scheme}] pageerror {e}"))
-            page.goto(f"{URL}/stackui/#/dashboard")
+            page.goto(f"{URL}/stackui/#/infrastructure")
             # Pyodide boot + first BFF round trip.
             page.wait_for_selector(".su-card-title", timeout=120_000)
             page.wait_for_timeout(1500)
-            page.screenshot(path=str(SHOTS / f"{scheme}-dashboard.png"))
+            page.screenshot(path=str(SHOTS / f"{scheme}-infrastructure.png"))
             if scheme == "light":
                 break
             for screen in SCREENS[1:]:
