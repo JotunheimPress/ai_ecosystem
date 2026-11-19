@@ -1,6 +1,7 @@
 """AI Ecosystem — the stack's control dashboard. Runs in the browser (Pyodide + wapyt).
 
-Shape: a header toolbar (the backend switch, the backend actions, and the workspace switch),
+Shape: a header toolbar (whether the backends run, Start/Stop, the separate start-at-boot
+toggle, and the workspace switch),
 a sidebar of screens, and the screen itself. Two workspaces:
 
 * **Infrastructure** (the landing page, ``#/infrastructure``): the router, one card per
@@ -109,17 +110,18 @@ class StackUI(MainWindow):
         self.toolbar = self.add_toolbar("header", ToolbarConfig(label="Stack", items=[
             ToolbarText(id="brand", text="AI Ecosystem"),
             ToolbarSeparator(),
-            ToolbarText(id="switch", text="Switch …"),
-            ToolbarButton(id="on", label="Turn on", icon="mdi-power", variant="primary",
-                          hidden=True,
-                          tooltip="Start the backends now and at every boot (stack on)"),
-            ToolbarButton(id="off", label="Turn off", icon="mdi-power-off", hidden=True,
-                          tooltip="Stop the backends and keep them off at boot (stack off)"),
-            ToolbarSeparator(),
+            # What runs now and what starts at boot are separate settings (stack boot).
+            ToolbarText(id="state", text="Backends …"),
             ToolbarButton(id="up", label="Start backends", icon="mdi-play",
-                          tooltip="Start the router and every backend without changing the switch"),
+                          tooltip="Start the router and every backend now (stack up); "
+                                  "start at boot is unchanged"),
             ToolbarButton(id="downbk", label="Stop backends", icon="mdi-stop", variant="danger",
-                          tooltip="Stop the router and every backend; frontends keep running"),
+                          tooltip="Stop the router and every backend now; frontends keep running "
+                                  "and start at boot is unchanged"),
+            ToolbarSeparator(),
+            ToolbarButton(id="boot", label="Start at boot", icon="mdi-restart", toggle=True,
+                          tooltip="Whether the backends start when the machine boots "
+                                  "(stack boot on|off). Starts or stops nothing now."),
             ToolbarSeparator(),
             ToolbarButton(id="ws-infra", label="Infrastructure", icon="mdi-server-network",
                           group="ws", active=True, tooltip="The shared backends and the router"),
@@ -244,14 +246,27 @@ class StackUI(MainWindow):
     async def refresh(self) -> None:
         ov = await StackApi().overview_async()
         if not isinstance(ov, dict) or not ov.get("ok"):
-            self.toolbar.set_text("switch", "stack status failed")
+            self.toolbar.set_text("state", "stack status failed")
             self.toolbar.set_text("updated", (ov or {}).get("error", "") if isinstance(ov, dict) else "")
             return
         self.overview = ov
-        sw = ov.get("switch")
-        self.toolbar.set_text("switch", f"Backends {sw}" if sw else "Switch unknown")
-        self.toolbar.set_hidden("on", sw == "ON")
-        self.toolbar.set_hidden("off", sw != "ON")
+        backends = [a for a in ov.get("apps") or [] if a.get("group") == "backends"]
+        up = sum(1 for a in backends if a.get("up"))
+        if not backends:
+            state = "Backends unknown"
+        elif up == len(backends):
+            state = "Backends running"
+        elif up == 0:
+            state = "Backends stopped"
+        else:
+            state = f"Backends: {up} of {len(backends)} up"
+        self.toolbar.set_text("state", state)
+        boot = ov.get("boot")
+        self.toolbar.set_active("boot", boot == "ON")
+        self.toolbar.set_text("boot", f"Start at boot: {'on' if boot == 'ON' else 'off'}")
+        self.toolbar.set_icon("boot", "mdi-restart" if boot == "ON" else "mdi-restart-off")
+        # No systemd unit: there is nothing to toggle (stack install service).
+        self.toolbar.set_hidden("boot", boot is None)
         self.toolbar.set_text("updated", f"updated {js.Date.new().toLocaleTimeString()} · "
                                          f"{ov.get('duration_ms')} ms")
         # A job started in another tab (or before a reload) still owns the slot: follow it
@@ -273,18 +288,21 @@ class StackUI(MainWindow):
         item = (p or {}).get("id")
         if item == "refresh":
             spawn(self.refresh(), "refresh")
-        elif item == "on":
-            self.act("on")
-        elif item == "off":
-            self.act("off", confirm="Stop the router and every backend, and keep them off at boot? "
-                                    "Frontends lose text, images and decisions until it is on again.")
+        elif item == "boot":
+            want = bool((p or {}).get("active"))
+            if self.busy:
+                self.toolbar.set_active("boot", not want)      # undo the click's toggle
+                toast("Another action is still running.", "warning")
+                return
+            # Saved at once, no dialog: it changes nothing until the next boot.
+            self.act("boot_on" if want else "boot_off")
         elif item == "up":
             self.act("up")
         elif item == "downbk":
             self.act("down", "backends",
                      confirm="Stop the router and every backend? Frontends keep running but lose "
                              "text, images and decisions until the backends start again. "
-                             "The boot switch is unchanged.")
+                             "Start at boot is unchanged.")
         elif item == "ws-infra":
             self.go("infrastructure")
         elif item == "ws-front":
@@ -342,7 +360,7 @@ class StackUI(MainWindow):
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy
-        for item in ("on", "off", "up", "downbk"):
+        for item in ("boot", "up", "downbk"):
             self.toolbar.set_disabled(item, busy)
         if self.screen and hasattr(self.screen, "on_busy"):
             self.screen.on_busy(busy)

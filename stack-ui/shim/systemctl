@@ -3,7 +3,7 @@
 
 Why this exists
 ---------------
-`stack on` / `stack off` are `systemctl --user enable/disable --now`. Inside a container
+`stack boot on|off` is `systemctl --user enable/disable`. Inside a container
 the real systemctl cannot reach the host's user manager: it only ever uses systemd's
 *private* socket (`$XDG_RUNTIME_DIR/systemd/private`), and that socket refuses a peer from
 another user namespace — ENODATA, with or without --userns=keep-id, with or without
@@ -14,7 +14,7 @@ the container runs --userns=keep-id). systemd's user manager is on that bus as
 org.freedesktop.systemd1. So this shim implements exactly the five invocations `stack`
 makes, in terms of D-Bus calls, and shadows the real systemctl on PATH.
 
-The alternative was reimplementing `stack on`/`off` in the web app, duplicating the logic
+The alternative was reimplementing `stack boot` in the web app, duplicating the logic
 that `stack` is supposed to own. A translation layer this narrow is the cheaper lie:
 `stack` stays unmodified and unaware, and everything it knows about the switch stays in
 one place. Anything outside the five verbs exits 2 rather than pretending to work.

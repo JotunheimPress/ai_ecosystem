@@ -100,7 +100,8 @@ curl -s localhost:8188/system_stats | jq '.devices[0]'
 
 ## 6. Boot auto-start
 
-Handled by the stack's single switch — `stack on` / `stack off` via `ai-stack-backends.service`.
+Handled by the stack: `stack boot on` / `stack boot off` enable or disable `ai-stack-backends.service`
+(separate from `stack on` / `stack off`, which start and stop the backends now).
 See [`../CLAUDE.md`](../CLAUDE.md).
 
 > **Do not re-enable the old standalone `comfyui.service`.** It's disabled on purpose: it competed

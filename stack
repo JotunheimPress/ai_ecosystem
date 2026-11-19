@@ -3,10 +3,12 @@
 # ai-stack — one launcher for the local AI backends + frontends.
 #
 #   stack                 interactive: ensure backends, then pick a frontend
-#   stack on / off        ENABLE / DISABLE the AI backend — the single switch.
-#                           off = stop backends + no boot restart (free the GPU to game)
-#                           on  = start backends now + at boot
-#   stack up              start the backends now (without touching the boot toggle)
+#   stack on / off        start / stop the backends now (= stack up / stack down backends).
+#                           Never changes start-at-boot.
+#   stack boot [on|off]   show / set whether the backends start at boot (the systemd unit).
+#                           Never starts or stops anything now.
+#                           Gaming: stack off, plus stack boot off to stay off after a reboot.
+#   stack up              start the backends now
 #   stack status [--json] show what's up (--json: for stack-ui and scripts)
 #   stack <app>           start one app: a backend (router|koboldcpp|comfyui|fortuna),
 #                           stackui, or an installed frontend by its repo name (stack frontends)
@@ -35,7 +37,7 @@ set -uo pipefail
 SELF="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"   # the ai-stack checkout itself
 ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
 NET="ai-net"
-SVC="ai-stack-backends.service"     # systemd --user unit = the single on/off switch for boot
+SVC="ai-stack-backends.service"     # systemd --user unit: start-at-boot only (stack boot)
 # Host profile: NVIDIA workstation or AMD Halo box (lib/host.sh, host.env). A bad host.env
 # is reported, not fatal, so `stack doctor` can still run and say what's wrong.
 . "$SELF/lib/host.sh"
@@ -127,7 +129,7 @@ declare -A LOCAL_PROBE=(
 # `stack <name>` would never reach them.
 FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
   menu on enable off disable gaming up status st down restart logs route install setup
-  doctor check help fortuna-model)
+  doctor check help fortuna-model boot)
 
 # mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
 frontend_manifests() {
@@ -359,8 +361,8 @@ cmd_status() {
   [[ -z ${1:-} ]] || { echo "usage: stack status [--json]"; return 1; }
   probe_all "${BACKENDS[@]}" "${FRONTENDS[@]}" "${CONTROL[@]}"
   if have_svc; then
-    if svc_enabled; then echo "AI backend switch: ${C_GREEN}ON${C_OFF}  (auto-starts at boot)"
-    else                 echo "AI backend switch: ${C_RED}OFF${C_OFF} (gaming mode — won't start at boot)"; fi
+    if svc_enabled; then echo "Start at boot: ${C_GREEN}ON${C_OFF}  (stack boot off to change)"
+    else                 echo "Start at boot: ${C_RED}OFF${C_OFF} (stack boot on to change)"; fi
   fi
   DESC[router]="Routes text → $(route_name)"
   local a
@@ -374,7 +376,8 @@ cmd_status() {
 }
 
 # Machine-readable status for stack-ui and scripts. Only the JSON goes to stdout. Shape:
-#   { "version": 1, "switch": "on"|"off"|null,          null = no systemd unit installed
+#   { "version": 1, "boot": "on"|"off"|null,            start at boot; null = no unit installed
+#     "switch": same as "boot" — its old name, kept for older readers
 #     "route": { "text": "koboldcpp-local:5001", "where": "local"|"halo",
 #                "router_config": "current"|"stale"|null },   null = router not running
 #     "apps": [ { "name", "group": backend|frontend|control, "label", "capability"|null,
@@ -408,11 +411,11 @@ status_json() {
     for w in "${FRONTEND_WARN[@]}"; do echo "W$US$w"; done
   } | python3 -c '
 import json, sys
-out = {"version": 1, "switch": None, "route": {}, "apps": [], "warnings": []}
+out = {"version": 1, "boot": None, "switch": None, "route": {}, "apps": [], "warnings": []}
 for line in sys.stdin:
     f = line.rstrip("\n").split("\x1f")
     if f[0] == "S":
-        out["switch"] = f[1] or None
+        out["boot"] = out["switch"] = f[1] or None
         out["route"] = {"text": f[2], "where": f[3], "router_config": f[4] or None}
     elif f[0] == "A":
         name, group, label, cap, port, up, cname, loc, probed, icon, https, setup, desc = f[1:14]
@@ -562,24 +565,46 @@ cmd_down() {
 have_svc()     { systemctl --user list-unit-files "$SVC" >/dev/null 2>&1; }
 svc_enabled()  { systemctl --user is-enabled "$SVC" 2>/dev/null | grep -qx enabled; }
 
+# Running now and starting at boot are separate settings (since 2026-11-19): on/off/up/down
+# change only what runs now, `stack boot` changes only the unit's enablement. A unit that is
+# enabled stays "active (exited)" after boot whatever on/off do later; that is harmless, as its
+# ExecStop (stack down backends) at shutdown stops whatever is still running.
+boot_note() {
+  have_svc || return 0
+  if svc_enabled; then echo "  ${C_DIM}start at boot: on (change with: stack boot off)${C_OFF}"
+  else                 echo "  ${C_DIM}start at boot: off (change with: stack boot on)${C_OFF}"; fi
+}
+
 cmd_on() {
   ensure_net
-  if have_svc; then
-    systemctl --user enable --now "$SVC" >/dev/null 2>&1
-    echo "${C_GREEN}AI backend ON${C_OFF} — running + will start at boot."
-  else
-    echo "(systemd unit not installed — starting backends without boot toggle)"; cmd_up
-  fi
+  cmd_up; local rc=$?
+  boot_note
+  return $rc
 }
 
 cmd_off() {
-  if have_svc; then
-    # disable --now: stop the service (ExecStop = 'stack down backends') AND remove boot start.
-    systemctl --user disable --now "$SVC" >/dev/null 2>&1
+  cmd_down backends
+  echo "${C_RED}AI backends stopped${C_OFF}$([ "$HOST_GPU" = nvidia ] && echo " — GPU free to game")."
+  boot_note
+}
+
+cmd_boot() {
+  if ! have_svc; then
+    echo "systemd unit $SVC not installed — stack install service"
+    [[ -z ${1:-} ]] && return 0 || return 1
   fi
-  cmd_down backends >/dev/null 2>&1   # belt-and-suspenders: ensure they're really down
-  echo "${C_RED}AI backend OFF${C_OFF} — stopped and will NOT restart at boot.$([ "$HOST_GPU" = nvidia ] && echo " GPU free to game.")"
-  echo "  re-enable with: stack on"
+  case "${1:-}" in
+    "")  if svc_enabled; then echo "start at boot: ${C_GREEN}on${C_OFF}"
+         else                 echo "start at boot: ${C_RED}off${C_OFF}"; fi ;;
+    # Plain enable/disable, never --now: what runs right now is stack on/off's business.
+    on)  systemctl --user enable "$SVC" >/dev/null 2>&1 \
+           || { echo "could not enable $SVC"; return 1; }
+         echo "start at boot: ${C_GREEN}on${C_OFF} — the backends start at every boot (nothing started now)" ;;
+    off) systemctl --user disable "$SVC" >/dev/null 2>&1 \
+           || { echo "could not disable $SVC"; return 1; }
+         echo "start at boot: ${C_RED}off${C_OFF} — the backends stay off after a reboot (nothing stopped now)" ;;
+    *)   echo "usage: stack boot [on|off]"; return 2 ;;
+  esac
 }
 
 cmd_menu() {
@@ -720,14 +745,14 @@ install_path() {
 # The shipped unit is a template: @SELF@ becomes this checkout's path, so the unit
 # points at the stack wherever it was cloned. It used to hardcode
 # ~/Development/ai_ecosystem/ai-stack — the one place the "clone anywhere" promise
-# broke, and silently: `stack on` enables a unit whose ExecStart doesn't exist.
+# broke, and silently: `stack boot on` enables a unit whose ExecStart doesn't exist.
 render_unit() { sed "s|@SELF@|$SELF|g" "$SELF/$SVC"; }
 
 install_service() {
   local dst="$HOME/.config/systemd/user/$SVC" rendered
   rendered=$(render_unit)
   # COPY, never symlink: `systemctl disable` deletes a symlinked unit, which then
-  # breaks `stack on`.
+  # breaks `stack boot on`.
   if [ -f "$dst" ] && [ "$rendered" = "$(cat "$dst")" ]; then
     ok "systemd unit installed ($dst)"
   else
@@ -738,7 +763,7 @@ install_service() {
   [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" = "yes" ] \
     && ok "linger enabled (backends can start before login)" \
     || warn "linger off — run: loginctl enable-linger"
-  svc_enabled && ok "boot auto-start armed (stack on)" || echo "  ${C_DIM}boot auto-start off — arm with: stack on${C_OFF}"
+  svc_enabled && ok "start at boot on (stack boot)" || echo "  ${C_DIM}start at boot off — turn on with: stack boot on${C_OFF}"
 }
 
 # The koboldcpp recipe is canonical in this checkout, but it has to *run* from
@@ -987,7 +1012,7 @@ cmd_install() {
   elif ((WARNS)); then
     echo "${C_RED}install done, $WARNS item(s) need you${C_OFF} — the stack won't start until they're resolved"
   else
-    echo "${C_GREEN}install complete${C_OFF} — start with: stack on"
+    echo "${C_GREEN}install complete${C_OFF} — start with: stack on (and stack boot on to start at every boot)"
   fi
   ((rc)) && return 1 || return 0
 }
@@ -1050,14 +1075,18 @@ cmd_doctor() {
 
 case "${1:-}" in
   ""|menu)   cmd_menu ;;
-  on|enable)  cmd_on ;;
-  off|disable|gaming) cmd_off ;;
+  on)        cmd_on ;;
+  off|gaming) cmd_off ;;
+  # systemd's words for the unit: they set start-at-boot, as `stack boot on|off`.
+  enable)    cmd_boot on ;;
+  disable)   cmd_boot off ;;
   up|backends) cmd_up ;;
   status|st) cmd_status "${2:-}" ;;
   down)      cmd_down "${2:-all}" ;;
   restart)   cmd_restart "${2:-}" ;;
   logs)      cmd_logs "${2:-}" ;;
   route)     cmd_route "${2:-}" ;;
+  boot)      cmd_boot "${2:-}" ;;
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;

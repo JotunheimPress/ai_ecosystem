@@ -9,8 +9,8 @@ Fortuna's model).
 from wapyt widgets — the same stack as the Pytinc apps (`~/Development/Pytinc/basilisk_wapyt`
 is the closest sibling; its and Monguana's CLAUDE.md files document the framework traps).
 The vanilla-JS page and the JSON API it called are gone; `services/` carried over unchanged
-apart from moving into `appcode/`. Layout: a header toolbar (the switch, the backend
-actions and the **workspace switch**), a sidebar of screens, and the screen. Two workspaces
+apart from moving into `appcode/`. Layout: a header toolbar (whether the backends run,
+Start/Stop, the separate **Start at boot** toggle, and the **workspace switch**), a sidebar of screens, and the screen. Two workspaces
 (since 2026-11-19):
 
 - **Infrastructure** (`#/infrastructure`, the landing page): the router (where each
@@ -44,7 +44,7 @@ three mounts are load-bearing (all in `run-podman.sh`):
 | Mount / flag | Why |
 |---|---|
 | `podman.sock` | `stack` drives podman; this is the host engine. The image ships the **podman client only** (static `podman-remote`, pinned to the host version) — this container must never run containers itself. |
-| session bus (`$XDG_RUNTIME_DIR/bus`) | `stack on`/`off` are `systemctl --user`. Without it the switch can't work. |
+| session bus (`$XDG_RUNTIME_DIR/bus`) | `stack boot on|off` is `systemctl --user`. Without it the Start at boot toggle can't work. |
 | `--network=host` | `stack` health-probes `http://localhost:5001`. In its own netns those are the *container's* ports and everything reads down. It also means uvicorn binds the host's own interfaces (`0.0.0.0`, the whole LAN), so no port is published. |
 | `--userns=keep-id` | The session bus authenticates EXTERNAL against the uid the **host** sees. Under the default rootless mapping the process is uid 0 inside and 1000 outside, they disagree, and the bus answers `REJECTED`. |
 | `--device nvidia.com/gpu=all` | Injects the **host's** `nvidia-smi` via the CDI spec (it must match the host driver, so it isn't installed in the image). `koboldcpp/start.sh` reads free VRAM with it to wait out a model swap; without it those waits silently skip. Creates no CUDA context, so no VRAM cost. Skipped with a warning if the CDI spec is missing. |
@@ -64,7 +64,7 @@ without SELinux. It will not fall back to the session bus.
 The session bus itself *does* accept us. So `shim/systemctl` implements the five
 invocations `stack` makes (`list-unit-files`, `is-enabled`, `enable --now`,
 `disable --now`, `daemon-reload`) as D-Bus calls on `org.freedesktop.systemd1`, and
-shadows the real systemctl on PATH. The alternative was reimplementing `stack on`/`off`
+shadows the real systemctl on PATH. The alternative was reimplementing `stack boot`
 inside the web app, duplicating logic `stack` is supposed to own. Anything outside those
 verbs exits 2 rather than pretending to work.
 
@@ -256,7 +256,7 @@ Deliberate, not incidental:
 - **`CONTAINER_HOST` and `DBUS_SESSION_BUS_ADDRESS` must be in `stackctl._PASSTHROUGH`.**
   The subprocess env is a deliberate allowlist, and dropping either fails *quietly*:
   without the first, podman talks to an engine that isn't there and every up/down does
-  nothing; without the second, the switch silently disappears from `stack status`.
+  nothing; without the second, start at boot silently disappears from `stack status`.
 - **Mount the podman socket's directory, never the socket file.** A file bind-mount pins the
   inode; when `podman.socket` re-creates the socket, the container keeps the dead one and every
   action fails with `dial unix /run/podman/podman.sock: connection refused` while the page

@@ -73,7 +73,8 @@ Install reports exactly what's missing and where it goes. Then:
 
 ```bash
 stack doctor             # read-only: prerequisites + what's installed, changes nothing
-stack on                 # start the backends and arm boot auto-start
+stack on                 # start the backends now
+stack boot on            # and at every boot (optional; a separate setting)
 ```
 
 The two INSTALL guides cover the rest — reference hardware, version pins, the flags that matter,
@@ -117,11 +118,12 @@ can't do anything.
 ## Usage
 
 ```bash
-stack on          # enable the AI backend — start now + at boot
-stack off         # disable it — stop everything + no boot restart (frees the GPU to game)
+stack on          # start the backends now (same as stack up)
+stack off         # stop them now — frees the GPU to game (same as stack down backends)
+stack boot on|off # whether they start at boot — separate; starts or stops nothing now
 stack             # interactive: show status, ensure backends, then pick a frontend
-stack up          # start the backends now (without touching the boot toggle)
-stack status      # what's running (+ the on/off switch state)
+stack up          # start the backends now
+stack status      # what's running (+ whether it starts at boot)
 stack companion   # launch a frontend  (companion | story | iguana)
 stack stackui     # launch AI Ecosystem, the dashboard, on :7863
 stack down        # stop everything    (also: down backends | down frontends | down <app>)
@@ -141,10 +143,12 @@ for whoever installs it. Browsers allow the microphone only on this computer or 
 Pantheon's voice input works here but not from a phone. The dashboard is on the LAN too, at
 `:7863`.
 
-## The on/off switch (game ⇄ AI)
+## Game ⇄ AI
 
-`stack off` stops KoboldCPP + ComfyUI **and** disables the boot service — freeing all GPU VRAM
-for gaming, with nothing restarting until you `stack on`. It's the single point of control.
+`stack off` stops every backend now, freeing all GPU memory for gaming; `stack on` starts them
+again. Whether they start at boot is a separate setting: `stack boot off` keeps them off after a
+reboot too, `stack boot on` brings them up at every boot. In the dashboard these are the
+*Start/Stop backends* buttons and the *Start at boot* toggle.
 
 Both backends share **12 GB of VRAM** on the reference machine: a ~9B LLM at Q4 plus an SD 1.5
 checkpoint fits, an LLM plus SDXL does not. ComfyUI also holds VRAM after a job — see the
@@ -159,7 +163,7 @@ works wherever you cloned. Don't `cp` it by hand.
 
 ```bash
 loginctl enable-linger   # optional: start at boot even before you log in
-stack on                 # arm it
+stack boot on            # start at every boot (stack boot off to stop that)
 ```
 
 ## How it works

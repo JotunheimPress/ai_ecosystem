@@ -13,7 +13,7 @@
 #                    the inode, so when podman.socket re-creates the socket (it did on
 #                    2026-09-23) the container keeps the dead one and every `stack` call
 #                    fails with "connection refused" until the dashboard is restarted.
-#   session bus      the host user systemd. `stack on`/`off` are systemctl --user, so
+#   session bus      the host user systemd. `stack boot on|off` is systemctl --user, so
 #                    without this the single most useful button doesn't work.
 #   $ECO             the projects themselves — the `stack` script, models, model.env.
 #                    Mounted at its REAL host path, not a tidy /eco: podman-remote has the
@@ -70,7 +70,7 @@ if podman container exists "$CONTAINER"; then
   podman rm -f "$CONTAINER" >/dev/null
 fi
 
-# The bus is only needed by `stack on`/`off`; everything else works without it, so this
+# The bus is only needed by `stack boot`; everything else works without it, so this
 # is a warning rather than a hard failure.
 BUS_ARGS=()
 if [[ -S "$BUS" ]]; then

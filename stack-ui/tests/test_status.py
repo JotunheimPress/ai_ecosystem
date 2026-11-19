@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "appcode"))
 from services import backends, inventory, stackctl  # noqa: E402
 
 STATUS = {
-    "version": 1, "switch": "on",
+    "version": 1, "boot": "on", "switch": "on",
     "route": {"text": "halo.lan:5001", "where": "halo", "router_config": "current"},
     "apps": [
         {"name": "router", "group": "backend", "label": "Router", "capability": "routing",
@@ -35,7 +35,7 @@ STATUS = {
     "warnings": ["x/frontend.json skipped: bad port"],
 }
 
-TEXT = """AI backend switch: ON  (auto-starts at boot)
+TEXT = """Start at boot: ON  (stack boot off to change)
 Backends (network: ai-net)
   router           [up  ]  :5001  Routes text → local
 Frontends
@@ -62,7 +62,7 @@ def _fake_run(json_out: str | None, json_rc: int = 0):
 def test_status_from_json(monkeypatch):
     monkeypatch.setattr(stackctl, "run", _fake_run(json.dumps(STATUS)))
     st = stackctl.status()
-    assert st["source"] == "json" and st["switch"] == "ON" and st["parsed"]
+    assert st["source"] == "json" and st["boot"] == "ON" and st["parsed"]
     assert st["route"]["where"] == "halo"
     assert st["warnings"] == ["x/frontend.json skipped: bad port"]
     by = {a["name"]: a for a in st["apps"]}
@@ -80,7 +80,7 @@ def test_status_falls_back_to_text(monkeypatch, out, rc):
     monkeypatch.setattr(stackctl, "run", _fake_run(out, rc))
     monkeypatch.setattr(stackctl, "labels", lambda: {})
     st = stackctl.status()
-    assert st["source"] == "text" and st["switch"] == "ON"
+    assert st["source"] == "text" and st["boot"] == "ON"
     assert [a["name"] for a in st["apps"]] == ["router", "companion", "stackui"]
     assert st["route"] is None and st["warnings"] == []
 
@@ -148,3 +148,20 @@ def test_fortuna_adapter(monkeypatch):
     assert backends.fortuna() == {"up": False, "selected": "jevk5-4b-q8",
                                   "selected_integrity": "verified", "restart_needed": False}
     assert backends.ADAPTERS["decision"] == "fortuna"
+
+
+def test_older_stack_names_it_switch(monkeypatch):
+    old = {k: v for k, v in STATUS.items() if k != "boot"}
+    monkeypatch.setattr(stackctl, "run", _fake_run(json.dumps(old)))
+    assert stackctl.status()["boot"] == "ON"
+    assert stackctl.parse_status("AI backend switch: OFF (gaming mode)\n")["boot"] == "OFF"
+
+
+def test_boot_verbs_take_no_target_and_on_off_are_gone():
+    assert stackctl.resolve("boot_on", None) == ["boot", "on"]
+    assert stackctl.resolve("boot_off", None) == ["boot", "off"]
+    with pytest.raises(stackctl.StackError):
+        stackctl.resolve("boot_on", "koboldcpp")
+    for gone in ("on", "off"):
+        with pytest.raises(stackctl.StackError):
+            stackctl.resolve(gone, None)

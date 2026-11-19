@@ -60,9 +60,8 @@ VERBS: dict[str, Verb] = {
     # Installed frontends (repo = identity, brand = facing name), from their frontend.json.
     "frontends": Verb(["frontends", "--json"], False),
     "logs":    Verb(["logs"], False, target="app", stream=True),
-    # mutating — phase 1
-    "on":      Verb(["on"], True, stream=True),
-    "off":     Verb(["off"], True, stream=True),
+    # mutating — phase 1. What runs now (up / down) and start-at-boot (boot_on / boot_off) are
+    # separate settings; `stack on`/`off` are the same as up / down backends, so not listed.
     "up":      Verb(["up"], True, stream=True),
     "down":    Verb(["down"], True, target="down", stream=True),
     "restart": Verb(["restart"], True, target="app", stream=True),
@@ -78,6 +77,9 @@ VERBS: dict[str, Verb] = {
     # one of two verbs, never a host. `halo` reads HALO_HOST from ai-stack/halo.env.
     "route_text_local": Verb(["route", "local"], True, stream=True),
     "route_text_halo":  Verb(["route", "halo"], True, stream=True),
+    # Start at boot: enable / disable the systemd unit, nothing started or stopped now.
+    "boot_on":  Verb(["boot", "on"], True, stream=True),
+    "boot_off": Verb(["boot", "off"], True, stream=True),
     # Fortuna's model files: the recipe's pinned, sha256-checked download, and a re-hash of a
     # file already here. The target is a NAME from fortuna/models.table (never a file or URL);
     # the recipe maps it to the file, the pinned commit and the hash.
@@ -106,7 +108,7 @@ def available() -> bool:
 #                               container talks to an engine that isn't there, so every
 #                               up/down/restart silently does nothing.
 #   DBUS_SESSION_BUS_ADDRESS  — the host user systemd, via the systemctl shim. Without it
-#                               `stack` can't see the unit and the on/off switch vanishes
+#                               `stack` can't see the unit and start-at-boot vanishes
 #                               from status entirely (it reads as "unknown", not "off").
 # STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
 # in here, and without it they launch the backends with no GPU (lib/host.sh).
@@ -251,7 +253,7 @@ _GROUPS = {"backend": "backends", "frontend": "frontends", "control": "control"}
 def status() -> dict:
     """`stack status` in one shape, whichever way the stack can report it.
 
-    {switch: "ON"|"OFF"|None, apps: [...], parsed, route: {...}|None, warnings: [...],
+    {boot: "ON"|"OFF"|None (start at boot; None = no unit), apps: [...], parsed, route: {...}|None, warnings: [...],
      raw, duration_ms, source: "json"|"text"}. Each app: name, label, icon, up, port, desc,
     group (backends/frontends/control), self, and from JSON also capability, local (this
     machine's copy of a backend), https_port and https_setup.
@@ -288,9 +290,9 @@ def _from_json(data: dict, duration_ms: int) -> dict:
             "https_port": a["https_port"] if isinstance(a.get("https_port"), int) else None,
             "https_setup": str(a.get("https_setup") or ""),
         })
-    sw = data.get("switch")
+    sw = data.get("boot", data.get("switch"))       # "switch": the field's name before boot
     route = data.get("route") if isinstance(data.get("route"), dict) else None
-    return {"switch": sw.upper() if sw in ("on", "off") else None, "apps": apps,
+    return {"boot": sw.upper() if sw in ("on", "off") else None, "apps": apps,
             "parsed": bool(apps), "route": route,
             "warnings": [w for w in data.get("warnings") or [] if isinstance(w, str)],
             "raw": "", "duration_ms": duration_ms, "source": "json"}
@@ -344,7 +346,8 @@ def frontends(force: bool = False) -> dict:
     return data
 
 
-_SWITCH = re.compile(r"^AI backend switch:\s*(?P<state>ON|OFF)\b")
+# "Start at boot:" since 2026-11-19; "AI backend switch:" before, when one switch did both.
+_SWITCH = re.compile(r"^(?:Start at boot|AI backend switch):\s*(?P<state>ON|OFF)\b")
 _GROUP = re.compile(r"^(?P<group>Backends|Frontends|Control)\b")
 
 
@@ -375,7 +378,7 @@ def parse_status(output: str) -> dict:
                 # The UI greys out controls it must not offer rather than failing later.
                 "self": m.group("name") == SELF_APP,
             })
-    return {"switch": switch, "apps": apps, "parsed": bool(apps)}
+    return {"boot": switch, "apps": apps, "parsed": bool(apps)}
 
 
 _DOCTOR_OK = re.compile(r"^\s+✓\s+(.*)$")

@@ -57,13 +57,13 @@ shared across every app; frontends run side-by-side on their own ports.
 ## Usage
 
 ```bash
-stack on / stack off  # SINGLE SWITCH for the AI backend (the one to remember):
-                      #   off = stop backends + won't restart at boot  → free the GPU to game
-                      #   on  = start backends now + re-arm boot auto-start
+stack on / stack off  # start / stop the backends NOW (= stack up / stack down backends)
+stack boot [on|off]   # show / set START AT BOOT — a separate setting, starts/stops nothing now
+                      #   gaming: stack off (+ stack boot off to stay off after a reboot)
 stack              # interactive: show status, offer to start backends, then pick a frontend
-stack up           # start backends now WITHOUT changing the boot toggle
+stack up           # start backends now (never changes start at boot)
                    #   (skips the local text model while text is routed to Halo)
-stack status       # what's up (+ shows the ON/OFF switch state)
+stack status       # what's up (+ whether the backends start at boot)
 stack status --json  # the same for stack-ui and scripts (shape: status_json in `stack`)
 stack companion    # start one app: a backend, stackui, or a frontend by repo name
 stack frontends    # installed frontends (--json for stack-ui)
@@ -180,13 +180,23 @@ doesn't have to.
 The unit check compares the whole installed file with what `stack install service` would write,
 so an old unit (wrong path, or the old 240 s start timeout) is reported.
 
-## The on/off switch (gaming ↔ AI) + boot auto-start
+## Running now vs. start at boot (two separate settings)
 
-`ai-stack-backends.service` — a **systemd user** unit (oneshot, `stack up`/`stack down backends`) is the
-**single source of truth**. `stack on`/`stack off` drive it:
-- **`stack off`** → `systemctl --user disable --now` → stops KoboldCPP + ComfyUI **and** removes the boot
-  start. Nothing brings them back until you `stack on`, so the GPU stays free for gaming across reboots.
-- **`stack on`** → `systemctl --user enable --now` → starts them now and re-arms boot.
+Until 2026-11-19 one switch did both: `stack off` stopped the backends **and** disabled boot. They
+are now independent:
+
+- **What runs now:** `stack on` / `stack up` start the backends, `stack off` / `stack down backends`
+  stop them (frontends keep running). None of them touch boot. The dashboard: *Start backends* /
+  *Stop backends*, next to a "Backends running / stopped / N of M up" label.
+- **Start at boot:** `stack boot on|off` enables or disables `ai-stack-backends.service`, a
+  **systemd user** unit (oneshot, `ExecStart=stack up`, `ExecStop=stack down backends`). Plain
+  `enable`/`disable`, never `--now`, so it starts or stops nothing now. The dashboard: the
+  *Start at boot* toggle, saved at once. `stack enable` / `stack disable` are aliases.
+- **Gaming:** `stack off` frees the GPU now; add `stack boot off` if it should stay free after a
+  reboot. `stack gaming` is an alias for `stack off` only.
+- An enabled unit stays "active (exited)" after boot whatever `stack off` does later. Harmless: its
+  ExecStop at shutdown just stops whatever is still running. `stack status --json` reports the
+  setting as `boot` (and as `switch`, its old name, for older readers).
 
 The shipped unit is a **template**: `@SELF@` is substituted with the checkout's own path at
 install time, so it works wherever ai-stack is cloned. Install it with `stack install service`, not
@@ -195,15 +205,15 @@ point; the old hardcoded `~/Development/ai_ecosystem/...` path failed *silently*
 
 ```bash
 stack install service         # render the unit + daemon-reload (COPY, never a symlink —
-                              #   systemctl disable deletes a symlinked unit, breaking `stack on`)
+                              #   systemctl disable deletes a symlinked unit, breaking `stack boot on`)
 loginctl enable-linger        # start at boot even before you log in
-stack on                      # arm it (enable + start)
+stack boot on                 # start at every boot (and `stack on` to start now)
 
 systemctl --user status ai-stack-backends   # low-level check
 journalctl --user -u ai-stack-backends -f   # boot logs
 ```
 
-Reuses the stack's own start logic (DRY), verified under the systemd `--user` context. Frontends stay manual — the switch only governs the shared backends.
+Reuses the stack's own start logic (DRY), verified under the systemd `--user` context. Frontends stay manual — start at boot only governs the shared backends.
 
 ## `stack status --json`
 
@@ -233,7 +243,7 @@ above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `la
   (adapter) from the model file: ChatML for Qwen, `mistral-nemo.json` for Rocinante, AutoGuess
   otherwise. A swap takes ~25 s; a fallback ~35–50 s.
 - **Both backends run with `--restart=on-failure:5`, not `--rm`.** Before this, a crashed backend
-  vanished without a trace while the switch still said ON (found 2026-09-24: both gone, no container,
+  vanished without a trace while boot auto-start still said ON (found 2026-09-24: both gone, no container,
   no logs). Podman now restarts a crash up to 5 times; `podman stop` (`stack down`/`stack off`) is a
   deliberate stop and is never restarted — unlike the old `comfyui.service` below. Stopped containers
   linger until the next `start.sh` removes them, so `stack logs` works after a crash.
@@ -260,7 +270,7 @@ above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `la
   `http://koboldcpp:5001`; that name is the router's. `host.containers.internal:<HOST_COMFY_PORT>`
   still works (the router publishes it), but it's no longer the default anywhere.
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
-  removes symlinked units (which then breaks `stack on`). `install_service` renders it from the
+  removes symlinked units (which then breaks `stack boot on`). `install_service` renders it from the
   `@SELF@` template; `stack doctor` warns if the installed unit's `ExecStart` points at a *different*
   checkout, which otherwise enables cleanly and only fails at boot.
 - **`.containerignore` can never be a symlink.** Podman silently doesn't follow one — verified
