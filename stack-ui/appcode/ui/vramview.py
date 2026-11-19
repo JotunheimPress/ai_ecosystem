@@ -72,7 +72,8 @@ class VramView:
 
     def _render_now(self) -> None:
         v = self.data.get("vram") or {}
-        by_id("vr-free").disabled = not v.get("available")
+        # Releasing is a ComfyUI call: offered only while it answers, whatever the figures' source.
+        by_id("vr-free").disabled = not self.data.get("comfy_up")
         if not v.get("available"):
             by_id("vr-now").innerHTML = f'<span class="su-dim">{esc(v.get("source"))}</span>'
             return
@@ -83,7 +84,14 @@ class VramView:
                             state="error" if total and used / total > 0.9 else "active")
             + '</div></div>'
             f'<div class="su-kv"><span>Free</span><div>{fmt_bytes(v.get("free"))}'
-            '<span class="su-dim"> — from ComfyUI\'s /system_stats</span></div></div>')
+            f'<span class="su-dim"> — from {esc(v.get("source"))}</span></div></div>'
+            + "".join(
+                f'<div class="su-kv"><span>{label}</span><div>{fmt_bytes(p.get("used"))} of '
+                f'{fmt_bytes(p.get("total"))}</div></div>'
+                for key, label in (("vram", "VRAM carve-out"), ("gtt", "GTT (shared system RAM)"))
+                if (p := (v.get("parts") or {}).get(key)))
+            + (f'<div class="su-kv"><span>Busy</span><div>{int(v["busy"])}%</div></div>'
+               if v.get("busy") is not None else ""))
 
     async def _plan(self) -> None:
         model = str(by_id("vr-model").value or "")

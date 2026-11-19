@@ -112,7 +112,7 @@ class ModelsApi:
         models = [{"name": m["name"], "size": m["size"], "active": m["active"],
                    "n_layers": vram.gguf_meta(Path(m["path"])).get("n_layers")}
                   for m in k["models"]]
-        return {"ok": True, "vram": vram.stats(), "models": models,
+        return {"ok": True, "vram": vram.stats(), "comfy_up": vram.comfy_up(), "models": models,
                 "checkpoints": inventory.checkpoints(), "active": k["active"],
                 "gpu_layers": k["gpu_layers"]}
 
@@ -122,7 +122,7 @@ class ModelsApi:
         from services import vram
 
         try:
-            return {"ok": True, "vram": vram.free_vram()}
+            return {"ok": True, "vram": vram.free_vram(), "comfy_up": True}
         except RuntimeError as exc:
             return _err(exc)
 

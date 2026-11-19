@@ -219,17 +219,18 @@ class DashboardView:
         return "".join(rows)
 
     def _gpu_line(self) -> str:
-        c = ((self.ov.get("backends") or {}).get("comfy") or {})
-        total, free = c.get("vram_total"), c.get("vram_free")
-        if not c.get("up") or not total:
-            return ('<i class="mdi mdi-expansion-card-variant"></i>'
-                    '<span class="su-dim">GPU figures come from ComfyUI — start it to see VRAM use.</span>')
-        used = max(int(total) - int(free or 0), 0)
-        return ('<i class="mdi mdi-expansion-card-variant"></i>'
-                f'<span>{esc(c.get("device") or "GPU")}</span>'
-                + progress_html(used, int(total), text=f"{fmt_bytes(used)} of {fmt_bytes(total)}",
-                                state="error" if used / int(total) > 0.9 else "active")
-                + '<span class="su-dim">both backends and the desktop share this card</span>')
+        g = self.ov.get("gpu") or {}
+        icon = '<i class="mdi mdi-expansion-card-variant"></i>'
+        if not g.get("available") or not g.get("total"):
+            return f'{icon}<span class="su-dim">No GPU figures: {esc(g.get("source") or "unknown")}</span>'
+        total, used = int(g["total"]), int(g.get("used") or 0)
+        busy = g.get("busy")
+        what = "memory (VRAM + GTT)" if g.get("unified") else "VRAM"
+        return (f'{icon}<span>{esc(g.get("device") or "GPU")}</span>'
+                + progress_html(used, total, text=f"{fmt_bytes(used)} of {fmt_bytes(total)} {what}",
+                                state="error" if used / total > 0.9 else "active")
+                + (f'<span>{int(busy)}% busy</span>' if busy is not None else "")
+                + f'<span class="su-dim">every backend and the desktop share it · {esc(g.get("source"))}</span>')
 
     def _frontend_card(self, a: dict) -> str:
         # The repo name is the identity; say it whenever the brand differs, so a fork

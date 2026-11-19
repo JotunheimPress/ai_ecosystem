@@ -159,24 +159,17 @@ _VRAM: tuple[float, int | None] = (0.0, None)
 def vram_total() -> int | None:
     """Total VRAM in bytes, or None.
 
-    There is no NVIDIA tooling in this container by design, so ask ComfyUI — its
-    /system_stats reports the device. Falls back to STACK_UI_VRAM_BYTES so the hint still
-    works when ComfyUI is stopped, and to None (hints suppressed) when neither is
-    available. A wrong guess here would be worse than no hint at all.
+    From the host (services/gpu.py: amdgpu sysfs, nvidia-smi, then ComfyUI). Falls back
+    to STACK_UI_VRAM_BYTES, and to None (hints suppressed) when nothing is readable. A
+    wrong guess here would be worse than no hint at all.
     """
+    from services import gpu
+
     global _VRAM
     if time.monotonic() - _VRAM[0] < 120 and _VRAM[1]:
         return _VRAM[1]
-    total = None
-    try:
-        req = urllib.request.Request(f"http://localhost:{os.environ.get('COMFYUI_PORT') or '8188'}/system_stats",
-                                     headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=2) as r:
-            devs = json.load(r).get("devices") or []
-            if devs and devs[0].get("vram_total"):
-                total = int(devs[0]["vram_total"])
-    except Exception:                                    # noqa: BLE001 - best effort
-        total = None
+    g = gpu.read()
+    total = int(g["total"]) if g.get("available") and g.get("total") else None
     if total is None:
         env = os.environ.get("STACK_UI_VRAM_BYTES", "").strip()
         total = int(env) if env.isdigit() else None

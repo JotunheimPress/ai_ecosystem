@@ -11,8 +11,8 @@ layers to offload so it does.
 
 **Every number here is an estimate and is labelled as one.** The layer count is read from
 the GGUF header, which is exact; the VRAM those layers occupy is proportional to file size,
-which is not. There is no NVIDIA tooling in this container, so live figures come from
-ComfyUI's `/system_stats` and are unavailable when it is stopped.
+which is not. Live figures come from the host (`services/gpu.py`: amdgpu sysfs or
+nvidia-smi), with ComfyUI's `/system_stats` as the fallback.
 """
 from __future__ import annotations
 
@@ -137,25 +137,20 @@ def kv_cache_bytes(meta: dict, context: int) -> int | None:
 
 # --- live figures ------------------------------------------------------------
 def stats() -> dict:
-    """VRAM as ComfyUI sees it. The only GPU visibility this container has."""
+    """GPU memory now, from the host when it can be read (services/gpu.py)."""
+    from services import gpu
+
+    return gpu.read()
+
+
+def comfy_up() -> bool:
+    """Whether ComfyUI answers, so the UI can offer "Release ComfyUI VRAM" only then."""
     try:
         req = urllib.request.Request(f"{COMFY}/system_stats", headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=2) as r:
-            data = json.load(r)
-        dev = (data.get("devices") or [{}])[0]
-        total = int(dev.get("vram_total") or 0)
-        free = int(dev.get("vram_free") or 0)
-        return {
-            "available": bool(total),
-            "device": dev.get("name"),
-            "total": total,
-            "free": free,
-            "used": max(total - free, 0),
-            "torch_free": int(dev.get("torch_vram_free") or 0),
-            "source": "comfyui /system_stats",
-        }
+        with urllib.request.urlopen(req, timeout=1) as r:
+            return r.status == 200
     except Exception:                                          # noqa: BLE001 - best effort
-        return {"available": False, "source": "comfyui is down — start it for live figures"}
+        return False
 
 
 def free_vram() -> dict:

@@ -27,7 +27,7 @@ class StackApi:
 
     def overview(self) -> dict:
         """Everything the dashboard shows, in one round trip."""
-        from services import backends, jobs, stackctl
+        from services import backends, gpu, jobs, stackctl
 
         try:
             res = stackctl.run("status")
@@ -43,6 +43,7 @@ class StackApi:
             "job": job.public() if job and not job.done else None,
             "backends": backends.snapshot(),
             "disk": stackctl.disk(),
+            "gpu": gpu.read(),
         }
 
     def action(self, verb: str, target: str = "") -> dict:

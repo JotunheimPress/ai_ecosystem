@@ -95,7 +95,7 @@ service.py             # ASGI entry: create_app + the GET event streams; binds 0
 Containerfile          # python 3.13 + wapyt wheels + podman CLIENT + the systemctl shim
 run-podman.sh          # the run flags, each one load-bearing — read the header
 shim/systemctl         # systemctl -> D-Bus translation (see above)
-tests/                 # test_backends.py (pytest), smoke.py (Playwright)
+tests/                 # test_backends.py, test_gpu.py (pytest), smoke.py (Playwright)
 appcode/               # pytincture modules_path
   stackui.py           # the page: toolbar, sidebar, routing, action console, download strip
   ui/                  # browser-only screens (pytincture ships what the page imports)
@@ -119,6 +119,7 @@ appcode/services/
   downloads.py         # transfers: progress, resume, host allowlist
   provenance.py        # where each downloaded model came from (model-sources.json)
   vram.py              # GGUF header parsing, live VRAM, the planner
+  gpu.py               # live GPU figures from the host: amdgpu sysfs, nvidia-smi, then ComfyUI
   nodes.py             # custom-node pins vs checkouts
 ```
 
@@ -302,9 +303,9 @@ be hand-written anyway for byte-level progress, the library's cache would put fi
 HF-shaped cache dir rather than the models dir the backends scan, and this is a
 control-plane container where a small dependency surface is worth more. Three URLs total.
 
-- **Fit hints are advisory and say so.** VRAM comes from ComfyUI's `/system_stats` — there
-  is no NVIDIA tooling in here — and when ComfyUI is down the hint is *suppressed*, not
-  guessed. `STACK_UI_VRAM_BYTES` overrides. Bands account for an SD 1.5 checkpoint
+- **Fit hints are advisory and say so.** The GPU total comes from `services/gpu.py` (host
+  counters, then ComfyUI); when nothing is readable the hint is *suppressed*, not guessed.
+  `STACK_UI_VRAM_BYTES` overrides. Bands account for an SD 1.5 checkpoint
   alongside, which is the pairing both INSTALL guides recommend.
 - **One download at a time**, refused (409) rather than queued — same reasoning as
   actions. Two 7 GB transfers over one link finish later than one after the other.
@@ -429,8 +430,13 @@ such container. It reads as KoboldCPP being broken when it is ComfyUI still hold
 - **`DESKTOP_HEADROOM` (768 MB) is held back from every budget** — the KDE compositor is on
   this card too. Without it the planner produced "12.3 GB of 12.5 GB", which is
   arithmetically true and practically an OOM.
-- **Live figures need ComfyUI running.** No NVIDIA tooling in this container; the planner
-  degrades to "start ComfyUI for live figures" rather than inventing a total.
+- **Live figures come from the host** (`services/gpu.py`, since 2026-11-19), so they show with
+  ComfyUI stopped. AMD: amdgpu's sysfs counters, VRAM carve-out + GTT (on the Halo box models live
+  in GTT, so the total is the sum, as in `koboldcpp/start.sh`), plus `gpu_busy_percent`. NVIDIA:
+  the host's `nvidia-smi`, injected by CDI. ComfyUI's `/system_stats` is the fallback, and with
+  none of the three the planner says so rather than inventing a total. The dashboard's GPU strip
+  reads the same (`overview()["gpu"]`). "Release ComfyUI VRAM" is enabled only while ComfyUI
+  answers (`vram.comfy_up()`).
 
 **Per-model layer presets** live in `koboldcpp/model-presets.json` (gitignored, written
 atomically). `model.env` only holds the *active* selection, so without this, switching
