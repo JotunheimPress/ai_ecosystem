@@ -200,8 +200,8 @@ class InfrastructureView(_Cards):
                       'title="stack route local">'
                       '<i class="mdi mdi-swap-horizontal"></i>Serve text locally</button>')
         rows = [self._kv("Text", f'served by {served} <span class="su-dim">· {esc(target)}</span>')]
-        rows.append(self._kv("Image and sound", 'this machine <span class="su-dim">· direct, not yet routed</span>'))
-        rows.append(self._kv("Decision", 'this machine <span class="su-dim">· direct, not yet routed</span>'))
+        rows.append(self._kv("Image and sound", 'this machine\'s copy <span class="su-dim">· comfyui-local:8188</span>'))
+        rows.append(self._kv("Decision", 'this machine\'s copy <span class="su-dim">· fortuna-local:8009</span>'))
         if r.get("router_config") == "stale":
             rows.append(
                 '<div class="su-banner"><i class="mdi mdi-information-outline"></i>'

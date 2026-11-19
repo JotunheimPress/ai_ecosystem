@@ -22,7 +22,7 @@ expression sprites. Runs as a **Podman container** on `ai-net`, GPU via CDI, lis
 
 ```bash
 stack comfyui          # preferred
-stack logs comfyui     # podman logs -f comfyui
+stack logs comfyui     # podman logs -f comfyui-local
 ./start.sh --lowvram   # extra flags pass through to main.py
 ```
 
@@ -103,7 +103,8 @@ curl -X POST http://localhost:8188/free -H 'Content-Type: application/json' \
 
 Image backend for the **custom companion app** at `~/Development/ai_ecosystem/companion/` (NOT
 SillyTavern — that's legacy). The app's `services/comfyui.py` drives this server over the HTTP API at
-**`http://comfyui:8188`** (by container name on `ai-net`; it was `host.containers.internal:8188`
+**`http://comfyui:8188`** (the backend router's name on `ai-net` since 2026-11-19; it forwards to
+the container `comfyui-local`, which publishes no host port. It was `host.containers.internal:8188`
 before the containerization). It generates one base portrait (txt2img) then derives each emotion
 sprite via img2img, so all expressions are the same character. See
 `~/Development/ai_ecosystem/companion/CLAUDE.md` for the full expression pipeline.

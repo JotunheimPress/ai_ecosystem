@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Usage:
-#   ./start.sh                      # build if needed, then start detached on :8188
+#   ./start.sh                      # build if needed, then start detached as comfyui-local
 #   ./start.sh --lowvram            # extra flags are passed straight to main.py
+#
+# The container is `comfyui-local` and publishes no host port: the backend router answers
+# as `comfyui:8188` on ai-net and on the host port (HOST_COMFY_PORT), and forwards here.
 #
 # Code ships in the image; mutable state is bind-mounted from the host ComfyUI
 # checkout and selected with --base-directory /data.
@@ -16,8 +19,10 @@ STATE="${COMFYUI_STATE:-$ECO/ComfyUI}"
 . "${SCRIPT_DIR}/../lib/host.sh"
 host_profile_load
 IMAGE="$(comfy_image)"
-CONTAINER_NAME="${COMFYUI_NAME:-comfyui}"   # override to run a second copy side-by-side
-PORT="$HOST_COMFY_PORT"   # host side only; inside ai-net it is comfyui:8188 (lib/host.sh)
+CONTAINER_NAME="${COMFYUI_NAME:-comfyui-local}"   # override to run a second copy side-by-side
+# A second copy isn't behind the router, so it needs its own host port: COMFYUI_PUBLISH=8190.
+PUBLISH_ARGS=()
+[ -n "${COMFYUI_PUBLISH:-}" ] && PUBLISH_ARGS=(-p "$(publish "${COMFYUI_PUBLISH}" 8188)")
 NET="${COMFYUI_NET:-ai-net}"
 
 if ! podman image exists "${IMAGE}"; then
@@ -49,7 +54,7 @@ case "${HOST_GPU}" in
          [[ " $* " == *vram\ * ]] || AMD_ARGS=(--highvram) ;;
 esac
 
-echo "Starting ComfyUI at http://localhost:${PORT} (state: ${STATE})"
+echo "Starting ComfyUI as ${CONTAINER_NAME} (state: ${STATE}); the router serves it at http://localhost:${HOST_COMFY_PORT}"
 # --security-opt label=disable: SELinux otherwise denies the container access to the
 # CDI-injected /dev/nvidia* nodes ("Failed to initialize NVML: Insufficient
 # Permissions", then "No CUDA GPUs are available"). This is narrower than the
@@ -67,7 +72,7 @@ podman run -d \
     "${AMD_ENV[@]}" \
     "${GPU_ARGS[@]}" \
     --network "${NET}" \
-    -p "$(publish "${PORT}" 8188)" \
+    "${PUBLISH_ARGS[@]}" \
     -v "${STATE}/models:/data/models" \
     -v "${STATE}/input:/data/input" \
     -v "${STATE}/output:/data/output" \

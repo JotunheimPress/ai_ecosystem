@@ -190,11 +190,19 @@ fi
 # (measured 2026-10-28: 8.7 GB reported free, 5.4 GB allocatable with ComfyUI holding
 # 2.3 GB; 9.5 GB once it let go). That is what made a 12B model fail to load after a
 # swap. Ask ComfyUI to drop its cache first — it reloads on its next job.
-# KOBOLDCPP_FREE_COMFY=0 skips this.
+# KOBOLDCPP_FREE_COMFY=0 skips this. COMFYUI_URL asks a ComfyUI at that URL instead.
+# This machine's copy is asked directly (podman exec), not through the router: it's the
+# memory on THIS GPU that matters. Its image has python3 but no curl.
+comfy_free() {
+    if [ -n "${COMFYUI_URL:-}" ]; then
+        curl -fsS -m 5 -X POST "${COMFYUI_URL}/free" -H 'Content-Type: application/json' \
+            -d '{"unload_models":true,"free_memory":true}' >/dev/null 2>&1
+        return
+    fi
+    podman exec comfyui-local python3 -c 'import urllib.request as u; u.urlopen(u.Request("http://127.0.0.1:8188/free", data=b"{\"unload_models\":true,\"free_memory\":true}", headers={"Content-Type": "application/json"}), timeout=5)' >/dev/null 2>&1
+}
 if [ "${KOBOLDCPP_FREE_COMFY:-1}" != "0" ]; then
-    if curl -fsS -m 5 -X POST "${COMFYUI_URL:-http://localhost:${HOST_COMFY_PORT}}/free" \
-            -H 'Content-Type: application/json' \
-            -d '{"unload_models":true,"free_memory":true}' >/dev/null 2>&1; then
+    if comfy_free; then
         echo "Asked ComfyUI to release its cached models"
         wait_vram_settled
     fi

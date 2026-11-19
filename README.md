@@ -164,9 +164,10 @@ stack on                 # arm it
 
 ## How it works
 
-- Containers share the **`ai-net`** Podman network and reach the backends by name —
-  `http://koboldcpp:5001` and `http://comfyui:8188`. Both are also published to the host
-  (`localhost:5001` / `localhost:8188`).
+- Containers share the **`ai-net`** Podman network and reach the backends by name through one
+  router — `http://koboldcpp:5001` (text), `http://comfyui:8188` (image and sound) and
+  `http://fortuna:8009` (decision). The router also publishes them to the host
+  (`localhost:5001`, `localhost:8188` or the `COMFYUI_PORT` in `host.env`, `127.0.0.1:8009`).
 - The app list is a small **registry** at the top of the `stack` script — adding a new frontend is
   one row plus one start line.
 - Backend recipes live in this repo (`koboldcpp/`, `comfyui/`) and are the canonical copies;

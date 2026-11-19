@@ -6,8 +6,9 @@ It speaks TypeSafe's `/v1/systemone` shape, so a frontend asks it instead of pro
 a label and regex-parsing the reply (emotion of a reply, "is the AI writing the user's character?",
 player intent, does this need a roll…). Added 2026-11-17.
 
-- **Name everywhere is `fortuna`** — `stack fortuna`, container `fortuna`, `http://fortuna:8009` on
-  ai-net — not the engine's name. The engine behind it is swappable; frontends never know which.
+- **Name everywhere is `fortuna`** — `stack fortuna`, `http://fortuna:8009` on ai-net — not the
+  engine's name. Since 2026-11-19 that address is the backend router's; the container is
+  `fortuna-local` with no host port, and the router publishes `127.0.0.1:8009`. The engine behind it is swappable; frontends never know which.
 - **Engine today: JevK5** (`allebee/jevk5`, Apache-2.0): Qwen3.5-4B + a distilled LoRA, as a GGUF on
   llama.cpp. Chosen over Kev (`jaredpalmer/kev`) because Kev needs PyTorch (`<2.9`, i.e. 2.8 on
   ROCm), which carries an unfixed checkpoint-loading code-execution advisory (fixed in 2.10, outside

@@ -1,6 +1,10 @@
-# Backend router: answers as `koboldcpp` on ai-net (and on the host port that container used
-# to publish) and forwards each request to wherever text runs right now: the local copy, or
-# the Halo box (HALO_PLAN.md). Frontends keep their URLs and never learn which machine answered.
+# Backend router: one nginx container in front of every capability the stack provides. It
+# answers on ai-net as `koboldcpp` (text, :5001), `comfyui` (image and sound, :8188) and
+# `fortuna` (decision, :8009) — the names those containers used to have — and on the host
+# ports they used to publish. Frontends keep their URLs and never learn which copy answered.
+#
+# Only text can be served elsewhere (`stack route halo`, HALO_PLAN.md); image and decision
+# always go to this machine's copies, so their upstreams are fixed here.
 #
 # Rendered by the nginx image's own entrypoint: only ${NGINX_LOCAL_RESOLVERS} is substituted
 # (envsubst is limited to variables that exist in the environment), so nginx's own $vars
@@ -9,28 +13,72 @@
 # Upstreams are VARIABLES resolved per request through aardvark-dns, not static `upstream`
 # blocks. A static name has to resolve when nginx starts, and the local containers are
 # often absent (started on demand), so a static config would refuse to start at all.
-# valid=5s: a restarted container comes back with a new IP.
+# valid=5s: a restarted container comes back with a new IP. resolver_timeout: an absent
+# container should be a quick 502, not a 30 s hang.
 resolver ${NGINX_LOCAL_RESOLVERS} valid=5s ipv6=off;
+resolver_timeout 2s;
 
 # Long generations and streamed replies (SSE). Buffering would hold a streamed reply until
 # it finished, which is the whole point of streaming lost.
 proxy_http_version 1.1;
-proxy_set_header Connection "";
-proxy_set_header Host $host;
 proxy_buffering off;
 proxy_request_buffering off;
 proxy_read_timeout 1h;
 proxy_send_timeout 1h;
 proxy_connect_timeout 5s;
-client_max_body_size 64m;      # KoboldCPP's own --maxrequestsize default is 32 MB
 access_log off;                # health polls every few seconds; errors still go to the log
 
-# Text: KoboldCPP
+# WebSocket upgrade for ComfyUI's /ws (job progress): pass the client's Upgrade through,
+# and keep Connection empty otherwise so upstream keepalive still works.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      "";
+}
+
+# Text: KoboldCPP, wherever `stack route` points it
 server {
     listen 5001;
     include /etc/nginx/route/route.conf;     # sets $kobold_up (written by `stack route`)
+    client_max_body_size 64m;                # KoboldCPP's own --maxrequestsize default is 32 MB
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
 
     location = /__router/health { default_type text/plain; return 200 "ok\n"; }
-    location = /__router/route  { default_type text/plain; return 200 "text $kobold_up\n"; }
+    location = /__router/route {
+        default_type text/plain;
+        return 200 "text $kobold_up\nimage-sound comfyui-local:8188\ndecision fortuna-local:8009\n";
+    }
+    location = /__router/capabilities {
+        default_type application/json;
+        return 200 '{"text":{"address":"koboldcpp:5001","upstream":"$kobold_up"},"image-sound":{"address":"comfyui:8188","upstream":"comfyui-local:8188"},"decision":{"address":"fortuna:8009","upstream":"fortuna-local:8009"}}\n';
+    }
     location / { proxy_pass http://$kobold_up; }
+}
+
+# Image and sound: ComfyUI on this machine
+server {
+    listen 8188;
+    set $comfy_up comfyui-local:8188;
+    # ComfyUI applies its own upload limit; a second, smaller one here would fail large
+    # image or audio uploads with a 413 that ComfyUI never sees.
+    client_max_body_size 0;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    # $http_host keeps the port: ComfyUI compares Host with Origin and refuses a mismatch.
+    proxy_set_header Host $http_host;
+
+    location = /__router/health { default_type text/plain; return 200 "ok\n"; }
+    location / { proxy_pass http://$comfy_up; }
+}
+
+# Decision: Fortuna on this machine
+server {
+    listen 8009;
+    set $fortuna_up fortuna-local:8009;
+    client_max_body_size 8m;                 # questions about a state; small JSON
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+
+    location = /__router/health { default_type text/plain; return 200 "ok\n"; }
+    location / { proxy_pass http://$fortuna_up; }
 }

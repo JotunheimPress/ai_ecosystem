@@ -4,9 +4,10 @@
 # calibrated probabilities; nothing is generated.
 #
 # Usage:
-#   ./start.sh            start detached on ai-net as `fortuna` (http://fortuna:8009 by name;
-#                         http://127.0.0.1:8009 from the host, loopback only). Returns once the
-#                         model has loaded, or fails with the container's last log lines.
+#   ./start.sh            start detached on ai-net as `fortuna-local`, behind the backend router,
+#                         which answers as http://fortuna:8009 by name and http://127.0.0.1:8009
+#                         from the host (loopback only). Returns once the model has loaded, or
+#                         fails with the container's last log lines.
 #   ./start.sh --fetch    download the configured model file (pinned commit) and check its
 #                         sha256. The only thing here that downloads weights, and only when asked.
 #   ./start.sh --models   list the model files this recipe knows, with their sizes.
@@ -29,7 +30,7 @@ ENV_FILE="${STATE}/fortuna.env"
 host_profile_load
 IMAGE="$(fortuna_image)"
 BASE="$(fortuna_base_image)"
-CONTAINER_NAME="fortuna"
+CONTAINER_NAME="fortuna-local"
 PORT=8009
 NET="ai-net"
 
@@ -120,27 +121,28 @@ ENV_ARGS=(-e "FORTUNA_GGUF=${FILE}" -e "FORTUNA_MODEL_NAME=${NAME}"
           -e "FORTUNA_NGL=${NGL}")
 [ -n "$API_KEY" ] && ENV_ARGS+=(-e "FORTUNA_API_KEY=${API_KEY}")
 
-echo "Starting Fortuna (${NAME}) at http://127.0.0.1:${PORT} — http://fortuna:${PORT} on ${NET}"
-# Published on loopback only, whatever BIND says: the frontends reach it over ai-net, and the
-# host port is for curl and the dashboard. --restart=on-failure:5 as the other backends.
-# Models are mounted read-only; no :z (labels are disabled above).
+echo "Starting Fortuna (${NAME}) as ${CONTAINER_NAME} — http://fortuna:${PORT} on ${NET} via the router"
+# No host port: the router publishes 127.0.0.1:8009 and answers as `fortuna` on ai-net.
+# --restart=on-failure:5 as the other backends. Models are mounted read-only; no :z (labels
+# are disabled above).
 podman run -d \
     --name "${CONTAINER_NAME}" \
     --restart=on-failure:5 \
     "${GPU_ARGS[@]}" \
     --network "${NET}" \
-    -p "127.0.0.1:${PORT}:${PORT}" \
     -v "${MODELS_DIR}:/models:ro" \
     "${ENV_ARGS[@]}" \
     "${IMAGE}" >/dev/null
 
 for _ in $(seq 1 90); do
-  if curl -sf -m 2 -o /dev/null "http://127.0.0.1:${PORT}/health"; then
+  # Asked inside the container: through the router, a load in progress and a router that's
+  # down look the same.
+  if podman exec "${CONTAINER_NAME}" curl -sf -m 2 -o /dev/null "http://127.0.0.1:${PORT}/health" 2>/dev/null; then
     echo "==> Fortuna up (${NAME}). Logs: podman logs -f ${CONTAINER_NAME}"; exit 0
   fi
   if [ "$(podman inspect -f '{{.State.Status}}' "${CONTAINER_NAME}" 2>/dev/null)" = exited ]; then break; fi
   sleep 2
 done
-echo "Fortuna did not come up on :${PORT}. Logs:" >&2
+echo "Fortuna did not come up (${CONTAINER_NAME}). Logs:" >&2
 podman logs --tail 20 "${CONTAINER_NAME}" 2>&1 | sed 's/^/    /' >&2
 exit 1

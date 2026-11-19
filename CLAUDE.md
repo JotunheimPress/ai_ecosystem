@@ -84,18 +84,24 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 
 | App        | Kind      | Port | Backend it needs | How it starts |
 |------------|-----------|------|------------------|---------------|
-| router     | container | 5001 | — | `ai-stack/router/start.sh` — container `backend-router`; started first, since koboldcpp is health-probed through it |
+| router     | container | 5001, `HOST_COMFY_PORT`, 127.0.0.1:8009 | — | `ai-stack/router/start.sh` — container `backend-router`, aliases `koboldcpp`, `comfyui`, `fortuna`; started first, since every backend is health-probed through it |
 | koboldcpp  | container | (via router) | —        | `~/Development/ai_ecosystem/koboldcpp/start.sh` (detached, on `ai-net`, container `koboldcpp-local`) |
-| comfyui    | container | 8188 | —                | `ai-stack/comfyui/start.sh` (detached, on `ai-net`) |
-| fortuna    | container | 8009 (127.0.0.1) | — | `ai-stack/fortuna/start.sh` (container `fortuna`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; model fetched only by `start.sh --fetch` (`fortuna/CLAUDE.md`) |
+| comfyui    | container | (via router) | —        | `ai-stack/comfyui/start.sh` (detached, on `ai-net`, container `comfyui-local`) |
+| fortuna    | container | (via router) | — | `ai-stack/fortuna/start.sh` (container `fortuna-local`) — typed decisions, `http://fortuna:8009/v1/systemone` on ai-net; model fetched only by `start.sh --fetch` (`fortuna/CLAUDE.md`) |
 | *frontends* | container | from `frontend.json` | varies | whatever is installed — see below. Today: `companion` 7861, `ai-story-maker` 7860, `iguana_studio` 7862, `nocturne` 7864 |
 
 ## Topology
 
 - **Shared network `ai-net`** (renamed from the legacy `sillytavern-net`). Containerized apps join it
-  and reach KoboldCPP by name at `http://koboldcpp:5001`.
-- **ComfyUI** is a container on `ai-net` publishing `8188` → `localhost:8188` from the host,
-  `http://comfyui:8188` by name from other containers on the network.
+  and reach every capability by name, **all through the backend router** (since 2026-11-19):
+  `http://koboldcpp:5001` (text), `http://comfyui:8188` (image and sound), `http://fortuna:8009`
+  (decision). The router forwards to `koboldcpp-local` (or the Halo box, `stack route`),
+  `comfyui-local` and `fortuna-local`, none of which publish a host port.
+- **From the host:** `localhost:5001`, `localhost:$HOST_COMFY_PORT` (8188, or 8189 where the OS runs
+  its own ComfyUI on 8188) and `127.0.0.1:8009`, all published by the router.
+- **Anything about "the copy on this GPU" bypasses the router** with `podman exec` into the
+  `*-local` container: `stack status`'s local probes, Fortuna's start wait, KoboldCPP's request
+  that ComfyUI free its memory.
 - Frontends don't conflict — distinct ports (7861/7860/7862), so several can run at once. "Pick a
   frontend" is about convenience, not exclusivity.
 
@@ -249,8 +255,8 @@ above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `la
 - `start_one` refuses to start a `proc` app whose port is already held but not answering health, and
   names the holding PID instead of launching a doomed second copy.
 - The frontends reach ComfyUI at **`http://comfyui:8188`** by name on `ai-net`, matching
-  `http://koboldcpp:5001`. `host.containers.internal:8188` still works while the port is published,
-  but it's no longer the default anywhere.
+  `http://koboldcpp:5001`; that name is the router's. `host.containers.internal:<HOST_COMFY_PORT>`
+  still works (the router publishes it), but it's no longer the default anywhere.
 - The systemd unit must be a **copy** in `~/.config/systemd/user/`, not a symlink — `systemctl disable`
   removes symlinked units (which then breaks `stack on`). `install_service` renders it from the
   `@SELF@` template; `stack doctor` warns if the installed unit's `ExecStart` points at a *different*

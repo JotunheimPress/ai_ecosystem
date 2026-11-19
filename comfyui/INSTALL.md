@@ -62,8 +62,8 @@ Under the stack, prefer `stack comfyui` / `stack up`. Cold start is ~5 s; the fi
 several minutes (torch + CUDA wheels are most of the 6.9 GB).
 
 ```bash
-podman logs -f comfyui                        # or: stack logs comfyui
-curl -s localhost:8188/system_stats | jq .devices   # confirm the GPU is seen
+podman logs -f comfyui-local                  # or: stack logs comfyui
+curl -s localhost:8188/system_stats | jq .devices   # through the router; COMFYUI_PORT in host.env if not 8188
 ```
 
 ## 3. Configuration
@@ -71,9 +71,10 @@ curl -s localhost:8188/system_stats | jq .devices   # confirm the GPU is seen
 | Variable | Default | Description |
 |---|---|---|
 | `COMFYUI_STATE` | `$AI_ECOSYSTEM/ComfyUI` | host dir holding the state subdirs |
-| `COMFYUI_PORT` | `8188` | published host port |
+| `COMFYUI_PORT` | `8188` | host port, in `ai-stack/host.env`; the backend router publishes it |
 | `COMFYUI_NET` | `ai-net` | Podman network to join |
-| `COMFYUI_NAME` | `comfyui` | container name; override to run a second copy |
+| `COMFYUI_NAME` | `comfyui-local` | container name; override to run a second copy |
+| `COMFYUI_PUBLISH` | unset | host port for a second copy, which isn't behind the router |
 
 Extra flags pass straight to `main.py`: `./start.sh --lowvram`.
 
@@ -182,14 +183,15 @@ the card free: 25 frames at 960×544, 20 steps → 41 s.
 
 ## Topology
 
-ComfyUI is a container on **`ai-net`**, published to the host:
+ComfyUI is the container **`comfyui-local`** on `ai-net`, behind the backend router (since
+2026-11-19), which answers for it:
 
-- from the host → `localhost:8188`
+- from the host → `localhost:8188` (or the `COMFYUI_PORT` in `ai-stack/host.env`)
 - from containers on `ai-net` (companion, story, iguana) → **`http://comfyui:8188`** (by name)
 
 This matches how KoboldCPP is reached (`http://koboldcpp:5001`). The old
-`host.containers.internal:8188` still works while the port is published, but the frontends now
-default to the by-name form.
+`host.containers.internal:8188` still works (the router publishes the port), but the frontends
+now default to the by-name form.
 
 ## Why not distrobox
 
