@@ -102,8 +102,9 @@ repo (a frontend, a script reading `stack status --json`) needs a change too.
 
 Official frontends install with one command: `stack frontend available` lists them, and
 `stack frontend add NAME` clones one at its latest release, checks it and builds it. Any other
-frontend is a repo with a `frontend.json` at its root: clone it into the same parent directory
-as `ai-stack/`, then start it by its repo name:
+frontend is a repo with a `frontend.json` at its root: `stack frontend add <git URL>` installs
+it the same way after asking, or clone it into the same parent directory as `ai-stack/`. Start
+it by its repo name:
 
 ```bash
 cd ..

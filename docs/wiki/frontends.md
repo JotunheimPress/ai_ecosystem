@@ -27,9 +27,10 @@ stack frontend add <name>         # clone its latest release next to ai-stack, c
 stack frontend update <name>      # its newest release (or git pull on a branch), rebuilt
 stack frontend remove <name>      # stop it and delete its image and folder
 stack frontend check              # is a newer release out for any installed frontend?
+stack frontend add <git URL>      # any other frontend: see "Any other frontend" below
 ```
 
-- `add` takes only names from the list. It refuses before cloning if the frontend's port or
+- `add <name>` takes names from the list. It refuses before cloning if the frontend's port or
   container name is already taken, or if it needs a newer AI Ecosystem, and refuses after
   cloning if the frontend's own `frontend.json` doesn't match the list.
 - `check` asks each installed frontend's origin for its release tags (`vX.Y.Z`) and changes
@@ -37,12 +38,33 @@ stack frontend check              # is a newer release out for any installed fro
   you work in on a branch past that tag is up to date. The dashboard runs the same check
   (cached for 6 hours, again after an install, update or remove) and shows "vX.Y.Z available"
   on the frontend's card and a count beside *Installed apps*. `STACK_UPDATE_CHECK=off` turns it
-  off. From the dashboard a private frontend repo can't be checked, since it has no git login.
+  off. A private GitHub repo is checked with `GITHUB_TOKEN` (below); without one the dashboard
+  can't check it, since it has no git login of its own.
 - `remove` won't delete a folder holding anything git doesn't: saved data, local changes or
   unpushed commits. It lists them; move what you want to keep and delete the folder yourself.
 
-**Any other frontend:** clone the repo into the ecosystem root, next to `ai-stack/`. It builds
-its own image on its first `stack <repo>`. `stack frontend update` and `remove` work on it too.
+**Any other frontend** installs from its git URL, the same way as an official one: newest
+release, checked, built. Nobody reviewed it, so `add` shows what it is and what it will run, and
+asks first (`--yes` skips the question, and is needed without a terminal):
+
+```bash
+stack frontend add https://github.com/someone/my-app.git
+stack frontend add git@github.com:someone/my-app.git
+```
+
+- The repo's name is the frontend's name, and its `frontend.json` must say the same `repo`.
+- It refuses a port or container name that's already taken, and an official frontend's name
+  under another URL: a fork needs its own name. Taking a port the official list reserves is
+  allowed, with a warning: you won't be able to install both.
+- The dashboard marks it *Custom*. `stack frontend update`, `check` and `remove` work on it.
+- Cloning it into the ecosystem root yourself, next to `ai-stack/`, still works too; it builds
+  its image on its first `stack <repo>`.
+
+**Private GitHub repos:** your own git login (gh, a credential manager, ssh) works from a
+terminal. Otherwise, and always in the dashboard, put a `GITHUB_TOKEN=…` line with read access
+to the repo in `stack-ui/tokens.env` (keep it `chmod 600`; rebuild the dashboard for it to see
+it). git is offered it for github.com only, after your own login, and it is never written into
+the clone.
 
 ## `frontend.json`
 

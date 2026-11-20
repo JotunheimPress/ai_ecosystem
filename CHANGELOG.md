@@ -16,6 +16,20 @@ releases*).
 
 ## Unreleased
 
+### Added
+
+- `stack frontend add <git URL>` installs any frontend, not just official ones: its newest
+  release, checked against the stack and your installed frontends, then built. It shows what
+  it is and asks first, since nobody reviewed it (`--yes` to skip). Terminal only for now.
+- Private frontend repos on GitHub: `GITHUB_TOKEN` in `stack-ui/tokens.env` is used by
+  `stack frontend add`, `update` and `check` after your own git login, so the dashboard's
+  "vX.Y.Z available" check now reaches them too.
+
+### Fixed
+
+- A frontend cloned over ssh (`git@github.com:owner/repo`) from an official repo listed by its
+  https URL is now labelled Official, not Custom.
+
 ## 1.4.0 — 2026-11-20
 
 ### Added

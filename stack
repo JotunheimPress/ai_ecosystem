@@ -16,6 +16,9 @@
 #   stack frontend available [--json]  the official frontends (frontends.json) and which are installed
 #   stack frontend add NAME     install an official frontend: clone it at its latest release, check
 #                           it against the list, build it
+#   stack frontend add URL [--yes]  install any frontend from its git URL (https, ssh,
+#                           git@host:owner/repo); asks first, as nobody reviewed it.
+#                           GITHUB_TOKEN (env or stack-ui/tokens.env) reaches private GitHub repos
 #   stack frontend update NAME  newest release (or git pull --ff-only on a branch), rebuilt
 #   stack frontend remove NAME  stop it, remove its image and folder; refuses if the folder
 #                           holds anything git doesn't (user data)
@@ -322,9 +325,10 @@ cmd_frontends() {
 # ---- official frontends: the catalog (frontends.json) and `stack frontend` ---------------
 # frontends.json, in this repo, lists the official frontends: reviewed in a PR and shipped
 # with each release, so what a release offers is fixed and works offline. It also hands out
-# their ports, so two official frontends never clash. `stack frontend add NAME` takes only a
-# name from it, never a URL: what gets cloned is decided in review, not by whoever asks (the
-# dashboard included). STACK_CATALOG points elsewhere, for tests.
+# their ports, so two official frontends never clash. `stack frontend add NAME` takes a name
+# from it: what gets cloned is decided in review, not by whoever asks (the dashboard sends only
+# names). `add URL` is the terminal's custom install, confirmed by whoever typed it (modes
+# custom / vetcustom). STACK_CATALOG points elsewhere, for tests.
 #
 #   { "version": 1,
 #     "frontends": [
@@ -466,9 +470,37 @@ def origin_url(d):
     m = re.search(r'\[remote "origin"\][^\[]*?url\s*=\s*(\S+)', cfg)
     return m.group(1) if m else None
 
+def norm_url(u):
+    """host/owner/repo, lowercased: https://, ssh:// and git@host:owner/repo name one repo alike."""
+    u = re.sub(r"(\.git)?/*$", "", (u or "").strip()).lower()
+    u = re.sub(r"^(https?|ssh|git)://", "", u)
+    u = re.sub(r"^[^@/]+@", "", u)                       # user@
+    return re.sub(r"^([^/:]+)(:\d+)?[:/]", r"\1/", u)     # host:path or host:port/path
+
 def same_repo(a, b):
-    norm = lambda u: re.sub(r"(\.git)?/*$", "", (u or "").strip()).lower()
-    return bool(a and b) and norm(a) == norm(b)
+    return bool(a and b) and norm_url(a) == norm_url(b)
+
+# Any git URL `stack frontend add` accepts: https, ssh, scp-like git@host:path, or file://
+# (a mirror, tests). No other transports (ext::, fd::), no shell or option characters.
+PATH_PART = r"[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*/?"
+CUSTOM_URL = re.compile(
+    r"^(https://[A-Za-z0-9.-]+(:\d+)?/"
+    r"|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:\d+)?/"
+    r"|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:"
+    r"|file:///)" + PATH_PART + "$")
+
+def staged_row(name):
+    """The staged clone's checked manifest (STAGED) as a catalog-shaped row, or exit."""
+    staged = json.loads(os.environ.get("STAGED") or "{}").get("frontends", [])
+    got = [f for f in staged if f["repo"] == name]
+    if not got:
+        other = [f["repo"] for f in staged]
+        sys.exit(f"its frontend.json says repo {other[0]!r}, but the repo is {name!r}: they must match"
+                 if other else f"the clone has no usable frontend.json")
+    f = got[0]
+    return dict(repo=name, port=f["port"], https_port=f.get("https_port"), container=f["container"],
+                min_stack="", build=f.get("build") or "", brand=f.get("brand") or name,
+                description=f.get("description") or "")
 
 if mode == "json":
     out = []
@@ -511,6 +543,47 @@ elif mode == "verify":
         if f.get(k) != row[k]:
             sys.exit(f"its frontend.json says {k} {f.get(k)!r}, the official list says {row[k]!r}")
     print(f.get("build") or "")
+elif mode == "custom":
+    # A URL someone typed: is it one we may clone, under which name? Prints
+    # "official<TAB>name" when it is an official frontend's own repo (installed the official
+    # way), else "custom<TAB>name".
+    url = rest[0]
+    if not CUSTOM_URL.match(url) or CTRL.search(url) or len(url) > 300:
+        sys.exit(f"{url!r} isn't a git URL stack frontend add takes "
+                 "(https://host/owner/repo, ssh://…, git@host:owner/repo)")
+    name = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1])
+    if not NAME.match(name) or name in reserved:
+        sys.exit(f"the repo name {name!r} can't be a frontend: it must be a plain name that "
+                 "isn't a stack command or built-in app")
+    if name in by_repo:
+        sys.exit(f"{name} is already installed at {by_repo[name]['dir']} (stack frontend update {name})")
+    for row in entries:
+        if row["repo"] == name:
+            if same_repo(url, row["url"]):
+                print(f"official\t{name}")
+                sys.exit(0)
+            sys.exit(f"{name} is an official frontend's name, and {url} isn't its repo "
+                     f"({row['url']}): a fork needs its own repo name")
+    if (Path(eco) / name).exists():
+        sys.exit(f"{eco}/{name} already exists")
+    print(f"custom\t{name}")
+elif mode == "vetcustom":
+    # The staged clone of a URL install (its checked manifest in STAGED) against the stack and
+    # the installed frontends, like an official entry; clashes refuse. A port or container the
+    # official list hands out only warns: the two can't both be installed.
+    row = staged_row(rest[0])
+    p = problems(row)
+    if p:
+        sys.exit("; ".join(p))
+    for e in entries:
+        if ({row["port"], row["https_port"]} - {None}) & {e["port"], e["https_port"]}:
+            print(f"  note: its port is the official {e['repo']}'s, so the two can't both be installed",
+                  file=sys.stderr)
+        if row["container"] == e["container"]:
+            print(f"  note: its container name is the official {e['repo']}'s", file=sys.stderr)
+    US = "\x1f"
+    print(US.join([row["build"], row["brand"], str(row["port"]), str(row["https_port"] or ""),
+                   row["container"], row["description"]]))
 else:
     sys.exit(f"unknown catalog mode {mode}")
 PY
@@ -543,39 +616,82 @@ frontend_unsaved() {
   git -C "$dir" log --oneline --branches --not --remotes 2>/dev/null | sed 's/^/unpushed commit: /' || true
 }
 
+# GITHUB_TOKEN reaches private frontend repos on GitHub: from the environment (the dashboard's
+# container gets it from tokens.env through run-podman.sh), else from stack-ui/tokens.env,
+# parsed, never sourced.
+github_token() {
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then printf '%s' "$GITHUB_TOKEN"; return; fi
+  sed -nE "s/^[[:space:]]*GITHUB_TOKEN[[:space:]]*=[[:space:]]*[\"']?([^\"'[:space:]]+).*/\1/p" \
+    "${STACK_TOKENS:-$SELF/stack-ui/tokens.env}" 2>/dev/null | tail -1
+}
+
+# Runs a command (git, or something that runs git) with the token offered as a credential
+# helper for https://github.com only. Helpers are asked in order and this one is appended
+# last, so your own git login (gh, a keyring) still answers first; the token is what's left
+# when there is none, as in the dashboard's container. The helper is set through git's
+# GIT_CONFIG_* environment and reads the token from STACK_GIT_TOKEN: it is never on a command
+# line (ps shows those) and never written to a clone's .git/config. Without a token, as is.
+with_github_token() {
+  local t; t="$(github_token)"
+  [[ -n "$t" ]] || { "$@"; return; }
+  # shellcheck disable=SC2016  # expanded by git's helper shell, not here
+  STACK_GIT_TOKEN="$t" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.https://github.com.helper" \
+    GIT_CONFIG_VALUE_0='!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$STACK_GIT_TOKEN"; }; f' \
+    "$@"
+}
+
 cmd_frontend() {
-  local sub=${1:-} name=${2:-}
+  local sub=${1:-} name=${2:-} yes=""
+  if [[ "$sub" == add ]]; then
+    local a; name=""
+    for a in "${@:2}"; do
+      case "$a" in -y|--yes) yes=1 ;; *) [[ -z "$name" ]] && name=$a || { echo "usage: stack frontend add NAME|URL [--yes]"; return 1; } ;; esac
+    done
+  fi
   case "$sub" in
     available|list)
       if [[ "$name" == --json ]]; then frontend_manifests json | frontend_catalog json; return; fi
       echo "${C_B}Official frontends${C_OFF} ${C_DIM}($CATALOG)${C_OFF}"
       frontend_manifests json | frontend_catalog list ;;
-    add)     [[ -n "$name" ]] || { echo "usage: stack frontend add NAME (stack frontend available)"; return 1; }
-             frontend_add "$name" ;;
+    add)     [[ -n "$name" ]] || { echo "usage: stack frontend add NAME (stack frontend available) | add URL [--yes]"; return 1; }
+             frontend_add "$name" "$yes" ;;
     update)  [[ -n "$name" ]] || { echo "usage: stack frontend update NAME"; return 1; }
              frontend_update "$name" ;;
     remove)  [[ -n "$name" ]] || { echo "usage: stack frontend remove NAME"; return 1; }
              frontend_remove "$name" ;;
     check)   [[ -z "$name" || "$name" == --json ]] || { echo "usage: stack frontend check [--json]"; return 1; }
              frontend_manifests json | frontend_check "${name:+json}" ;;
-    *) echo "usage: stack frontend available [--json] | add NAME | update NAME | remove NAME | check [--json]"
+    *) echo "usage: stack frontend available [--json] | add NAME | add URL [--yes] | update NAME | remove NAME | check [--json]"
        [[ -z "$sub" ]] && return 0 || return 1 ;;
   esac
 }
 
+# `stack frontend add NAME` installs an official frontend; `add URL` any frontend's repo
+# (custom). A URL is anything with / or :, which a name can't hold. Both clone, take the newest
+# release, check the clone's frontend.json and build; a custom one is checked against the stack
+# and the installed frontends instead of a list entry, and is shown and confirmed first, since
+# its build runs code nobody reviewed (no terminal: --yes, or it isn't installed).
 frontend_add() {
-  local name=$1 url stage build tag
+  local name=$1 yes=${2:-} url="" kind=official plan stage build tag
   command -v git >/dev/null || { echo "git is needed to install a frontend"; return 1; }
-  url="$(frontend_manifests json | frontend_catalog plan "$name")" || return 1
+  if [[ "$name" == */* || "$name" == *:* ]]; then
+    plan="$(frontend_manifests json | frontend_catalog custom "$name")" || return 1
+    url=$name; kind=${plan%%$'\t'*}; name=${plan#*$'\t'}
+    [[ $kind == official ]] && echo "  $url is the official $name"
+  fi
+  [[ $kind == official ]] && { url="$(frontend_manifests json | frontend_catalog plan "$name")" || return 1; }
   # Cloned into a hidden folder first (discovery skips dot-folders), checked, and only then
   # moved into place, so a failed install never leaves a half-frontend that `stack` lists.
   stage="$ECO/.frontend-install"
   rm -rf "${stage:?}/$name"; mkdir -p "$stage"
   echo "==> cloning $url"
   # No password prompt without a terminal (the dashboard): fail and say so instead.
-  if ! GIT_TERMINAL_PROMPT=$([[ -t 0 ]] && echo 1 || echo 0) git clone -q "$url" "$stage/$name"; then
+  # `--` ends options: a URL can't pass itself off as one.
+  if ! GIT_TERMINAL_PROMPT=$([[ -t 0 ]] && echo 1 || echo 0) \
+       with_github_token git clone -q -- "$url" "$stage/$name"; then
     rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
-    echo "couldn't clone $url (offline, or a private repo you have no access to)"; return 1
+    echo "couldn't clone $url (offline, or a private repo you have no access to;"
+    echo "  for a private GitHub repo, GITHUB_TOKEN in stack-ui/tokens.env with read access)"; return 1
   fi
   tag="$(latest_tag "$stage/$name")"
   if [[ -n "$tag" ]]; then
@@ -584,12 +700,33 @@ frontend_add() {
   else
     echo "  no release tagged: using its default branch, $(git -C "$stage/$name" rev-parse --abbrev-ref HEAD)"
   fi
-  local checked
+  local checked info brand port https cname desc
   checked="$(frontend_manifests json "$stage")"
-  if ! build="$(frontend_catalog verify "$name" <<<"$checked")"; then
-    python3 -c 'import json,sys; [print("  " + w) for w in json.load(sys.stdin)["warnings"]]' <<<"$checked"
-    rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
-    echo "not installed: it doesn't match the official list"; return 1
+  if [[ $kind == official ]]; then
+    if ! build="$(frontend_catalog verify "$name" <<<"$checked")"; then
+      python3 -c 'import json,sys; [print("  " + w) for w in json.load(sys.stdin)["warnings"]]' <<<"$checked"
+      rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
+      echo "not installed: it doesn't match the official list"; return 1
+    fi
+  else
+    if ! info="$(frontend_manifests json | STAGED="$checked" frontend_catalog vetcustom "$name")"; then
+      python3 -c 'import json,sys; [print("  " + w) for w in json.load(sys.stdin)["warnings"]]' <<<"$checked"
+      rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
+      echo "not installed"; return 1
+    fi
+    IFS=$'\x1f' read -r build brand port https cname desc <<<"$info"
+    echo "  ${C_B}$brand${C_OFF} ($name)${desc:+: $desc}"
+    echo "  port $port${https:+, https $https}, container $cname"
+    echo "  not on the official list: installing runs its code${build:+ (now: $build; then its start script)}"
+    if [[ -z "$yes" ]]; then
+      local ans=""
+      if [[ -t 0 ]]; then read -r -p "  Install it? [y/N] " ans; fi
+      if [[ "$ans" != [yY]* ]]; then
+        rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
+        [[ -t 0 ]] && echo "not installed" || echo "not installed: no terminal to ask, so add --yes to install it"
+        return 1
+      fi
+    fi
   fi
   mv "$stage/$name" "$ECO/$name"; rmdir "$stage" 2>/dev/null
   echo "  ${C_GREEN}✓${C_OFF} cloned into $ECO/$name"
@@ -608,10 +745,10 @@ frontend_update() {
   if git -C "$dir" symbolic-ref -q HEAD >/dev/null; then
     # A clone someone works in, on a branch: fast-forward only, never a merge.
     echo "==> git pull --ff-only ($(git -C "$dir" rev-parse --abbrev-ref HEAD))"
-    git -C "$dir" pull -q --ff-only || { echo "couldn't fast-forward $dir"; return 1; }
+    with_github_token git -C "$dir" pull -q --ff-only || { echo "couldn't fast-forward $dir"; return 1; }
   else
     # Installed from the official list, at a release tag: move to the newest one.
-    git -C "$dir" fetch -q --tags origin || { echo "couldn't reach $name's origin"; return 1; }
+    with_github_token git -C "$dir" fetch -q --tags origin || { echo "couldn't reach $name's origin"; return 1; }
     tag="$(latest_tag "$dir")"
     [[ -n "$tag" ]] && git -C "$dir" -c advice.detachedHead=false checkout -q "$tag"
   fi
@@ -657,7 +794,7 @@ frontend_remove() {
 # (frontend_manifests json) come on stdin. Mode "json" is what the dashboard reads.
 frontend_check() {
   local installed; installed="$(cat)"
-  INSTALLED="$installed" python3 - "${1:-list}" <<'PY'
+  INSTALLED="$installed" with_github_token python3 - "${1:-list}" <<'PY'
 import json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -1580,7 +1717,7 @@ case "${1:-}" in
   install|setup) cmd_install "${2:-all}" ;;
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
-  frontend)  cmd_frontend "${2:-}" "${3:-}" ;;
+  frontend)  cmd_frontend "${@:2}" ;;
   fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
   version|--version|-V) stack_release; [[ "${2:-}" == --check ]] && version_check ;;
   # Print the header block by finding its closing rule rather than a fixed line

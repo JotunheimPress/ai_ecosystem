@@ -234,3 +234,139 @@ def test_check_without_releases_or_origin_reports_nothing_newer(env, tmp_path):
     _git(bare, "remote", "add", "origin", str(tmp_path / "nowhere"))
     row = _check(env)["demo"]
     assert not row["newer"] and row["reason"] == "unreachable"
+
+
+# ---- custom frontends: `stack frontend add URL` -------------------------------------------
+
+def _origin(tmp_path, name, **over):
+    """Another frontend repo, not on the list, tagged v1.0.0."""
+    origin = tmp_path / "src" / name
+    origin.mkdir(parents=True)
+    _git(origin, "init", "-q", "-b", "main")
+    (origin / "frontend.json").write_text(json.dumps(_manifest(
+        **{"repo": name, "brand": "Mine", "port": 7895, "container": name, **over})))
+    _exe(origin / "run.sh", "exit 0\n")
+    _exe(origin / "build.sh", 'echo "$1 $(git describe --tags --always)" >> built.log\n')
+    (origin / ".gitignore").write_text("built.log\n")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-qm", "one")
+    _git(origin, "tag", "v1.0.0")
+    return origin
+
+
+def test_add_url_installs_a_custom_frontend_with_yes(env, tmp_path):
+    origin = _origin(tmp_path, "mine")
+    out = env["run"]("frontend", "add", f"file://{origin}", "--yes").stdout
+    dest = env["eco"] / "mine"
+    assert "not on the official list" in out and "port 7895" in out and "installed mine" in out
+    assert (dest / "built.log").read_text().split() == ["--quiet", "v1.0.0"]
+    assert not (env["eco"] / ".frontend-install").exists()
+    assert "mine" in env["run"]("frontends").stdout
+    # Installed, but not official: it isn't on the list at all.
+    assert [r["repo"] for r in _available(env)] == ["demo"]
+    again = env["run"]("frontend", "add", f"file://{origin}", "--yes", check=False)
+    assert again.returncode != 0 and "already installed" in again.stderr
+
+
+def test_add_url_without_a_terminal_needs_yes(env, tmp_path):
+    origin = _origin(tmp_path, "mine")
+    out = env["run"]("frontend", "add", f"file://{origin}", check=False)
+    assert out.returncode != 0 and "add --yes" in out.stdout
+    assert list(env["eco"].iterdir()) == []
+
+
+def test_add_url_of_the_official_repo_installs_it_the_official_way(env):
+    out = env["run"]("frontend", "add", f"file://{env['origin']}.git/").stdout
+    assert "is the official demo" in out and "installed demo" in out
+    [row] = _available(env)
+    assert row["installed"] and row["official"]
+
+
+def test_add_url_refuses_an_official_name_from_elsewhere(env, tmp_path):
+    fork = _origin(tmp_path / "fork", "demo")
+    out = env["run"]("frontend", "add", f"file://{fork}", "--yes", check=False)
+    assert out.returncode != 0 and "a fork needs its own repo name" in out.stderr
+    assert list(env["eco"].iterdir()) == []
+
+
+def test_add_url_refuses_a_manifest_named_differently(env, tmp_path):
+    origin = _origin(tmp_path, "mine")
+    (origin / "frontend.json").write_text(json.dumps(_manifest(repo="other", port=7895,
+                                                               container="other")))
+    _git(origin, "commit", "-qam", "rename")
+    _git(origin, "tag", "v1.0.1")
+    out = env["run"]("frontend", "add", f"file://{origin}", "--yes", check=False)
+    assert out.returncode != 0 and "they must match" in out.stderr
+    assert list(env["eco"].iterdir()) == []
+
+
+def test_add_url_refuses_clashes_after_cloning(env, tmp_path):
+    env["run"]("frontend", "add", "demo")
+    origin = _origin(tmp_path, "mine", port=7890)          # demo's port
+    out = env["run"]("frontend", "add", f"file://{origin}", "--yes", check=False)
+    assert out.returncode != 0 and "port clash with demo" in out.stderr
+    assert sorted(p.name for p in env["eco"].iterdir()) == ["demo"]
+
+
+def test_add_url_warns_about_a_port_the_list_reserves(env, tmp_path):
+    origin = _origin(tmp_path, "mine", port=7890)          # demo's, but demo isn't installed
+    out = env["run"]("frontend", "add", f"file://{origin}", "--yes")
+    assert "the official demo's" in out.stderr and "installed mine" in out.stdout
+
+
+@pytest.mark.parametrize("url", [
+    "ext::sh -c touch% /tmp/pwned", "http://example.com/a/mine.git", "-uhack:x/y",
+    "https://example.com/a/mine;rm", "https://example.com/a/status.git", "file:///",
+])
+def test_add_url_refuses_what_is_not_a_plain_git_url(env, url):
+    out = env["run"]("frontend", "add", url, "--yes", check=False)
+    assert out.returncode != 0
+    assert list(env["eco"].iterdir()) == []
+
+
+def test_ssh_and_https_urls_of_one_repo_are_the_same_official_repo(env):
+    env["catalog"](url="https://github.com/Acme/demo.git")
+    subprocess.run(["git", "clone", "-q", str(env["origin"]), str(env["eco"] / "demo")], check=True)
+    _git(env["eco"] / "demo", "remote", "set-url", "origin", "git@github.com:acme/demo")
+    [row] = _available(env)
+    assert row["official"]
+
+
+def test_github_token_reaches_git_only_through_its_environment(env, tmp_path):
+    """The token is a credential helper for https://github.com, set in GIT_CONFIG_* and read
+    from STACK_GIT_TOKEN (from GITHUB_TOKEN or tokens.env); never in the clone's .git/config."""
+    real_git = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
+    seen = tmp_path / "git-env.json"
+    bin_ = tmp_path / "bin"
+    _exe(bin_ / "git", "python3 -c 'import json,os; json.dump({k: v for k, v in os.environ.items() "
+                       "if k.startswith((\"GIT_CONFIG_\", \"STACK_GIT_\"))}, "
+                       f"open(\"{seen}\", \"a\")); print(file=open(\"{seen}\", \"a\"))'\n"
+                       f'exec {real_git} "$@"\n')
+    tokens = tmp_path / "tokens.env"
+    tokens.write_text("HF_TOKEN=x\nGITHUB_TOKEN='ghp_secret'\n")
+    out = subprocess.run(
+        [str(STACK), "frontend", "add", "demo"], capture_output=True, text=True,
+        stdin=subprocess.DEVNULL,
+        env={**{k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"},
+             "AI_ECOSYSTEM": str(env["eco"]), "STACK_CATALOG": str(tmp_path / "frontends.json"),
+             "STACK_TOKENS": str(tokens), "STACK_GPU": "none",
+             "PATH": f"{bin_}:{os.environ['PATH']}"})
+    assert out.returncode == 0, out.stdout + out.stderr
+    calls = [json.loads(line) for line in seen.read_text().splitlines() if line.strip()]
+    [got] = [c for c in calls if c]      # only the clone, nothing else, carries the token
+    assert got["GIT_CONFIG_KEY_0"] == "credential.https://github.com.helper"
+    assert got["STACK_GIT_TOKEN"] == "ghp_secret" and "ghp_secret" not in got["GIT_CONFIG_VALUE_0"]
+    assert "ghp_secret" not in (env["eco"] / "demo" / ".git" / "config").read_text()
+    # What git gets when it asks for github.com (no other helpers: an empty HOME).
+    home = tmp_path / "home"
+    home.mkdir()
+    fill = subprocess.run([real_git, "credential", "fill"], input="protocol=https\nhost=github.com\n\n",
+                          capture_output=True, text=True,
+                          env={"PATH": os.environ["PATH"], "HOME": str(home),
+                               "GIT_TERMINAL_PROMPT": "0", **got})
+    assert "username=x-access-token" in fill.stdout and "password=ghp_secret" in fill.stdout
+    other = subprocess.run([real_git, "credential", "fill"], input="protocol=https\nhost=example.com\n\n",
+                           capture_output=True, text=True,
+                           env={"PATH": os.environ["PATH"], "HOME": str(home),
+                                "GIT_TERMINAL_PROMPT": "0", **got})
+    assert "ghp_secret" not in other.stdout
