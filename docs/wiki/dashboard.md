@@ -38,8 +38,12 @@ LAN.
 any `frontend.json` problems. Each card says **Official** (installed from the official list) or
 **Custom** (one you cloned yourself, or a fork), and has **Update** and **Remove** buttons. Below
 them, **Available** lists the official frontends you haven't installed, each with an **Install**
-button, or the reason it can't be installed here. Every one of these asks first, and its output
-streams in the console, like any other action. See [Frontends](frontends.md).
+button, or the reason it can't be installed here. **From a git URL** installs any other frontend
+from its repo, from any computer on your local network, with the dashboard opened by the
+stack machine's address or local name (`http://192.168.1.x:7863`, `http://halo:7863`,
+`halo.local`). It runs code nobody reviewed, so a request from outside the network, or from
+another website, is refused. Every one of these asks first, and its output streams in the console, like any other
+action. See [Frontends](frontends.md).
 
 The URL keeps your place (`#/llms`, `#/vram` …), so a reload or a bookmark returns to the same
 screen.

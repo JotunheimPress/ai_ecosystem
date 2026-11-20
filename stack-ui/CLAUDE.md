@@ -245,6 +245,22 @@ Deliberate, not incidental:
   run `stack fortuna-model fetch|verify NAME`, and `resolve()` accepts NAME only if
   `fortuna/models.table` lists it. The recipe maps it to the file, the pinned URL and the hash, so
   the browser can't name a file, a URL or a commit.
+- **A git URL only from the local network** (since 1.5.0). `frontend_add_url` (`stack frontend
+  add --yes URL`) is the one target that comes from the request, and what it installs runs code
+  nobody reviewed, with this container's control of the host. So `resolve()` takes it only when
+  `stackctl.REQUEST_LAN` is set, and only a plain git URL (`GIT_URL`, which mirrors `stack`'s
+  own check). `service.py`'s `MarkLanRequests` (plain ASGI middleware) sets it per request from
+  `is_lan_request`: a client on a **LAN address** (loopback, private, link-local, or Tailscale's
+  100.64/10; not a port forwarded from the internet) that asked for a **LAN Host**: an IP
+  address, `localhost`, a single label (`amd-halo`), or a `.local` / `.lan` / `.home.arpa` /
+  `.internal` name. The Host check is what stops DNS rebinding: a web page open on any LAN
+  machine can point its own domain at the dashboard and pass the same-origin check, but its
+  Host still names that domain. The LAN itself is trusted, as for every other action (the
+  stack runs on Halo and is used from Predator). BFF calls run in a copy of the request's
+  context, and `jobs.start` runs its worker in one too (`contextvars.copy_context`), or
+  `stream()`'s second `resolve()` would refuse. With host networking and no proxy the client
+  address is the real peer. **A reverse proxy on this machine in front of the dashboard would
+  make every request look like the LAN**: don't, or drop this verb.
 - **The text route is two fixed verbs**, `route_text_local` and `route_text_halo`, with no
   target: the browser picks one of them, never a host. Halo's address comes from
   `ai-stack/halo.env` on the stack's side.
@@ -564,8 +580,15 @@ The Frontends screen drives `stack frontend available|add|update|remove` (`ai-st
 - **What the browser can send:** `frontend_add` with a **name** that `stack frontend available
   --json` lists and reports not installed (target kind `catalog`), and `frontend_update` /
   `frontend_remove` with a repo `stack frontends --json` reports installed (kind `frontend`,
-  official or not). Never a URL or a path. `stackctl.resolve` checks both against fresh `stack`
-  output, so they follow the same allowlist rule as every other action.
+  official or not). Never a path. `stackctl.resolve` checks both against fresh `stack`
+  output, so they follow the same allowlist rule as every other action. The exception is
+  `frontend_add_url` with a git URL, from a browser on the local network only (*Security posture*).
+- **From a git URL** (since 1.5.0): the third section of the screen. `frontend_catalog` returns
+  `url_install` (this request is from the LAN); with it, a URL box and Install, confirmed in the
+  danger style with the URL and a warning, then `frontend_add_url`. Without it, a note saying
+  to open the dashboard by the host's address or local name, or to use `stack frontend add <url>`. The box is drawn once per mode
+  (`_url_mode`), not on every poll, so typing survives the status refresh. `stack` shows what
+  it cloned in the log; the dashboard has no preview step.
 - **The list is read, not polled:** `StackApi.frontend_catalog` (→ `stackctl.catalog()`, not
   cached) when the screen mounts and whenever a job ends (`on_busy(False)`), since an install,
   update or remove changes it. A failure shows as a warning banner, never an error page.

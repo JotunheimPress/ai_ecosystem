@@ -57,6 +57,11 @@ stack frontend add git@github.com:someone/my-app.git
   under another URL: a fork needs its own name. Taking a port the official list reserves is
   allowed, with a warning: you won't be able to install both.
 - The dashboard marks it *Custom*. `stack frontend update`, `check` and `remove` work on it.
+- The dashboard's Frontends screen does the same under **From a git URL**, from any computer
+  on your local network, with the dashboard opened by the stack machine's IP address or local
+  name (`halo`, `halo.local`, `.lan`, `.home.arpa`). The dashboard has no login, so a request
+  from outside your network, or one another website makes through your browser, is refused;
+  the section then says where to do it instead.
 - Cloning it into the ecosystem root yourself, next to `ai-stack/`, still works too; it builds
   its image on its first `stack <repo>`.
 

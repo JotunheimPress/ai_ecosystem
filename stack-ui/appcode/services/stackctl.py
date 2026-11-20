@@ -9,7 +9,9 @@ Three rules this module exists to enforce:
    *by construction*, and why this table is where review attention belongs now that
    mutating verbs live in it.
 3. **Targets come from the registry, not the request.** An app name is only accepted if
-   `stack status` currently lists it. The browser can't name a process to act on.
+   `stack status` currently lists it. The browser can't name a process to act on. The one
+   exception is a git URL for `frontend_add_url`, which only a browser on the local network
+   may send (`REQUEST_LAN`, below).
 
 Status is read from `stack status --json` (stdout only). A stack without it falls back to
 scraping the text, the way this module worked before.
@@ -21,6 +23,8 @@ checkout's parent.
 """
 from __future__ import annotations
 
+import contextvars
+import ipaddress
 import json
 import os
 import re
@@ -60,7 +64,7 @@ DOWN_GROUPS = {"all", "backends", "frontends"}
 class Verb:
     argv: list[str]                 # fixed prefix; the validated target is appended
     mutating: bool
-    target: str | None = None       # None | "app" | "down" | "fortuna_model" | "catalog" | "frontend"
+    target: str | None = None       # None | "app" | "down" | "fortuna_model" | "catalog" | "frontend" | "url"
     stream: bool = False            # long-running: stream output instead of buffering
     timeout: int = 30
 
@@ -109,11 +113,87 @@ VERBS: dict[str, Verb] = {
     # the clone matching the list, refusing to delete a folder holding data); these only
     # keep the browser to names `stack` itself reported.
     "frontend_add":    Verb(["frontend", "add"], True, target="catalog", stream=True),
+    # A custom frontend from its git URL (`stack frontend add URL --yes`): the one target that
+    # comes from the request rather than from `stack`. It runs code nobody reviewed, so only
+    # a browser on the local network may ask (REQUEST_LAN; not the internet, not another
+    # site through DNS rebinding), the URL must be a
+    # plain git URL, and `stack` checks it all again. The confirm happened in the browser.
+    "frontend_add_url": Verb(["frontend", "add", "--yes"], True, target="url", stream=True),
     "frontend_update": Verb(["frontend", "update"], True, target="frontend", stream=True),
     "frontend_remove": Verb(["frontend", "remove"], True, target="frontend", stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+# --- requests from the local network --------------------------------------------
+# The dashboard answers without a login. A few things are for the home network only, never a
+# request that reached it from the internet or through another site: installing a frontend
+# from a URL runs code nobody reviewed. service.py's middleware sets this for every request;
+# BFF calls run in a copy of the request's context, and jobs.start hands that copy to its
+# worker thread.
+REQUEST_LAN: contextvars.ContextVar[bool] = contextvars.ContextVar("stackui_request_lan",
+                                                                   default=False)
+# Tailscale and other overlays hand out 100.64.0.0/10 (shared address space), which
+# ipaddress doesn't count as private.
+_OVERLAY = ipaddress.ip_network("100.64.0.0/10")
+# Names only a local network resolves: no website can point one of these at us.
+_LAN_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localhost")
+_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _lan_ip(text: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return (ip.is_loopback or ip.is_private or ip.is_link_local
+            or (ip.version == 4 and ip in _OVERLAY))
+
+
+def _lan_name(host: str) -> bool:
+    """An address literal on the LAN, or a name only the LAN can resolve."""
+    if _lan_ip(host):
+        return True
+    if host == "localhost" or _LABEL.match(host):          # single label: amd-halo
+        return True
+    return host.endswith(_LAN_SUFFIXES) and all(_LABEL.match(p) for p in host.split("."))
+
+
+def is_lan_request(scope: dict) -> bool:
+    """A client on the local network that asked for this machine by a local-network name.
+
+    The client address must be loopback, private, link-local or Tailscale's 100.64/10, so a
+    port forwarded from the internet doesn't qualify. That alone isn't enough: a web page
+    open on any machine on the LAN can point its own domain at the dashboard's address (DNS
+    rebinding), and its requests then count as same-origin. Its Host header still names that
+    domain, so the Host must be an IP address or a LAN-only name: a single label
+    (``amd-halo``), ``localhost``, or ``.local``, ``.lan``, ``.home.arpa``, ``.internal``.
+    The dashboard runs with host networking and no proxy, so the client address is the real
+    peer (uvicorn trusts X-Forwarded-For only from 127.0.0.1)."""
+    client = scope.get("client")
+    if not client or not _lan_ip(str(client[0])):
+        return False
+    host = next((v.decode("latin-1") for k, v in scope.get("headers") or [] if k == b"host"), "")
+    host = host.strip().lower().rstrip(".")
+    if host.startswith("["):
+        name = host[1:].split("]", 1)[0]
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return bool(name) and _lan_name(name.rstrip("."))
+
+
+# The git URLs `stack frontend add` takes (its frontend_catalog `custom` mode is the real
+# check; this one keeps anything else from reaching it): https, ssh, git@host:path, file://.
+_PATH_PART = r"[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*/?"
+GIT_URL = re.compile(
+    r"^(https://[A-Za-z0-9.-]+(:\d+)?/"
+    r"|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:\d+)?/"
+    r"|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:"
+    r"|file:///)" + _PATH_PART + "$")
+LAN_ONLY = ("Installing from a URL works only from the local network, with the dashboard "
+            "opened by its address or local name (http://<host>:7863, <host>.local), or in a "
+            "terminal on the stack's machine: stack frontend add <url>")
 
 
 def strip_ansi(s: str) -> str:
@@ -139,8 +219,10 @@ def available() -> bool:
 # STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
 # in here, and without it they launch the backends with no GPU (lib/host.sh).
 # STACK_CATALOG: another official-frontend list, for tests only (unset in the image).
+# GITHUB_TOKEN: private frontend repos on GitHub (`stack frontend add|update|check`; stack
+# would also find it in stack-ui/tokens.env, but this doesn't depend on the mount).
 _PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU",
-                "COMFYUI_PORT", "STACK_CATALOG")
+                "COMFYUI_PORT", "STACK_CATALOG", "GITHUB_TOKEN")
 
 
 def _env() -> dict:
@@ -204,6 +286,13 @@ def resolve(verb_key: str, target: str | None) -> list[str]:
             raise StackError(f"not an official frontend: {target!r}")
         if listed[target].get("installed"):
             raise StackError(f"{target} is already installed")
+        return [*v.argv, target]
+    if v.target == "url":
+        if not REQUEST_LAN.get():
+            raise StackError(LAN_ONLY)
+        if len(target) > 300 or not GIT_URL.match(target):
+            raise StackError(f"not a git URL: {target!r} (https://host/owner/repo, "
+                             "ssh://…, git@host:owner/repo)")
         return [*v.argv, target]
     if v.target == "frontend":
         installed = {f.get("repo") for f in frontends(force=True).get("frontends") or []

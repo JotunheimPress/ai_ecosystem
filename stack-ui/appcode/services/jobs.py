@@ -11,6 +11,7 @@ fires minutes later, after you have changed your mind, is worse than an error.
 """
 from __future__ import annotations
 
+import contextvars
 import itertools
 import threading
 import time
@@ -99,5 +100,8 @@ def start(verb: str, target: str | None) -> Job:
         # drop the cached app list rather than serving a stale one for up to a minute.
         stackctl.invalidate_apps()
 
-    threading.Thread(target=worker, name=f"job-{job.id}", daemon=True).start()
+    # In a copy of the request's context: the worker resolves again (stackctl.stream), and
+    # whether the request came from the local network (stackctl.REQUEST_LAN) must hold there too.
+    ctx = contextvars.copy_context()
+    threading.Thread(target=ctx.run, args=(worker,), name=f"job-{job.id}", daemon=True).start()
     return job

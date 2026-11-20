@@ -467,6 +467,7 @@ td.su-warn { color: var(--su-warn); }
 .su-tag.su-newer .mdi { margin-right: 3px; }
 .su-btn.su-newer { color: var(--su-good); border-color: color-mix(in srgb, var(--su-good) 40%, transparent); }
 .su-available { border-style: dashed; }
+.su-url-bar input { flex: 1; min-width: 200px; }   /* the Frontends screen's git URL box */
 .su-available .su-card-head .su-tag { align-self: flex-start; }
 /* Update and Remove stay together at the right, and wrap as a pair when the row is full. */
 .su-fe-manage { display: inline-flex; gap: 4px; margin-left: auto; }
