@@ -60,7 +60,7 @@ DOWN_GROUPS = {"all", "backends", "frontends"}
 class Verb:
     argv: list[str]                 # fixed prefix; the validated target is appended
     mutating: bool
-    target: str | None = None       # None | "app" | "down" | "fortuna_model"
+    target: str | None = None       # None | "app" | "down" | "fortuna_model" | "catalog" | "frontend"
     stream: bool = False            # long-running: stream output instead of buffering
     timeout: int = 30
 
@@ -72,6 +72,8 @@ VERBS: dict[str, Verb] = {
     "doctor":  Verb(["doctor"], False, timeout=60),
     # Installed frontends (repo = identity, brand = facing name), from their frontend.json.
     "frontends": Verb(["frontends", "--json"], False),
+    # The official frontends (frontends.json) and which are installed, official or not.
+    "frontend_catalog": Verb(["frontend", "available", "--json"], False),
     "logs":    Verb(["logs"], False, target="app", stream=True),
     # mutating — phase 1. What runs now (up / down) and start-at-boot (boot_on / boot_off) are
     # separate settings; `stack on`/`off` are the same as up / down backends, so not listed.
@@ -98,6 +100,14 @@ VERBS: dict[str, Verb] = {
     # the recipe maps it to the file, the pinned commit and the hash.
     "fortuna_fetch":  Verb(["fortuna-model", "fetch"], True, target="fortuna_model", stream=True),
     "fortuna_verify": Verb(["fortuna-model", "verify"], True, target="fortuna_model", stream=True),
+    # Frontends. Install takes a NAME from the official list that isn't installed yet — never
+    # a URL: what can be cloned is decided in review (frontends.json), not by the request.
+    # Update and remove take an installed frontend. `stack` does the real checks (clashes,
+    # the clone matching the list, refusing to delete a folder holding data); these only
+    # keep the browser to names `stack` itself reported.
+    "frontend_add":    Verb(["frontend", "add"], True, target="catalog", stream=True),
+    "frontend_update": Verb(["frontend", "update"], True, target="frontend", stream=True),
+    "frontend_remove": Verb(["frontend", "remove"], True, target="frontend", stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -125,8 +135,9 @@ def available() -> bool:
 #                               from status entirely (it reads as "unknown", not "off").
 # STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
 # in here, and without it they launch the backends with no GPU (lib/host.sh).
+# STACK_CATALOG: another official-frontend list, for tests only (unset in the image).
 _PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU",
-                "COMFYUI_PORT")
+                "COMFYUI_PORT", "STACK_CATALOG")
 
 
 def _env() -> dict:
@@ -183,6 +194,19 @@ def resolve(verb_key: str, target: str | None) -> list[str]:
 
         if target not in {m["name"] for m in inventory.fortuna_table()["models"]}:
             raise StackError(f"unknown Fortuna model: {target!r}")
+        return [*v.argv, target]
+    if v.target == "catalog":
+        listed = {f.get("repo"): f for f in catalog().get("frontends") or [] if isinstance(f, dict)}
+        if target not in listed:
+            raise StackError(f"not an official frontend: {target!r}")
+        if listed[target].get("installed"):
+            raise StackError(f"{target} is already installed")
+        return [*v.argv, target]
+    if v.target == "frontend":
+        installed = {f.get("repo") for f in frontends(force=True).get("frontends") or []
+                     if isinstance(f, dict)}
+        if target not in installed:
+            raise StackError(f"not an installed frontend: {target!r}")
         return [*v.argv, target]
     apps = known_apps()
     if not apps:
@@ -364,6 +388,20 @@ def frontends(force: bool = False) -> dict:
     if not isinstance(data, dict):
         return {"frontends": [], "warnings": []}
     _FRONTENDS = (time.monotonic(), data)
+    return data
+
+
+def catalog() -> dict:
+    """The official frontends: {"frontends": [{repo, url, brand, description, icon, port,
+    https_port, container, needs, min_stack, installed, dir, official, problems}],
+    "warnings": [...]}. Not cached: it is read when the Frontends screen opens, after a job,
+    and to check an install request, never polled."""
+    try:
+        data = json.loads(run("frontend_catalog")["stdout"])
+    except (StackError, ValueError):
+        return {"frontends": [], "warnings": ["couldn't read the official frontend list"]}
+    if not isinstance(data, dict) or not isinstance(data.get("frontends"), list):
+        return {"frontends": [], "warnings": ["the official frontend list is malformed"]}
     return data
 
 

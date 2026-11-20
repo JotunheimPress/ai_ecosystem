@@ -6,8 +6,10 @@ one card per capability (text, image and sound, decision), then the GPU. Which c
 backend gets comes from its `capability` in `stack status --json`, via
 ``services.backends.ADAPTERS``, so a new backend is a row in the stack, not a name check here.
 
-**Frontends** is the apps that use them: cards for the installed ones only, with HTTPS links
-where a frontend offers them, and the problems `stack` found in their frontend.json.
+**Frontends** is the apps that use them: cards for the installed ones, with HTTPS links where a
+frontend offers them, an Official / Custom label, Update and Remove, and the problems `stack`
+found in their frontend.json; then the official frontends not installed yet, with Install
+(`stack frontend available|add|update|remove`; the browser only ever sends a name).
 
 Rendered as escaped HTML with one delegated click listener per view; every value that
 reaches the markup goes through ``esc``.
@@ -17,6 +19,7 @@ from __future__ import annotations
 from wapyt import progress_html
 
 from services.models_api import ModelsApi
+from services.stack_api import StackApi
 from ui.common import Listeners, ago, attr, by_id, closest, esc, failed, fmt_bytes, spawn, toast
 
 _ICONS = {
@@ -48,6 +51,10 @@ _CONFIRM = {
     ("route_text_local", ""): "Serve text from this machine's copy again?",
     ("down", "frontends"): "Stop every frontend? The infrastructure keeps running.",
 }
+
+
+# What a frontend needs, in the words the Infrastructure cards use.
+_NEEDS = {"text": "text", "image-sound": "image and sound", "decision": "decisions"}
 
 
 def _host() -> str:
@@ -110,7 +117,9 @@ class _Cards:
             return
         if attr(btn, "data-act"):
             verb, target = attr(btn, "data-act"), attr(btn, "data-target") or ""
-            self.app.act(verb, target, confirm=_CONFIRM.get((verb, target), ""))
+            self.app.act(verb, target,
+                         confirm=attr(btn, "data-confirm") or _CONFIRM.get((verb, target), ""),
+                         danger=verb == "frontend_remove")
         elif attr(btn, "data-logs"):
             self.app.open_logs(attr(btn, "data-logs"))
         elif attr(btn, "data-go"):
@@ -376,6 +385,7 @@ class FrontendsView(_Cards):
         self.root = None
         self.listeners = Listeners()
         self.ov: dict = {}
+        self.catalog: dict | None = None     # StackApi.frontend_catalog(); None until it answers
 
     def mount(self, root) -> None:
         self.root = root
@@ -392,9 +402,16 @@ class FrontendsView(_Cards):
             '<div class="su-card su-skeleton"></div><div class="su-card su-skeleton"></div></div>'
             '<p class="su-dim su-infra-line" id="fe-infra"></p>'
             '</section>'
+            '<section class="su-section">'
+            '<div class="su-section-head"><h2>Available</h2>'
+            '<span class="su-dim">official frontends you can install</span></div>'
+            '<div id="fe-cat-warn"></div>'
+            '<div class="su-grid" id="fe-available"><div class="su-card su-skeleton"></div></div>'
+            '</section>'
             '<pre class="su-raw" id="fe-raw" hidden></pre>'
             '</div>')
         self.listeners.on(root, "click", self._on_click)
+        spawn(self._load_catalog(), "frontend catalog")
 
     def unmount(self) -> None:
         self.listeners.clear()
@@ -403,7 +420,16 @@ class FrontendsView(_Cards):
         self.ov = ov
         self._render()
 
-    def on_busy(self, _busy: bool) -> None:
+    def on_busy(self, busy: bool) -> None:
+        self._render()
+        if not busy:                      # an install, update or remove may have just finished
+            spawn(self._load_catalog(), "frontend catalog")
+
+    async def _load_catalog(self) -> None:
+        r = await StackApi().frontend_catalog_async()
+        if not isinstance(r, dict) or not r.get("ok"):
+            r = {"frontends": [], "warnings": ["couldn't read the official frontend list"]}
+        self.catalog = r
         self._render()
 
     def _render(self) -> None:
@@ -418,8 +444,9 @@ class FrontendsView(_Cards):
         fronts = [a for a in apps if a.get("group") == "frontends"]
         by_id("fe-stop").disabled = self.app.busy or not any(a.get("up") for a in fronts)
         by_id("fe-cards").innerHTML = "".join(self._card(a) for a in fronts) or (
-            '<p class="su-dim">No frontends installed — clone a frontend repo next to ai-stack '
-            '(any repo with a frontend.json).</p>')
+            '<p class="su-dim">No frontends installed. Install an official one below, or clone '
+            'any repo with a frontend.json next to ai-stack.</p>')
+        self._render_available()
         warns = ov.get("warnings") or []
         by_id("fe-warn").innerHTML = "".join(
             f'<div class="su-banner"><i class="mdi mdi-alert-outline"></i><span>{esc(w)}</span></div>'
@@ -455,7 +482,76 @@ class FrontendsView(_Cards):
                     links += (f'<a class="su-btn su-ghost" href="http://{host}:{port}{esc(a["https_setup"])}" '
                               'target="_blank" rel="noreferrer" title="Trust its certificate on this device">'
                               '<i class="mdi mdi-certificate-outline"></i>Certificate</a>')
+        listed = {f.get("repo"): f for f in (self.catalog or {}).get("frontends") or []}
+        if self.catalog is not None:
+            official = bool(listed.get(a["name"], {}).get("official"))
+            tip = ("Installed from the official list" if official else
+                   "Not from the official list: a repo you cloned yourself, or a fork")
+            sub += (f' · <span class="su-tag {"su-official" if official else "su-custom"}" '
+                    f'title="{tip}">{"Official" if official else "Custom"}</span>')
+        manage = self._manage_buttons(a["name"], a.get("label") or a["name"])
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub, title_html=title)}'
                 f'<div class="su-card-body"><p class="su-desc">{esc(a.get("desc"))}</p></div>'
-                f'<div class="su-actions">{self._buttons(a, compact=True)}{links}</div></div>')
+                f'<div class="su-actions">{self._buttons(a, compact=True)}{links}'
+                f'<span class="su-flex"></span>{manage}</div></div>')
+
+    def _manage_buttons(self, repo: str, brand: str) -> str:
+        """Update and Remove, each confirmed with what it does."""
+        update = (f"Update {brand}? It moves to its newest release (or pulls its branch) and "
+                  "rebuilds its image. If it is running, restart it afterwards to use the new "
+                  "version.")
+        remove = (f"Remove {brand}? It is stopped, and its image and its folder next to "
+                  "ai-stack are deleted. If the folder holds anything git doesn't have, such as "
+                  "saved data or local changes, nothing is deleted and the log lists what's there.")
+        dis = self._dis()
+        return (f'<button class="su-btn su-ghost" data-act="frontend_update" data-target="{esc(repo)}" '
+                f'data-confirm="{esc(update)}" title="Update: its newest release, rebuilt"{dis}>'
+                '<i class="mdi mdi-update"></i></button>'
+                f'<button class="su-btn su-ghost" data-act="frontend_remove" data-target="{esc(repo)}" '
+                f'data-confirm="{esc(remove)}" title="Remove: stop it, delete its image and folder"{dis}>'
+                '<i class="mdi mdi-delete-outline"></i></button>')
+
+    def _render_available(self) -> None:
+        box, warn = by_id("fe-available"), by_id("fe-cat-warn")
+        if not box or self.catalog is None:
+            return
+        warn.innerHTML = "".join(
+            f'<div class="su-banner"><i class="mdi mdi-alert-outline"></i><span>{esc(w)}</span></div>'
+            for w in self.catalog.get("warnings") or [])
+        rows = [f for f in self.catalog.get("frontends") or [] if not f.get("installed")]
+        listed = self.catalog.get("frontends") or []
+        box.innerHTML = "".join(self._available_card(f) for f in rows) or (
+            '<p class="su-dim">' + ("Every official frontend is installed." if listed else
+                                    "No official frontends are listed in this release yet.")
+            + '</p>')
+
+    def _available_card(self, f: dict) -> str:
+        repo, brand = esc(f.get("repo")), esc(f.get("brand") or f.get("repo"))
+        icon = f.get("icon") or "mdi-application-outline"
+        needs = "".join(f'<span class="su-tag">{esc(_NEEDS.get(n, n))}</span>'
+                        for n in f.get("needs") or [])
+        problems = f.get("problems") or []
+        sub = (f'{repo} · ' if f.get("brand") and f["brand"] != f.get("repo") else "") + f':{int(f.get("port") or 0)}'
+        body = f'<p class="su-desc">{esc(f.get("description"))}</p>'
+        if needs:
+            body += self._kv("Uses", needs)
+        if problems:
+            body += "".join(f'<p class="su-bad"><i class="mdi mdi-alert-circle-outline"></i> {esc(p)}</p>'
+                            for p in problems)
+        dis = " disabled" if self.app.busy or problems else ""
+        confirm = esc(f"Install {f.get('brand') or f.get('repo')}? It is cloned from "
+                      f"{f.get('url')} next to ai-stack, checked against the official list, "
+                      "and its image is built. That can take several minutes; the log shows "
+                      "each step.")
+        return (
+            '<div class="su-card su-frontend su-available">'
+            '<div class="su-card-head">'
+            f'<i class="mdi {esc(icon)} su-card-icon"></i>'
+            f'<div class="su-card-titles"><div class="su-card-title">{brand}</div>'
+            f'<div class="su-dim">{sub}</div></div>'
+            '<span class="su-tag su-official">Official</span></div>'
+            f'<div class="su-card-body">{body}</div>'
+            f'<div class="su-actions"><button class="su-btn su-primary" data-act="frontend_add" '
+            f'data-target="{repo}" data-confirm="{confirm}"{dis}>'
+            '<i class="mdi mdi-download"></i>Install</button></div></div>')

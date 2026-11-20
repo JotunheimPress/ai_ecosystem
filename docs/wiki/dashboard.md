@@ -35,7 +35,11 @@ LAN.
 | About | The release you're on, whether a newer one is out, how to update, and links to this wiki, the source, releases, the changelog and issues |
 
 **Frontends:** the installed apps with Start/Stop/Logs, links (HTTPS where the app offers it), and
-any `frontend.json` problems.
+any `frontend.json` problems. Each card says **Official** (installed from the official list) or
+**Custom** (one you cloned yourself, or a fork), and has **Update** and **Remove** buttons. Below
+them, **Available** lists the official frontends you haven't installed, each with an **Install**
+button, or the reason it can't be installed here. Every one of these asks first, and its output
+streams in the console, like any other action. See [Frontends](frontends.md).
 
 The URL keeps your place (`#/llms`, `#/vram` …), so a reload or a bookmark returns to the same
 screen.

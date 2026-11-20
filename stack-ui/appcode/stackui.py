@@ -224,7 +224,7 @@ class StackUI(MainWindow):
         el = js.document.createElement("link")
         el.id = "su-css"
         el.rel = "stylesheet"
-        el.href = "/static/stackui.css?v=4"
+        el.href = "/static/stackui.css?v=5"
         js.document.head.appendChild(el)
 
     # --- routing ---------------------------------------------------------------
@@ -376,15 +376,17 @@ class StackUI(MainWindow):
         elif item == "update":
             self.go("about")
 
-    def act(self, verb: str, target: str = "", confirm: str = "") -> None:
+    def act(self, verb: str, target: str = "", confirm: str = "", danger: bool = False) -> None:
         if self.busy:
             toast("Another action is still running.", "warning")
             return
-        spawn(self._act(verb, target, confirm), f"action {verb}")
+        spawn(self._act(verb, target, confirm, danger), f"action {verb}")
 
-    async def _act(self, verb: str, target: str, confirm: str) -> None:
+    async def _act(self, verb: str, target: str, confirm: str, danger: bool = False) -> None:
+        # danger: the OK button looks destructive and focus starts on Cancel, so Enter
+        # doesn't delete anything.
         if confirm and not await message.confirm(confirm, title="Confirm",
-                                                 ok_text="Go ahead"):
+                                                 ok_text="Go ahead", danger=danger):
             return
         r = await StackApi().action_async(verb, target or "")
         if failed(r, f"run stack {verb}"):

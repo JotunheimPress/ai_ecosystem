@@ -18,7 +18,8 @@ ports (5001, 8188, 8009) and the dashboard's (7863) are taken; pick something el
 ## Installing and removing
 
 **Official frontends** are listed in the stack itself (`frontends.json`, updated with each
-release):
+release). The dashboard's Frontends screen installs, updates and removes them with a button; from
+a terminal:
 
 ```bash
 stack frontend available          # what's listed, and whether each is installed
