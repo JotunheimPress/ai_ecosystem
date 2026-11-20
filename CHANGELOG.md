@@ -16,10 +16,15 @@ releases*).
 
 ## Unreleased
 
-### Changed
+### Removed
 
-- World Builder's description in the official list no longer names Godot: "VR scene generation
-  from a prompt".
+- World Builder is off the official list for now. Its repo isn't public yet, so Install failed
+  for everyone without access to it. It comes back once it has a public repo.
+
+### Fixed
+
+- The Models wiki page said `GITHUB_TOKEN` is only for About's release check; since 1.5.0 it
+  also reaches private frontend repos on GitHub.
 
 ## 1.5.0 — 2026-11-20
 
