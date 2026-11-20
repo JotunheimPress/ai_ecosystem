@@ -16,6 +16,8 @@ releases*).
 
 ## Unreleased
 
+## 1.2.1 — 2026-11-20
+
 ### Fixed
 
 - Frontend cards: the Official/Custom label is no longer cut off on long names, Update and Remove
