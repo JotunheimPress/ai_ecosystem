@@ -1,4 +1,15 @@
 {
   "version": 1,
-  "frontends": []
+  "frontends": [
+    {
+      "repo": "iguana_studio",
+      "url": "https://github.com/JotunheimPress/iguana_studio.git",
+      "brand": "Iguana Studio",
+      "description": "Prompt-first image and video generation for ComfyUI",
+      "icon": "mdi-palette-outline",
+      "port": 7862,
+      "container": "iguana",
+      "needs": ["image-sound"]
+    }
+  ]
 }

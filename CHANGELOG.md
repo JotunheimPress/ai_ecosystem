@@ -16,6 +16,11 @@ releases*).
 
 ## Unreleased
 
+### Added
+
+- Iguana Studio is the first official frontend: `stack frontend add iguana_studio`, or Install
+  on the dashboard's Frontends screen, gets its newest release (port 7862, uses image-sound).
+
 ## 1.2.1 — 2026-11-20
 
 ### Fixed
