@@ -16,6 +16,16 @@ releases*).
 
 ## Unreleased
 
+### Added
+- An **About** screen in the dashboard: the release you're on, whether a newer one is out, how
+  to update, and links to the wiki, source, releases, changelog and issues. An **Update** badge
+  appears in the toolbar when a newer release is out. The repo is private, so the check needs a
+  `GITHUB_TOKEN` in `stack-ui/tokens.env`; `STACK_UPDATE_CHECK=off` turns it off.
+- `stack version --check`: is a newer release out? Uses git and your own login, no token.
+
+### Fixed
+- On a narrow window the dashboard's toolbar no longer clips its name, version and state.
+
 ## 1.0.0 — 2026-11-20
 
 The first numbered release, of the stack as it is in daily use. Earlier history is in the git

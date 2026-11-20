@@ -67,6 +67,14 @@ class StackApi:
         job = jobs.current()
         return {"ok": True, "job": job.public() if job else None}
 
+    def latest_release(self, force: bool = False) -> dict:
+        """Whether a newer AI Ecosystem release is out, for About and the toolbar badge.
+        The check and its cache live in `services.release_check` (this module is re-executed
+        on every call, so it can't keep them)."""
+        from services.release_check import latest_release
+
+        return {"ok": True, **latest_release(force=bool(force))}
+
     def doctor(self) -> dict:
         """Not polled — it shells out to podman several times. On demand only."""
         from services import stackctl

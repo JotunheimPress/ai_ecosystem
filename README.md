@@ -92,6 +92,9 @@ stack install       # rebuilds whatever changed, the dashboard included
 stack version       # the release you now have
 ```
 
+`stack version --check` says whether a newer release is out; so does the dashboard's **About**
+screen, and an **Update** badge in its toolbar.
+
 [`CHANGELOG.md`](CHANGELOG.md) says what each release changed, and whether anything outside the
 repo (a frontend, a script reading `stack status --json`) needs a change too.
 
@@ -124,7 +127,7 @@ stack route [local|halo] # where text is served
 stack fortuna-model [list | fetch NAME | verify NAME]
 stack install [target]
 stack doctor
-stack version            # the AI Ecosystem release and this checkout's commit
+stack version [--check]  # the AI Ecosystem release and this checkout's commit; is a newer one out?
 ```
 
 **To free the GPU for a game:** `stack off`, plus `stack boot off` if it should stay off after a

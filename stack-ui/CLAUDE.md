@@ -141,11 +141,14 @@ appcode/               # pytincture modules_path
     images.py          #   Image models: Installed + Find on Civitai + Find on HuggingFace
     vramview.py        #   VRAM planner
     system.py          #   Logs, Custom nodes, Doctor
+    about.py           #   About: release, update check, how to update, project links
   static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load);
                        #   the palettes and wapyt's tokens mapped onto them
   wapyt-99.99.99-*.whl # the BROWSER's wapyt (git-ignored; dev_wheel.sh / the Containerfile)
 appcode/services/
-  stack_api.py         # BFF: overview, action, current_job, doctor, nodes
+  stack_api.py         # BFF: overview, action, current_job, doctor, nodes, latest_release
+  about.py             # project links + version comparison — BOTH sides (the page imports it)
+  release_check.py     # is a newer release out? GitHub's API, cached; GITHUB_TOKEN for the private repo
   models_api.py        # BFF: llms, images, select/delete, vram/plan/free, HF + Civitai, downloads
   backends.py          # what KoboldCPP / ComfyUI have loaded right now (see below)
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
@@ -544,6 +547,28 @@ the whole verb would offer two buttons that quietly do nothing useful.
   image rebuild, because deps live in `comfyui/Containerfile`. The failure mode — a node
   that imports and then errors at runtime — doesn't look like a missing dependency, so the
   panel says it in the header.
+
+## About and the release check (since 2026-11-20)
+
+Copied from IguanaXterm's (`El-Iguana/iguanaxterm_wapyt`: `about.py`, `release_check.py`, the
+About dialog and toolbar badge), adapted:
+
+- **The version isn't in `about.py`.** It is `ai-stack/VERSION`, which the page gets from
+  `release` in the overview and the server reads in `release_check.current_version()`, so About,
+  `stack version` and the toolbar can't disagree. A cached answer is dropped when that version
+  changes (after an update the old "newer" must not stick).
+- **The repo is private**, which IguanaXterm's isn't: GitHub answers 404 for its releases without a
+  token. `GITHUB_TOKEN` (tokens.env, passed in by `run-podman.sh` like `HF_TOKEN`) is sent as a
+  bearer header, only to api.github.com; read-only *Contents* on the repo is enough. Failures are
+  told apart for the screen: `private` (404, no token), `token` (sent one, refused), `unreachable`.
+  `stack version --check` exists so nobody *needs* a token: it uses git and the user's login.
+- **Plain module for the cache** (`release_check`), BFF method on `StackApi`; 6 h cache, 30 min
+  after a failure, "Check again" forces one. One request per server, not per tab.
+- **An About screen, not a dialog**, because everything else here is a routed screen
+  (`#/about`). The toolbar's **Update** button (wapyt `accent`, hidden) appears only when a newer
+  release is out and opens it.
+- `about.py` is imported by the browser: keep it pure (no file or network access) and import
+  *names* from it.
 
 ## What the backends have loaded (`services/backends.py`)
 

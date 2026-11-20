@@ -23,7 +23,9 @@
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path
 #   stack doctor          check prerequisites + what's installed, change nothing
-#   stack version         the AI Ecosystem release (VERSION) and the checkout's commit
+#   stack version [--check]  the AI Ecosystem release (VERSION) and the checkout's commit;
+#                           --check: is a newer release tagged on GitHub? (asks via git, so
+#                           your own git login reaches the private repo; no token needed)
 #
 # Backends are shared; frontends run side-by-side on their own ports.
 # Frontends aren't listed here: any sibling repo with a frontend.json is one (see
@@ -42,6 +44,25 @@ ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
 STACK_VERSION="$(tr -d '[:space:]' < "$SELF/VERSION" 2>/dev/null)"; : "${STACK_VERSION:=unknown}"
 stack_commit()   { git -C "$SELF" rev-parse --short HEAD 2>/dev/null || true; }
 stack_modified() { [[ -n "$(git -C "$SELF" status --porcelain --untracked-files=no 2>/dev/null)" ]]; }
+# The newest release tagged on origin (vX.Y.Z; pre-releases ignored), compared with VERSION.
+# git rather than GitHub's API: the repo is private, and git already has the user's login.
+version_check() {
+  local tags latest
+  if ! tags="$(GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$SELF" ls-remote --tags --refs origin 'v*' 2>/dev/null)"; then
+    echo "  couldn't ask origin for its releases (offline, or no access to the repo)"; return 1
+  fi
+  latest="$(sed -nE 's#.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' <<<"$tags" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+  if [[ -z "$latest" ]]; then
+    echo "  no releases tagged on origin yet"
+  elif [[ "$latest" == "$STACK_VERSION" ]]; then
+    echo "  ${C_GREEN}✓${C_OFF} this is the latest release"
+  elif [[ "$(printf '%s\n%s\n' "$latest" "$STACK_VERSION" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" == "$latest" ]]; then
+    echo "  ${C_B}AI Ecosystem $latest is out${C_OFF}: git -C $SELF pull --ff-only && stack install"
+  else
+    echo "  newer than the latest release ($latest): an unreleased checkout"
+  fi
+}
+
 stack_release()  {   # "AI Ecosystem 1.0.0 (ai-stack eb1e253, modified)"
   local c; c="$(stack_commit)"
   echo "AI Ecosystem $STACK_VERSION${c:+ (ai-stack $c$(stack_modified && echo ", modified"))}"
@@ -1136,7 +1157,7 @@ case "${1:-}" in
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
   fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
-  version|--version|-V) stack_release ;;
+  version|--version|-V) stack_release; [[ "${2:-}" == --check ]] && version_check ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as
   # soon as a command was added.

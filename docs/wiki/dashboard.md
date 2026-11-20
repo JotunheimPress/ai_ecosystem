@@ -32,6 +32,7 @@ LAN.
 | Logs | Follow any app's logs live |
 | Custom nodes | ComfyUI node pins versus what is checked out; re-pin |
 | Doctor | `stack doctor`'s report |
+| About | The release you're on, whether a newer one is out, how to update, and links to this wiki, the source, releases, the changelog and issues |
 
 **Frontends:** the installed apps with Start/Stop/Logs, links (HTTPS where the app offers it), and
 any `frontend.json` problems.
@@ -45,6 +46,11 @@ screen.
   and the card offer a restart when what's loaded differs. See [Models](models.md).
 - **Downloads** run one at a time in a strip at the top; cancelling keeps the partial file, and
   starting again resumes it.
+- **Update badge:** when a newer release is out, an **Update** button appears in the toolbar and
+  opens About. The check asks GitHub at most every 6 hours. The repo is private, so it needs a
+  `GITHUB_TOKEN` with read access in `stack-ui/tokens.env`; without one, About says so, and
+  `stack version --check` in a terminal does the same check with your own git login.
+  `STACK_UPDATE_CHECK=off` turns it off.
 - **Doctor from the dashboard:** two checks always fail from inside its container (the NVIDIA
   CDI spec and the systemd unit file). Run `stack doctor` in a terminal for those.
 

@@ -45,6 +45,7 @@ from wapyt import (
 
 from services.models_api import ModelsApi
 from services.stack_api import StackApi
+from ui.about import AboutView
 from ui.common import (Listeners, Stream, attr, by_id, closest, container_of, failed,
                        fmt_bytes, link, spawn, toast)
 from ui.dashboard import FrontendsView, InfrastructureView
@@ -69,6 +70,7 @@ SCREENS = {
     "logs": LogsView,
     "nodes": NodesView,
     "doctor": DoctorView,
+    "about": AboutView,
 }
 # Old bookmarks: the single dashboard became the Infrastructure workspace.
 ALIASES = {"dashboard": "infrastructure", "": "infrastructure"}
@@ -104,6 +106,7 @@ class StackUI(MainWindow):
         self._dl_bar = None
         self._listeners = Listeners()
         self._poll_proxy = None
+        self.release: dict = {}        # StackApi.latest_release(), once per load
 
         self._load_css()
         # Before any widget is built, so the first paint is already in the chosen colours.
@@ -131,6 +134,9 @@ class StackUI(MainWindow):
             ToolbarButton(id="ws-front", label="Frontends", icon="mdi-apps", group="ws",
                           tooltip="The installed apps that use them"),
             ToolbarSpacer(),
+            # Shown by check_release when a newer release is out; opens About.
+            ToolbarButton(id="update", label="Update", icon="mdi-arrow-up-circle",
+                          variant="accent", hidden=True),
             ToolbarText(id="updated", text=""),
             ToolbarButton(id="refresh", icon="mdi-refresh", tooltip="Refresh now",
                           show_label=False, label="Refresh"),
@@ -162,6 +168,7 @@ class StackUI(MainWindow):
                 SidebarItem(id="logs", label="Logs", icon="mdi-text-long"),
                 SidebarItem(id="nodes", label="Custom nodes", icon="mdi-puzzle-outline"),
                 SidebarItem(id="doctor", label="Doctor", icon="mdi-stethoscope"),
+                SidebarItem(id="about", label="About", icon="mdi-information-outline"),
             ],
         ))
         self.sidebar.on_select(lambda p: self.go((p or {}).get("id") or "infrastructure"))
@@ -203,6 +210,7 @@ class StackUI(MainWindow):
 
         self._route()
         spawn(self._resume(), "resume")
+        spawn(self.check_release(), "release check")
         self._poll_proxy = js.setInterval(_proxy(self._tick), POLL_MS)
 
     def _on_swatch(self, ev) -> None:
@@ -216,7 +224,7 @@ class StackUI(MainWindow):
         el = js.document.createElement("link")
         el.id = "su-css"
         el.rel = "stylesheet"
-        el.href = "/static/stackui.css?v=3"
+        el.href = "/static/stackui.css?v=4"
         js.document.head.appendChild(el)
 
     # --- routing ---------------------------------------------------------------
@@ -315,6 +323,25 @@ class StackUI(MainWindow):
         if self.screen and hasattr(self.screen, "on_overview"):
             self.screen.on_overview(ov)
 
+    async def check_release(self, force: bool = False) -> None:
+        """Ask the server whether a newer release is out (services.release_check: cached
+        there, off with STACK_UPDATE_CHECK=off) and, if so, show the toolbar badge. Quiet on
+        any failure; About says what went wrong."""
+        if force:
+            self.release = {}
+            if hasattr(self.screen, "on_release"):
+                self.screen.on_release(self.release)
+        r = await StackApi().latest_release_async(force)
+        self.release = dict(r) if isinstance(r, dict) and r.get("ok") else {
+            "checked": False, "reason": "unreachable", "error": (r or {}).get("error", "")}
+        newer = bool(self.release.get("newer"))
+        if newer:
+            self.toolbar.set_text("update", f"Update {self.release.get('latest')}")
+            self.toolbar.set_tooltip("update", f"AI Ecosystem {self.release.get('latest')} is out: see About")
+        self.toolbar.set_hidden("update", not newer)
+        if hasattr(self.screen, "on_release"):
+            self.screen.on_release(self.release)
+
     async def _resume(self) -> None:
         await self.refresh()
         state = await ModelsApi().download_state_async()
@@ -346,6 +373,8 @@ class StackUI(MainWindow):
             self.go("infrastructure")
         elif item == "ws-front":
             self.go("frontends")
+        elif item == "update":
+            self.go("about")
 
     def act(self, verb: str, target: str = "", confirm: str = "") -> None:
         if self.busy:

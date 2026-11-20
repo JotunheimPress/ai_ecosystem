@@ -306,6 +306,10 @@ td.su-warn { color: var(--su-warn); }
   color: var(--mut); font: 500 11.5px var(--su-mono); letter-spacing: 0;
   font-variant-numeric: tabular-nums; }
 .wapyt-toolbar-text[data-su="state"] { color: var(--txt); font-weight: 600; }
+/* On a narrow window the brand (with its version) and the state keep their width; the
+   "updated" time on the right is what gives way. */
+.wapyt-toolbar-text[data-su="brand"], .wapyt-toolbar-text[data-su="state"] {
+  flex-shrink: 0; white-space: nowrap; overflow: visible; }
 
 .wapyt-sidebar { --wapyt-sidebar-accent: var(--acc); background: var(--bg2) !important;
   border-right: 1px solid var(--line) !important; height: auto !important; flex: 1 1 auto;
@@ -423,3 +427,35 @@ td.su-warn { color: var(--su-warn); }
   .su-card, .su-btn { transition: none; }
   .su-card:hover { transform: none; }
 }
+
+/* About (ui/about.py): the release, the update check, how to update, the project links. */
+.su-about { max-width: 760px; display: flex; flex-direction: column; gap: 16px; }
+.su-about .su-panel { margin-bottom: 0; }
+.su-about-head { display: flex; align-items: center; gap: 16px; }
+.su-about-logo { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 56px; height: 56px; border-radius: 16px; background: var(--grad); color: var(--ink);
+  font: 800 20px var(--su-sans); letter-spacing: .5px; }
+.su-about-name { font-size: 22px; font-weight: 750; color: var(--su-text); }
+.su-about-version { font: 600 14px var(--su-mono); color: var(--su-accent-text); margin-left: 4px;
+  font-variant-numeric: tabular-nums; }
+.su-about-head code, .su-about-update code { font-family: var(--su-mono); font-size: 12px; }
+.su-about-sub { font-size: 13px; margin-top: 2px; }
+.su-panel.su-about-update { display: flex; flex-direction: row; align-items: center; gap: 12px;
+  justify-content: space-between; font-size: 13.5px; line-height: 1.5; }
+.su-about-update > div { flex: 1 1 auto; min-width: 0; }
+.su-about-update .su-btn { flex: 0 0 auto; }
+.su-about-update .mdi-check-circle-outline { color: var(--su-good); }
+.su-about-update .mdi-cloud-off-outline { color: var(--su-warn); }
+.su-about-update.newer { border-color: var(--su-accent-line); background: var(--su-accent-soft); }
+.su-about-update.newer .mdi-arrow-up-circle { color: var(--su-accent-text); }
+.su-about a { color: var(--su-accent-text); }
+.su-about-cmds { margin: 8px 0; }
+/* Wrapping flex rather than a grid, so a short last row stretches instead of leaving a hole. */
+.su-about-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.su-about-link { flex: 1 1 200px; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px;
+  border-radius: 10px; border: 1px solid var(--su-border); background: var(--su-raised);
+  text-decoration: none; color: var(--su-text) !important; }
+.su-about-link:hover, .su-about-link:focus-visible { border-color: var(--su-accent-line); outline: none; }
+.su-about-link .mdi { font-size: 20px; line-height: 1.1; color: var(--su-accent-text); }
+.su-about-link b { display: block; font-weight: 650; }
+.su-about-link small { color: var(--su-dim); font-size: 12px; }
