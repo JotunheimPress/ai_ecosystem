@@ -16,6 +16,8 @@ releases*).
 
 ## Unreleased
 
+## 1.1.0 — 2026-11-20
+
 ### Added
 - An **About** screen in the dashboard: the release you're on, whether a newer one is out, how
   to update, and links to the wiki, source, releases, changelog and issues. An **Update** badge
