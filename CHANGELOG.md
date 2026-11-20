@@ -16,6 +16,21 @@ releases*).
 
 ## Unreleased
 
+## 1.2.0 — 2026-11-20
+
+### Upgrading
+
+The repo moved to `JotunheimPress/ai_ecosystem`, with a new history. An existing clone keeps
+pulling the old one until it is pointed at the new one (this discards local commits on `master`;
+keep anything you need on a branch first):
+
+```bash
+cd ai-stack
+git remote set-url origin https://github.com/JotunheimPress/ai_ecosystem.git
+git fetch --prune --tags --force origin && git reset --hard origin/master
+stack install
+```
+
 ### Added
 
 - MIT license.
