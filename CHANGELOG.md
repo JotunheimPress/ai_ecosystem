@@ -16,6 +16,8 @@ releases*).
 
 ## Unreleased
 
+## 1.3.0 — 2026-11-20
+
 ### Added
 
 - Iguana Studio is the first official frontend: `stack frontend add iguana_studio`, or Install
