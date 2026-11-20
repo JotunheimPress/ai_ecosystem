@@ -129,7 +129,8 @@ Typical: `stack up` (backends) → `stack` and pick a frontend, or `stack compan
 
 Frontends are not registered in `stack`. A frontend is any repo directly under `$ECO` with a
 `frontend.json` at its root, so the stack — and stack-ui — list exactly what's installed. Install
-one by cloning it next to ai-stack; remove it by removing the clone.
+one by cloning it next to ai-stack (or `stack frontend add`, below); remove it by removing the
+clone (or `stack frontend remove`).
 
 ```json
 {
@@ -158,6 +159,40 @@ one by cloning it next to ai-stack; remove it by removing the clone.
 - Parsed by `frontend_manifests` in `stack` with **python3** (present in the stack-ui image; jq
   isn't). stack-ui gets brands and icons from `stack frontends --json` rather than reading the
   manifests itself, so the two can't disagree.
+- **`build`** (optional, since 1.2.0): a script inside the repo plus plain-word arguments
+  (`"run-podman.sh --build-only"`) that builds the image without starting it. `stack frontend
+  add|update` run it; without one the image builds on the first start.
+
+### Official frontends (`frontends.json`, `stack frontend`, since 1.2.0)
+
+`frontends.json` at the repo root lists the **official** frontends: `repo`, `url` (https, or
+file:// for a mirror), `brand`, `description`, `icon`, `port`, `https_port`, `container`,
+`needs` (CAP values) and optional `min_stack`. It ships with each release, reviewed in a PR, so
+what a release offers is fixed and works offline, and it doubles as the **port registry** for
+official frontends. Empty until frontends go public; adding one is a PR that adds its entry
+(the frontend must have a release tag and a `frontend.json` agreeing with the entry).
+`STACK_CATALOG` points elsewhere (tests). Parsed by `frontend_catalog` in `stack`.
+
+- `stack frontend available [--json]`: the list, and per entry installed / available / why not
+  (`problems`: `min_stack`, a port or container clash with the stack or an installed frontend,
+  or a folder of that name already there). `--json` is for the dashboard (step 2 of the plan).
+- `stack frontend add NAME`: **a name from the list only, never a URL**, so what gets cloned is
+  decided in review, not by whoever asks (the dashboard will only ever send a name). Clones into
+  `$ECO/.frontend-install/` (dot-folders aren't discovered), checks out the newest `vX.Y.Z` tag
+  (else the default branch), validates the clone's `frontend.json` with `frontend_manifests` and
+  requires its port, https_port and container to equal the entry, then moves it into place and
+  runs its `build`. Any failure removes the staged clone. No terminal → `GIT_TERMINAL_PROMPT=0`,
+  so a private repo fails instead of waiting for a password.
+- `stack frontend update NAME`: refuses with uncommitted changes; on a branch (a clone someone
+  works in) `git pull --ff-only`, at a tag (installed from the list) the newest tag; rebuilds if
+  HEAD moved, and says to `stack restart` it if it's running. Works on any installed frontend.
+- `stack frontend remove NAME`: **refuses if the folder holds anything git doesn't** (untracked
+  or ignored files, local changes, unpushed commits; caches and virtualenvs excepted), since
+  frontends keep user data in their repo; it lists them and leaves the deleting to you. Otherwise
+  stops it, removes its container and image, and deletes the folder (only a direct child of
+  `$ECO`, never this checkout).
+- Tests: `stack-ui/tests/test_frontend_install.py` (a real git origin, a fake podman).
+
 - **No desktop avatar** (removed 2026-11-07). `stack desktop`, `stack install desktop` and the
   dashboard's Desktop avatar button are gone. ai-stack is the backends plus frontend discovery, and
   nothing frontend-specific belongs here. Cantinero (companion-assistant) runs its desktop shell on its

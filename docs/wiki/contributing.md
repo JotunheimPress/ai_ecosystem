@@ -16,6 +16,15 @@
 - No CI: run the checks below before opening a PR, and say in the PR what you ran and what you
   didn't.
 
+## Adding an official frontend
+
+A PR that adds its entry to [`frontends.json`](../../frontends.json): `repo`, `url`, `brand`,
+`description`, `icon`, `port`, `https_port` (if it has one), `container`, `needs` and, if it relies
+on something new, `min_stack`. Before that, the frontend's repo needs to be public, have a
+release tag (`vX.Y.Z`), and have a `frontend.json` whose port, https_port and container match
+the entry. Pick a port no other entry uses: the list is the port registry. Check it with
+`stack frontend available`, then `STACK_CATALOG=… AI_ECOSYSTEM=<scratch dir> stack frontend add`.
+
 ## Releases
 
 AI Ecosystem uses SemVer in [`VERSION`](../../VERSION). Add a line to *Unreleased* in

@@ -19,6 +19,12 @@ releases*).
 ### Added
 
 - MIT license.
+- Official frontends: `frontends.json` lists them, `stack frontend available` shows them, and
+  `stack frontend add NAME` installs one (clones its latest release, checks it against the
+  list, builds it). `stack frontend update` and `stack frontend remove` work on any installed
+  frontend; `remove` refuses while the folder holds data git doesn't have. The list is empty
+  until frontends go public.
+- `frontend.json` may name a `build` script, run by `stack frontend add` and `update`.
 
 ### Changed
 
