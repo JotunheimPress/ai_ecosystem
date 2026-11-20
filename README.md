@@ -100,8 +100,10 @@ repo (a frontend, a script reading `stack status --json`) needs a change too.
 
 ### Frontends
 
-A frontend is any repo with a `frontend.json` at its root. Clone it into the same parent
-directory as `ai-stack/`, then start it by its repo name:
+Official frontends install with one command: `stack frontend available` lists them, and
+`stack frontend add NAME` clones one at its latest release, checks it and builds it. Any other
+frontend is a repo with a `frontend.json` at its root: clone it into the same parent directory
+as `ai-stack/`, then start it by its repo name:
 
 ```bash
 cd ..
@@ -123,6 +125,7 @@ stack restart <app>
 stack logs <app>
 stack down               # stop everything except the dashboard (also: down backends | frontends | <app>)
 stack frontends          # the installed frontends
+stack frontend available # the official frontends; also: frontend add | update | remove NAME
 stack route [local|halo] # where text is served
 stack fortuna-model [list | fetch NAME | verify NAME]
 stack install [target]

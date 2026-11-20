@@ -17,9 +17,24 @@ ports (5001, 8188, 8009) and the dashboard's (7863) are taken; pick something el
 
 ## Installing and removing
 
-- **Install:** clone the repo into the ecosystem root, next to `ai-stack/`. It builds its own
-  image on its first `stack <repo>`.
-- **Remove:** stop it and delete the clone.
+**Official frontends** are listed in the stack itself (`frontends.json`, updated with each
+release):
+
+```bash
+stack frontend available          # what's listed, and whether each is installed
+stack frontend add <name>         # clone its latest release next to ai-stack, check it, build it
+stack frontend update <name>      # its newest release (or git pull on a branch), rebuilt
+stack frontend remove <name>      # stop it and delete its image and folder
+```
+
+- `add` takes only names from the list. It refuses before cloning if the frontend's port or
+  container name is already taken, or if it needs a newer AI Ecosystem, and refuses after
+  cloning if the frontend's own `frontend.json` doesn't match the list.
+- `remove` won't delete a folder holding anything git doesn't: saved data, local changes or
+  unpushed commits. It lists them; move what you want to keep and delete the folder yourself.
+
+**Any other frontend:** clone the repo into the ecosystem root, next to `ai-stack/`. It builds
+its own image on its first `stack <repo>`. `stack frontend update` and `remove` work on it too.
 
 ## `frontend.json`
 
@@ -39,6 +54,9 @@ ports (5001, 8188, 8009) and the dashboard's (7863) are taken; pick something el
 ```
 
 - `repo` is the identity: what you type after `stack`. `brand` is only what screens show.
+- `build` (optional, not in the example): a script in the repo plus plain arguments, e.g.
+  `"run-podman.sh --build-only"`, that builds the image without starting it. `stack frontend add`
+  and `update` run it, so the first start is quick.
 - A fork must change `repo`, `port` and `container`.
 - `https_port` / `https_setup` (optional): the same app over HTTPS, so a phone's browser allows the
   microphone. `https_setup` is a page on the HTTP port that explains trusting its certificate.
