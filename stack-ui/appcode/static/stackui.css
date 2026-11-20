@@ -464,4 +464,7 @@ td.su-warn { color: var(--su-warn); }
 .su-tag.su-custom { color: var(--su-text); background: var(--su-warn-soft); }
 .su-available { border-style: dashed; }
 .su-available .su-card-head .su-tag { align-self: flex-start; }
-.su-frontend .su-actions .su-flex { flex: 1 1 auto; }
+/* Update and Remove stay together at the right, and wrap as a pair when the row is full. */
+.su-fe-manage { display: inline-flex; gap: 4px; margin-left: auto; }
+/* A note in place of cards spans the whole grid, not one column. */
+.su-grid > p { grid-column: 1 / -1; }

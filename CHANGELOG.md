@@ -16,6 +16,11 @@ releases*).
 
 ## Unreleased
 
+### Fixed
+
+- Frontend cards: the Official/Custom label is no longer cut off on long names, Update and Remove
+  stay together when the buttons wrap, and the empty Available note uses the full width.
+
 ## 1.2.0 — 2026-11-20
 
 ### Upgrading

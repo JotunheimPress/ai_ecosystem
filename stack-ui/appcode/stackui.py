@@ -224,7 +224,7 @@ class StackUI(MainWindow):
         el = js.document.createElement("link")
         el.id = "su-css"
         el.rel = "stylesheet"
-        el.href = "/static/stackui.css?v=5"
+        el.href = "/static/stackui.css?v=6"
         js.document.head.appendChild(el)
 
     # --- routing ---------------------------------------------------------------
