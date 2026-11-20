@@ -18,8 +18,10 @@ Start/Stop, the separate **Start at boot** toggle, and the **workspace switch**)
   and sound, decision) with what it has loaded, and the GPU. Its sidebar screens: language
   models (installed GGUFs + HuggingFace search + Fortuna's models), image and audio models (ComfyUI files +
   Civitai search), VRAM planner; plus logs, custom nodes and doctor under System.
-- **Frontends** (`#/frontends`): installed apps only, HTTPS links where a frontend offers
-  them, the `frontend.json` problems `stack` found, and "Stop all frontends".
+- **Frontends** (`#/frontends`): the installed apps, with HTTPS links where a frontend offers
+  them, an **Official / Custom** label, **Update** and **Remove**, the `frontend.json` problems
+  `stack` found, and "Stop all frontends"; then **Available**: the official frontends not
+  installed yet, each with **Install** (or why it can't be). See *Installing frontends* below.
 
 **Themes** (since 2026-11-19, like Whimsy's): swatches under the sidebar pick one of Whimsy's five
 dark colourways (Bone, Ember, Moss, Dusk, Harbor, same palettes) or Daylight. `ui/themes.py` sets
@@ -553,6 +555,32 @@ the whole verb would offer two buttons that quietly do nothing useful.
   image rebuild, because deps live in `comfyui/Containerfile`. The failure mode — a node
   that imports and then errors at runtime — doesn't look like a missing dependency, so the
   panel says it in the header.
+
+## Installing frontends (since 1.2.0)
+
+The Frontends screen drives `stack frontend available|add|update|remove` (`ai-stack/CLAUDE.md`
+→ *Official frontends*); `stack` does every real check, the dashboard only shows and asks.
+
+- **What the browser can send:** `frontend_add` with a **name** that `stack frontend available
+  --json` lists and reports not installed (target kind `catalog`), and `frontend_update` /
+  `frontend_remove` with a repo `stack frontends --json` reports installed (kind `frontend`,
+  official or not). Never a URL or a path. `stackctl.resolve` checks both against fresh `stack`
+  output, so they follow the same allowlist rule as every other action.
+- **The list is read, not polled:** `StackApi.frontend_catalog` (→ `stackctl.catalog()`, not
+  cached) when the screen mounts and whenever a job ends (`on_busy(False)`), since an install,
+  update or remove changes it. A failure shows as a warning banner, never an error page.
+- **Official vs Custom** comes from `stack`: `official` is true only when the installed clone's
+  origin is the listed URL (`frontend_catalog json`), so a fork or a hand-made clone with the
+  same repo name is labelled Custom. Frontends not in the list are always Custom.
+- **Confirms:** every action asks first, naming what it does (the clone URL for Install). Remove
+  uses wapyt's danger style (focus starts on Cancel), and the confirm text goes through
+  `textContent`, so a brand from a `frontend.json` can't inject markup.
+- **Available cards** show what the frontend uses (`needs`) and, when Install is disabled, why
+  (`problems`: a port or container clash, a newer AI Ecosystem needed, a folder already there).
+- `STACK_CATALOG` is passed through to `stack` (tests only; unset in the image).
+- Tests: `tests/test_frontend_actions.py` (what `resolve` accepts), and end to end with the dev
+  server on a scratch `AI_ECOSYSTEM` and a test list: install, Official vs Custom, remove refused
+  while the folder holds data, clean remove, 0 console errors.
 
 ## About and the release check (since 2026-11-20)
 

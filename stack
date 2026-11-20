@@ -455,11 +455,27 @@ def find(name):
             return row
     sys.exit(f"{name!r} isn't an official frontend (stack frontend available lists them)")
 
+def origin_url(d):
+    """The clone's origin URL, from .git/config (read, not `git`: cheap, as frontend_manifests)."""
+    try:
+        cfg = (Path(d) / ".git" / "config").read_text()
+    except OSError:
+        return None
+    m = re.search(r'\[remote "origin"\][^\[]*?url\s*=\s*(\S+)', cfg)
+    return m.group(1) if m else None
+
+def same_repo(a, b):
+    norm = lambda u: re.sub(r"(\.git)?/*$", "", (u or "").strip()).lower()
+    return bool(a and b) and norm(a) == norm(b)
+
 if mode == "json":
     out = []
     for row in entries:
         f = by_repo.get(row["repo"])
+        # official: installed AND cloned from the listed URL. A fork or a hand-made clone
+        # with the same repo name is the user's own, and the dashboard says so.
         out.append({**row, "installed": bool(f), "dir": f["dir"] if f else None,
+                    "official": bool(f) and same_repo(origin_url(f["dir"]), row["url"]),
                     "problems": problems(row)})
     print(json.dumps({"frontends": out, "warnings": warns}))
 elif mode == "list":

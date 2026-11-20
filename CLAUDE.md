@@ -175,7 +175,7 @@ official frontends. Empty until frontends go public; adding one is a PR that add
 
 - `stack frontend available [--json]`: the list, and per entry installed / available / why not
   (`problems`: `min_stack`, a port or container clash with the stack or an installed frontend,
-  or a folder of that name already there). `--json` is for the dashboard (step 2 of the plan).
+  or a folder of that name already there). `--json` is what the dashboard's Frontends screen reads (`stack-ui/CLAUDE.md` → *Installing frontends*).
 - `stack frontend add NAME`: **a name from the list only, never a URL**, so what gets cloned is
   decided in review, not by whoever asks (the dashboard will only ever send a name). Clones into
   `$ECO/.frontend-install/` (dot-folders aren't discovered), checks out the newest `vX.Y.Z` tag

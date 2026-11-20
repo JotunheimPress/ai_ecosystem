@@ -184,3 +184,13 @@ def test_build_with_shell_syntax_is_refused(env):
     _exe(other / "run.sh", "exit 0\n")
     doc = json.loads(env["run"]("frontends", "--json").stdout)
     assert doc["frontends"] == [] and "build must be a script" in doc["warnings"][0]
+
+
+def test_official_means_cloned_from_the_listed_url(env):
+    env["run"]("frontend", "add", "demo")
+    [row] = _available(env)
+    assert row["installed"] and row["official"]
+    # Same repo name, cloned from somewhere else: installed, but not official.
+    _git(env["eco"] / "demo", "remote", "set-url", "origin", "https://example.com/fork/demo.git")
+    [row] = _available(env)
+    assert row["installed"] and not row["official"]

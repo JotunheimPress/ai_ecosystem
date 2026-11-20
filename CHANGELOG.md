@@ -25,6 +25,9 @@ releases*).
   frontend; `remove` refuses while the folder holds data git doesn't have. The list is empty
   until frontends go public.
 - `frontend.json` may name a `build` script, run by `stack frontend add` and `update`.
+- The dashboard installs official frontends: the Frontends screen lists those not installed under
+  **Available**, with an **Install** button (or the reason it can't be installed), and every
+  installed frontend gets **Update** and **Remove** buttons and an **Official** or **Custom** label.
 
 ### Changed
 

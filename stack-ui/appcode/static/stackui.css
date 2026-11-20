@@ -459,3 +459,9 @@ td.su-warn { color: var(--su-warn); }
 .su-about-link .mdi { font-size: 20px; line-height: 1.1; color: var(--su-accent-text); }
 .su-about-link b { display: block; font-weight: 650; }
 .su-about-link small { color: var(--su-dim); font-size: 12px; }
+
+/* --- installing frontends: Official / Custom labels, the Available cards --------- */
+.su-tag.su-custom { color: var(--su-text); background: var(--su-warn-soft); }
+.su-available { border-style: dashed; }
+.su-available .su-card-head .su-tag { align-self: flex-start; }
+.su-frontend .su-actions .su-flex { flex: 1 1 auto; }
