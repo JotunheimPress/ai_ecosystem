@@ -169,7 +169,7 @@ clone (or `stack frontend remove`).
 file:// for a mirror), `brand`, `description`, `icon`, `port`, `https_port`, `container`,
 `needs` (CAP values) and optional `min_stack`. It ships with each release, reviewed in a PR, so
 what a release offers is fixed and works offline, and it doubles as the **port registry** for
-official frontends. Empty until frontends go public; adding one is a PR that adds its entry
+official frontends. First entry: iguana_studio. Adding one is a PR that adds its entry
 (the frontend must have a release tag and a `frontend.json` agreeing with the entry).
 `STACK_CATALOG` points elsewhere (tests). Parsed by `frontend_catalog` in `stack`.
 
