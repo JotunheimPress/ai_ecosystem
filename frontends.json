@@ -12,19 +12,6 @@
       "needs": [
         "image-sound"
       ]
-    },
-    {
-      "repo": "world-builder",
-      "url": "https://github.com/JotunheimPress/world-builder.git",
-      "brand": "World Builder",
-      "description": "VR scene generation from a prompt (beta)",
-      "icon": "mdi-cube-outline",
-      "port": 7880,
-      "container": "world-builder",
-      "needs": [
-        "text",
-        "decision"
-      ]
     }
   ]
 }

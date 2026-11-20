@@ -33,7 +33,8 @@ and you choose which one each backend boots.
   tensor index (not the weights) to tell a full checkpoint from a bare diffusion model.
 - **Tokens:** put `CIVITAI_TOKEN=…` and/or `HF_TOKEN=…` lines in `stack-ui/tokens.env`
   (git-ignored, `chmod 600`) and rebuild the dashboard. A 401/403 says which one is missing.
-  The same file takes `GITHUB_TOKEN`, used only for About's release check.
+  The same file takes `GITHUB_TOKEN`, for About's release check on a private fork and for
+  private frontend repos on GitHub ([Frontends](frontends.md)).
 - ComfyUI loads models per job and keeps them, so it can hold GPU memory after a render.
   **Release VRAM** on its card (or **Release ComfyUI VRAM** in the VRAM planner) gives it back
   without a restart.
