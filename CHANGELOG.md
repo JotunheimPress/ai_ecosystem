@@ -20,7 +20,11 @@ releases*).
 
 - `stack frontend add <git URL>` installs any frontend, not just official ones: its newest
   release, checked against the stack and your installed frontends, then built. It shows what
-  it is and asks first, since nobody reviewed it (`--yes` to skip). Terminal only for now.
+  it is and asks first, since nobody reviewed it (`--yes` to skip).
+- The dashboard's Frontends screen installs one from a git URL too, under **From a git URL**,
+  from any computer on your local network (the dashboard opened by the stack machine's
+  address or local name). Requests from outside the network, or made by another website, are
+  refused: the dashboard has no login, and the install runs code nobody reviewed.
 - Private frontend repos on GitHub: `GITHUB_TOKEN` in `stack-ui/tokens.env` is used by
   `stack frontend add`, `update` and `check` after your own git login, so the dashboard's
   "vX.Y.Z available" check now reaches them too.

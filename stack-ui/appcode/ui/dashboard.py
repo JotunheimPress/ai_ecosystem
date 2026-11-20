@@ -10,7 +10,9 @@ backend gets comes from its `capability` in `stack status --json`, via
 frontend offers them, an Official / Custom label, a "vX.Y.Z available" badge when its origin has
 a newer release (`stack frontend check`), Update and Remove, and the problems `stack`
 found in their frontend.json; then the official frontends not installed yet, with Install
-(`stack frontend available|add|update|remove`; the browser only ever sends a name).
+(`stack frontend available|add|update|remove`; the browser sends a name); then installing
+any frontend from its git URL, which only a browser on the local network may do
+(`url_install` from the server, which checks again: `stackctl.REQUEST_LAN`).
 
 Rendered as escaped HTML with one delegated click listener per view; every value that
 reaches the markup goes through ``esc``.
@@ -387,6 +389,7 @@ class FrontendsView(_Cards):
         self.listeners = Listeners()
         self.ov: dict = {}
         self.catalog: dict | None = None     # StackApi.frontend_catalog(); None until it answers
+        self._url_mode: bool | None = None   # the URL box as rendered: LAN or not; None = not yet
 
     def mount(self, root) -> None:
         self.root = root
@@ -409,6 +412,11 @@ class FrontendsView(_Cards):
             '<div id="fe-cat-warn"></div>'
             '<div class="su-grid" id="fe-available"><div class="su-card su-skeleton"></div></div>'
             '</section>'
+            '<section class="su-section">'
+            '<div class="su-section-head"><h2>From a git URL</h2>'
+            '<span class="su-dim">any other frontend: a repo with a frontend.json</span></div>'
+            '<div id="fe-url"></div>'
+            '</section>'
             '<pre class="su-raw" id="fe-raw" hidden></pre>'
             '</div>')
         self.listeners.on(root, "click", self._on_click)
@@ -416,6 +424,59 @@ class FrontendsView(_Cards):
 
     def unmount(self) -> None:
         self.listeners.clear()
+        self._url_mode = None
+
+    def _on_click(self, ev) -> None:
+        btn = closest(ev, "button")
+        if btn and not btn.disabled and btn.id == "fe-url-go":
+            self._install_url()
+            return
+        super()._on_click(ev)
+
+    def _install_url(self) -> None:
+        box = by_id("fe-url-input")
+        url = str(box.value or "").strip() if box else ""
+        if not url:
+            toast("Paste the frontend's git URL first.", "warning")
+            return
+        # Danger style: Cancel has focus. The server checks the URL and where it came from.
+        self.app.act("frontend_add_url", url, danger=True, confirm=(
+            f"Install the frontend at {url}? It isn't on the official list, so nobody has "
+            "reviewed it: its build and start scripts run with control of this machine's "
+            "containers. Only install a repo you trust. It is cloned next to ai-stack at its "
+            "newest release, checked against the stack, and built; the log shows each step."))
+
+    def _render_url(self) -> None:
+        """The URL box, drawn once per mode so polling never wipes what's being typed."""
+        box = by_id("fe-url")
+        if not box or self.catalog is None:
+            return
+        local = bool(self.catalog.get("url_install"))
+        if local != self._url_mode:
+            self._url_mode = local
+            if local:
+                box.innerHTML = (
+                    '<div class="su-searchbar su-url-bar">'
+                    '<input type="url" id="fe-url-input" spellcheck="false" autocomplete="off" '
+                    'placeholder="https://github.com/owner/repo.git  or  git@github.com:owner/repo">'
+                    '<button class="su-btn su-primary" id="fe-url-go">'
+                    '<i class="mdi mdi-download"></i>Install</button></div>'
+                    '<p class="su-dim">Its newest release is installed next to ai-stack and built, '
+                    'after you confirm. Nobody reviewed it, so only install a repo you trust. A '
+                    'private GitHub repo needs <code>GITHUB_TOKEN</code> with read access in '
+                    '<code>stack-ui/tokens.env</code>. Shown as Custom once installed.</p>')
+                self.listeners.on(by_id("fe-url-input"), "keydown",
+                                  lambda e: self._install_url() if e.key == "Enter" else None)
+            else:
+                box.innerHTML = (
+                    '<p class="su-dim"><i class="mdi mdi-lock-outline"></i> Only from your local '
+                    'network, since it runs code nobody reviewed: open the dashboard by the stack '
+                    'machine\'s address or local name (<code>http://&lt;host&gt;:7863</code>, '
+                    '<code>&lt;host&gt;.local</code>), or run <code>stack frontend add &lt;url&gt;</code> '
+                    'in a terminal there.</p>')
+        go = by_id("fe-url-go")
+        if go:
+            go.disabled = bool(self.app.busy)
 
     def on_overview(self, ov: dict) -> None:
         self.ov = ov
@@ -451,6 +512,7 @@ class FrontendsView(_Cards):
             '<p class="su-dim">No frontends installed. Install an official one below, or clone '
             'any repo with a frontend.json next to ai-stack.</p>')
         self._render_available()
+        self._render_url()
         warns = ov.get("warnings") or []
         by_id("fe-warn").innerHTML = "".join(
             f'<div class="su-banner"><i class="mdi mdi-alert-outline"></i><span>{esc(w)}</span></div>'

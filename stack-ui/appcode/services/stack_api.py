@@ -77,10 +77,12 @@ class StackApi:
 
     def frontend_catalog(self) -> dict:
         """The official frontends and what is installed (`stack frontend available --json`).
-        Installing, updating and removing go through ``action`` like every other change."""
+        Installing, updating and removing go through ``action`` like every other change.
+        ``url_install``: this browser is on the local network, so it may install a
+        frontend from a git URL (``frontend_add_url``, which checks again)."""
         from services import stackctl
 
-        return {"ok": True, **stackctl.catalog()}
+        return {"ok": True, **stackctl.catalog(), "url_install": stackctl.REQUEST_LAN.get()}
 
     def frontend_updates(self, force: bool = False) -> dict:
         """Which installed frontends have a newer release on their origin, for the Frontends

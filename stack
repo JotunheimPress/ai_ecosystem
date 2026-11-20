@@ -326,9 +326,10 @@ cmd_frontends() {
 # frontends.json, in this repo, lists the official frontends: reviewed in a PR and shipped
 # with each release, so what a release offers is fixed and works offline. It also hands out
 # their ports, so two official frontends never clash. `stack frontend add NAME` takes a name
-# from it: what gets cloned is decided in review, not by whoever asks (the dashboard sends only
-# names). `add URL` is the terminal's custom install, confirmed by whoever typed it (modes
-# custom / vetcustom). STACK_CATALOG points elsewhere, for tests.
+# from it: what gets cloned is decided in review, not by whoever asks. `add URL` is a custom
+# install, confirmed by whoever typed it: in a terminal, or the dashboard from the LAN only,
+# which passes --yes after its own confirm (modes custom / vetcustom). STACK_CATALOG points
+# elsewhere, for tests.
 #
 #   { "version": 1,
 #     "frontends": [

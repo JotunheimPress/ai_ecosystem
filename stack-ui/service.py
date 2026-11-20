@@ -57,6 +57,25 @@ def build_app():
         )
     )
 
+    class MarkLanRequests:
+        """Tags every request with whether it comes from the local network
+        (stackctl.REQUEST_LAN), for the few things nothing else may do. Plain ASGI, not @middleware("http"), so the
+        value is set in the very context the route and its BFF thread run in."""
+
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                return await self.app(scope, receive, send)
+            token = stackctl.REQUEST_LAN.set(stackctl.is_lan_request(scope))
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                stackctl.REQUEST_LAN.reset(token)
+
+    application.add_middleware(MarkLanRequests)
+
     # Same-origin stylesheet; pytincture's CSP allows styles from 'self'.
     application.mount("/static", StaticFiles(directory=str(APPCODE / "static")),
                       name="static")

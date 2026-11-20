@@ -177,8 +177,7 @@ official frontends. First entry: iguana_studio. Adding one is a PR that adds its
   (`problems`: `min_stack`, a port or container clash with the stack or an installed frontend,
   or a folder of that name already there). `--json` is what the dashboard's Frontends screen reads (`stack-ui/CLAUDE.md` → *Installing frontends*).
 - `stack frontend add NAME`: **a name from the list**, so what gets cloned is decided in review,
-  not by whoever asks; the dashboard sends only names (a URL is the terminal's custom install,
-  next bullet, and asks a human first). Clones into
+  not by whoever asks; the dashboard's Install buttons send only names. Clones into
   `$ECO/.frontend-install/` (dot-folders aren't discovered), checks out the newest `vX.Y.Z` tag
   (else the default branch), validates the clone's `frontend.json` with `frontend_manifests` and
   requires its port, https_port and container to equal the entry, then moves it into place and
@@ -193,7 +192,9 @@ official frontends. First entry: iguana_studio. Adding one is a PR that adds its
   official name is refused (a fork needs its own name). After cloning, `vetcustom` refuses the
   same clashes an official entry would and only warns about a port or container the list hands
   out. It then shows brand, ports, container and `build` and asks, since it runs code nobody
-  reviewed; with no terminal it needs `--yes`. The dashboard still sends names only.
+  reviewed; with no terminal it needs `--yes`. The dashboard sends a URL (with `--yes`, after
+  its own confirm) only from a browser on the local network (`stack-ui/CLAUDE.md` →
+  *Security posture*).
 - **`GITHUB_TOKEN`** (since 1.5.0): `add`, `update` and `check` run git through
   `with_github_token`, which offers the token (env, else `stack-ui/tokens.env`, parsed;
   `STACK_TOKENS` for tests) as a credential helper for `https://github.com` only, appended after
