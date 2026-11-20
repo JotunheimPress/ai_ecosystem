@@ -191,6 +191,11 @@ official frontends. First entry: iguana_studio. Adding one is a PR that adds its
   frontends keep user data in their repo; it lists them and leaves the deleting to you. Otherwise
   stops it, removes its container and image, and deletes the folder (only a direct child of
   `$ECO`, never this checkout).
+- `stack frontend check [--json]`: for each installed frontend, `git ls-remote --tags origin`
+  (in parallel, 15 s each, nothing fetched); the newest `vX.Y.Z` is `newer` unless its commit is
+  already an ancestor of HEAD, so a working clone past the tag is up to date. Origins with no
+  release tags report `no releases`; offline or no access, `unreachable`. The dashboard's
+  "vX.Y.Z available" badge reads `--json` (`stack-ui/CLAUDE.md` → *Installing frontends*).
 - Tests: `stack-ui/tests/test_frontend_install.py` (a real git origin, a fake podman).
 
 - **No desktop avatar** (removed 2026-11-07). `stack desktop`, `stack install desktop` and the

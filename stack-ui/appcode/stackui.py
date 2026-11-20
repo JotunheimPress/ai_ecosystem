@@ -103,6 +103,8 @@ class StackUI(MainWindow):
         self.screen_id = ""
         self._action_stream = None
         self._dl_stream = None
+        self._job_verb = ""
+        self.frontend_updates: dict = {}    # repo -> {current, latest, newer, ...}
         self._dl_bar = None
         self._listeners = Listeners()
         self._poll_proxy = None
@@ -211,6 +213,7 @@ class StackUI(MainWindow):
         self._route()
         spawn(self._resume(), "resume")
         spawn(self.check_release(), "release check")
+        spawn(self.check_frontend_updates(), "frontend update check")
         self._poll_proxy = js.setInterval(_proxy(self._tick), POLL_MS)
 
     def _on_swatch(self, ev) -> None:
@@ -342,6 +345,18 @@ class StackUI(MainWindow):
         if hasattr(self.screen, "on_release"):
             self.screen.on_release(self.release)
 
+    async def check_frontend_updates(self, force: bool = False) -> None:
+        """Which installed frontends have a newer release (services.frontend_updates: cached
+        there, off with STACK_UPDATE_CHECK=off). The count goes on the sidebar's Installed
+        apps entry; the Frontends cards show which. Quiet on any failure."""
+        r = await StackApi().frontend_updates_async(force)
+        rows = (r.get("frontends") if isinstance(r, dict) and r.get("ok") else None) or {}
+        self.frontend_updates = rows if isinstance(rows, dict) else {}
+        n = sum(1 for v in self.frontend_updates.values() if isinstance(v, dict) and v.get("newer"))
+        self.sidebar.set_badge("frontends", n or None)
+        if hasattr(self.screen, "on_frontend_updates"):
+            self.screen.on_frontend_updates()
+
     async def _resume(self) -> None:
         await self.refresh()
         state = await ModelsApi().download_state_async()
@@ -396,6 +411,7 @@ class StackUI(MainWindow):
         self._follow(r["job"])
 
     def _follow(self, job: dict) -> None:
+        self._job_verb = job.get("verb") or ""
         self.set_busy(True)
         self.show("console")
         out = by_id("su-console-out")
@@ -427,6 +443,8 @@ class StackUI(MainWindow):
         by_id("su-console-spin").hidden = True
         self.set_busy(False)
         spawn(self.refresh(), "refresh")
+        if self._job_verb.startswith("frontend_"):    # installed, updated or removed one
+            spawn(self.check_frontend_updates(force=True), "frontend update check")
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy

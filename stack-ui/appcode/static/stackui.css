@@ -462,6 +462,10 @@ td.su-warn { color: var(--su-warn); }
 
 /* --- installing frontends: Official / Custom labels, the Available cards --------- */
 .su-tag.su-custom { color: var(--su-text); background: var(--su-warn-soft); }
+/* A newer release is out (stack frontend check). */
+.su-tag.su-newer { color: var(--su-good); background: var(--su-good-soft); }
+.su-tag.su-newer .mdi { margin-right: 3px; }
+.su-btn.su-newer { color: var(--su-good); border-color: color-mix(in srgb, var(--su-good) 40%, transparent); }
 .su-available { border-style: dashed; }
 .su-available .su-card-head .su-tag { align-self: flex-start; }
 /* Update and Remove stay together at the right, and wrap as a pair when the row is full. */
