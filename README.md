@@ -1,9 +1,16 @@
-# ai-stack
+# AI Ecosystem
 
-One command, `stack`, runs a local, self-hosted AI stack: shared GPU **backends** for text,
-image and sound, and decisions, behind one **router**; the **frontends** that use them; and
-**AI Ecosystem**, a dashboard for all of it. Bring the backends up once, then use whichever apps
-you want.
+**AI Ecosystem** is a local, self-hosted AI stack: shared GPU **backends** for text, image and
+sound, and decisions, behind one **router**; the **frontends** that use them; and a dashboard for
+all of it. One command, `stack`, drives everything. Bring the backends up once, then use whichever
+apps you want.
+
+**Names:** AI Ecosystem is the product's name, what you see and what the docs call it. The repo
+is `ai-stack` (`JotunheimPress/ai-stack`), the command is `stack`, and the dashboard's service key
+is `stackui`. Those are what you type, and they don't change with the brand.
+
+**Version:** see [`VERSION`](VERSION) and the [changelog](CHANGELOG.md); `stack version` prints
+the one you have.
 
 **Documentation:** the [wiki](docs/wiki/README.md) has the full user guide (install, running,
 the dashboard, models, frontends, troubleshooting) and a developer guide.
@@ -29,7 +36,7 @@ cloned next to it (`stack frontends` lists them). Today's set includes Whimsy (`
 the Narrative Engine (`ai-story-maker`, 7860), Iguana Studio (7862), Nocturne (7864), the
 `npc_maker` and `narrative_engine` forks (7865, 7866) and Cantinero (`companion-assistant`, 7867).
 
-**AI Ecosystem** (`stack-ui/`, port 7863) is the control dashboard: start and stop, start at
+**The AI Ecosystem dashboard** (`stack-ui/`, port 7863) is the control panel: start and stop, start at
 boot, what each backend has loaded, model downloads and selection (HuggingFace, Civitai,
 Fortuna's pinned files), the VRAM planner, logs, the doctor, and six colour themes.
 
@@ -75,6 +82,18 @@ stack stackui       # the dashboard: http://localhost:7863
 The dashboard reaches the host's podman through your user's socket:
 `systemctl --user enable --now podman.socket`.
 
+### Updating
+
+```bash
+cd ai-stack
+git pull --ff-only
+stack install       # rebuilds whatever changed, the dashboard included
+stack version       # the release you now have
+```
+
+[`CHANGELOG.md`](CHANGELOG.md) says what each release changed, and whether anything outside the
+repo (a frontend, a script reading `stack status --json`) needs a change too.
+
 ### Frontends
 
 Clone the ones you want into the same parent directory as `ai-stack/`, then start one by its
@@ -104,6 +123,7 @@ stack route [local|halo] # where text is served
 stack fortuna-model [list | fetch NAME | verify NAME]
 stack install [target]
 stack doctor
+stack version            # the AI Ecosystem release and this checkout's commit
 ```
 
 **To free the GPU for a game:** `stack off`, plus `stack boot off` if it should stay off after a

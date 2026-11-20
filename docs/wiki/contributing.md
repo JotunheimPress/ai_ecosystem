@@ -13,6 +13,14 @@
 - No CI: run the checks below before opening a PR, and say in the PR what you ran and what you
   didn't.
 
+## Releases
+
+AI Ecosystem uses SemVer in [`VERSION`](../../VERSION). Add a line to *Unreleased* in
+[`CHANGELOG.md`](../../CHANGELOG.md) for anything a user would notice. To release: a PR that bumps
+`VERSION` and moves *Unreleased* under the new version's heading; after it merges, tag
+`vX.Y.Z` on `master` and create a GitHub release with that section. When to bump which number
+is in `CLAUDE.md` → *Versioning and releases*.
+
 ## The `stack` script and start scripts
 
 ```bash

@@ -254,7 +254,8 @@ def status() -> dict:
     """`stack status` in one shape, whichever way the stack can report it.
 
     {boot: "ON"|"OFF"|None (start at boot; None = no unit), apps: [...], parsed, route: {...}|None, warnings: [...],
-     raw, duration_ms, source: "json"|"text"}. Each app: name, label, icon, up, port, desc,
+     release: {version, commit, modified}|None (the AI Ecosystem release; None from an older
+     stack or the text fallback), raw, duration_ms, source: "json"|"text"}. Each app: name, label, icon, up, port, desc,
     group (backends/frontends/control), self, and from JSON also capability, local (this
     machine's copy of a backend), https_port and https_setup.
     """
@@ -266,7 +267,8 @@ def status() -> dict:
     if isinstance(data, dict) and data.get("version") == 1 and isinstance(data.get("apps"), list):
         return _from_json(data, res["duration_ms"])
     res = run("status")
-    return {**parse_status(res["output"]), "route": None, "warnings": [], "raw": res["output"],
+    return {**parse_status(res["output"]), "route": None, "warnings": [], "release": None,
+            "raw": res["output"],
             "duration_ms": res["duration_ms"], "source": "text"}
 
 
@@ -292,8 +294,14 @@ def _from_json(data: dict, duration_ms: int) -> dict:
         })
     sw = data.get("boot", data.get("switch"))       # "switch": the field's name before boot
     route = data.get("route") if isinstance(data.get("route"), dict) else None
+    rel = data.get("release") if isinstance(data.get("release"), dict) else {}
+    release = None
+    if isinstance(rel.get("version"), str) and rel["version"]:
+        release = {"version": rel["version"],
+                   "commit": rel["commit"] if isinstance(rel.get("commit"), str) else None,
+                   "modified": bool(rel.get("modified"))}
     return {"boot": sw.upper() if sw in ("on", "off") else None, "apps": apps,
-            "parsed": bool(apps), "route": route,
+            "parsed": bool(apps), "route": route, "release": release,
             "warnings": [w for w in data.get("warnings") or [] if isinstance(w, str)],
             "raw": "", "duration_ms": duration_ms, "source": "json"}
 

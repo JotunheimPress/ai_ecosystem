@@ -141,6 +141,7 @@ class StackUI(MainWindow):
         texts = container_of(self.get_cell("header")).querySelectorAll(".wapyt-toolbar-text")
         for el, role in zip(texts, ("brand", "state")):
             el.setAttribute("data-su", role)
+        self._brand = texts[0] if texts.length else None
 
         self.sidebar = self.add_sidebar("nav", SidebarConfig(
             collapse_button=True,
@@ -264,6 +265,22 @@ class StackUI(MainWindow):
         if not self.busy and not js.document.hidden:
             spawn(self.refresh(), "refresh")
 
+    def _show_release(self, rel) -> None:
+        """The AI Ecosystem release beside the brand (CSS draws data-version), and the
+        checkout's commit in its tooltip. Nothing from an older stack that doesn't say."""
+        el = self._brand
+        if not el:
+            return
+        if not isinstance(rel, dict) or not rel.get("version"):
+            el.removeAttribute("data-version")
+            el.removeAttribute("title")
+            return
+        el.setAttribute("data-version", f"v{rel['version']}")
+        tip = f"AI Ecosystem {rel['version']}"
+        if rel.get("commit"):
+            tip += f" (ai-stack {rel['commit']}{', modified' if rel.get('modified') else ''})"
+        el.setAttribute("title", tip)
+
     async def refresh(self) -> None:
         ov = await StackApi().overview_async()
         if not isinstance(ov, dict) or not ov.get("ok"):
@@ -282,6 +299,7 @@ class StackUI(MainWindow):
         else:
             state = f"Backends: {up} of {len(backends)} up"
         self.toolbar.set_text("state", state)
+        self._show_release(ov.get("release"))
         boot = ov.get("boot")
         self.toolbar.set_active("boot", boot == "ON")
         self.toolbar.set_text("boot", f"Start at boot: {'on' if boot == 'ON' else 'off'}")

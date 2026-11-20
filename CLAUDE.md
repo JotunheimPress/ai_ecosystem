@@ -1,4 +1,10 @@
-# ai-stack — unified AI backend + frontend launcher
+# AI Ecosystem (repo: ai-stack) — unified AI backend + frontend launcher
+
+**Branding.** The product is **AI Ecosystem**: the README title, the wiki, the dashboard (its
+browser tab and toolbar), `stack version` and the changelog all say that. What an operator
+*types* stays as it is: the repo `ai-stack`, the command `stack`, the `stackui` service key, the
+`localhost/stackui` image, the `stack-ui/` directory. Rename labels, never identifiers (same
+rule as `stack-ui/CLAUDE.md` → *Naming*, and the repo-is-identity rule for frontends).
 
 One `stack` command to run the **shared AI backends** and then **pick a frontend**. Backends are
 shared across every app; frontends run side-by-side on their own ports.
@@ -188,6 +194,23 @@ doesn't have to.
 `stack doctor` is the read-only half — prerequisites, images, network, unit, plus `stack status`.
 The unit check compares the whole installed file with what `stack install service` would write,
 so an old unit (wrong path, or the old 240 s start timeout) is reported.
+
+## Versioning and releases (since 1.0.0, 2026-11-20)
+
+- **`VERSION`** holds the release, SemVer. **Major**: something outside this repo breaks (the
+  `frontend.json` format, the `stack status --json` shape, a backend's name or port on `ai-net`,
+  a command removed or renamed). **Minor**: a feature. **Patch**: a fix.
+- **`CHANGELOG.md`**: a PR that users would notice adds a line under *Unreleased*.
+- **Shown by** `stack version` (`-V`, `--version`), the first line of `stack doctor`, and the
+  dashboard beside its name, with the commit in the tooltip. All read `VERSION` through `stack`
+  (`STACK_VERSION`, `stack_release`); `stack status --json` carries it as `release`
+  (`{version, commit, modified}`). Its `"version": 1` is the JSON *shape's* version, not the
+  release; don't confuse the two. The commit is omitted where git isn't available (the
+  stack-ui image).
+- **Cutting a release**: a PR that moves *Unreleased* under a new `## X.Y.Z — date` heading and
+  bumps `VERSION`; after it merges, tag `vX.Y.Z` on `master` and create a GitHub release with
+  that section as its notes (`gh release create vX.Y.Z --repo JotunheimPress/ai-stack
+  --notes-file …`).
 
 ## Running now vs. start at boot (two separate settings)
 

@@ -17,6 +17,7 @@ from services import backends, inventory, stackctl  # noqa: E402
 
 STATUS = {
     "version": 1, "boot": "on", "switch": "on",
+    "release": {"version": "1.0.0", "commit": "eb1e253", "modified": False},
     "route": {"text": "halo.lan:5001", "where": "halo", "router_config": "current"},
     "apps": [
         {"name": "router", "group": "backend", "label": "Router", "capability": "routing",
@@ -72,6 +73,16 @@ def test_status_from_json(monkeypatch):
     assert by["companion-assistant"]["https_port"] == 7868
     assert by["companion-assistant"]["https_setup"] == "/ca"
     assert by["stackui"]["self"] and by["stackui"]["group"] == "control"
+    assert st["release"] == {"version": "1.0.0", "commit": "eb1e253", "modified": False}
+
+
+def test_release_absent_or_malformed_is_none(monkeypatch):
+    for rel in (None, "1.0.0", {"version": ""}, {"commit": "abc"}):
+        data = {k: v for k, v in STATUS.items() if k != "release"}
+        if rel is not None:
+            data["release"] = rel
+        monkeypatch.setattr(stackctl, "run", _fake_run(json.dumps(data)))
+        assert stackctl.status()["release"] is None, rel
 
 
 @pytest.mark.parametrize("out,rc", [(None, 0), ("usage: stack status", 0), ("{}", 0),

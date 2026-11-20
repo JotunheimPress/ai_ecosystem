@@ -301,6 +301,10 @@ td.su-warn { color: var(--su-warn); }
 .wapyt-toolbar-text[data-su="brand"]::before { content: "AI"; display: inline-flex;
   align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px;
   background: var(--grad); color: var(--ink); font: 800 12.5px var(--su-sans); letter-spacing: .5px; }
+/* The release, from stack status --json (stackui.py _show_release). */
+.wapyt-toolbar-text[data-su="brand"][data-version]::after { content: attr(data-version);
+  color: var(--mut); font: 500 11.5px var(--su-mono); letter-spacing: 0;
+  font-variant-numeric: tabular-nums; }
 .wapyt-toolbar-text[data-su="state"] { color: var(--txt); font-weight: 600; }
 
 .wapyt-sidebar { --wapyt-sidebar-accent: var(--acc); background: var(--bg2) !important;

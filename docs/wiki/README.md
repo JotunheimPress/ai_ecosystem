@@ -1,8 +1,10 @@
-# ai-stack wiki
+# AI Ecosystem wiki
 
-ai-stack runs a local, self-hosted AI stack on one machine: shared GPU **backends** (text,
-image and sound, decisions) behind one **router**, the **frontends** that use them, and
-**AI Ecosystem**, a dashboard for all of it. One command, `stack`, drives everything.
+**AI Ecosystem** runs a local, self-hosted AI stack on one machine: shared GPU **backends**
+(text, image and sound, decisions) behind one **router**, the **frontends** that use them, and a
+dashboard for all of it. One command, `stack`, drives everything. AI Ecosystem is the brand; the
+repo is `ai-stack` and the command is `stack`. Releases: [`VERSION`](../../VERSION),
+[changelog](../../CHANGELOG.md), `stack version`.
 
 This wiki has two halves. The **user guide** is for running the stack. The **developer guide**
 explains how it is built and points into the detailed notes (`CLAUDE.md` files) that sit next to

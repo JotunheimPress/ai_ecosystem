@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# ai-stack — one launcher for the local AI backends + frontends.
+# AI Ecosystem (repo: ai-stack) — one launcher for the local AI backends + frontends.
 #
 #   stack                 interactive: ensure backends, then pick a frontend
 #   stack on / off        start / stop the backends now (= stack up / stack down backends).
@@ -23,6 +23,7 @@
 #                           install the systemd unit, link onto PATH. Idempotent.
 #                           all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path
 #   stack doctor          check prerequisites + what's installed, change nothing
+#   stack version         the AI Ecosystem release (VERSION) and the checkout's commit
 #
 # Backends are shared; frontends run side-by-side on their own ports.
 # Frontends aren't listed here: any sibling repo with a frontend.json is one (see
@@ -36,6 +37,15 @@ set -uo pipefail
 # stack works wherever the projects are cloned as siblings.
 SELF="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"   # the ai-stack checkout itself
 ECO="${AI_ECOSYSTEM:-$(dirname "$SELF")}"
+# The release, from VERSION (SemVer; CHANGELOG.md says what each one changed). The commit
+# is added when this is a git checkout with git on PATH, which the stack-ui image may not be.
+STACK_VERSION="$(tr -d '[:space:]' < "$SELF/VERSION" 2>/dev/null)"; : "${STACK_VERSION:=unknown}"
+stack_commit()   { git -C "$SELF" rev-parse --short HEAD 2>/dev/null || true; }
+stack_modified() { [[ -n "$(git -C "$SELF" status --porcelain --untracked-files=no 2>/dev/null)" ]]; }
+stack_release()  {   # "AI Ecosystem 1.0.0 (ai-stack eb1e253, modified)"
+  local c; c="$(stack_commit)"
+  echo "AI Ecosystem $STACK_VERSION${c:+ (ai-stack $c$(stack_modified && echo ", modified"))}"
+}
 NET="ai-net"
 SVC="ai-stack-backends.service"     # systemd --user unit: start-at-boot only (stack boot)
 # Host profile: NVIDIA workstation or AMD Halo box (lib/host.sh, host.env). A bad host.env
@@ -129,7 +139,7 @@ declare -A LOCAL_PROBE=(
 # `stack <name>` would never reach them.
 FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
   menu on enable off disable gaming up status st down restart logs route install setup
-  doctor check help fortuna-model boot)
+  doctor check help fortuna-model boot version)
 
 # mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
 frontend_manifests() {
@@ -377,6 +387,8 @@ cmd_status() {
 
 # Machine-readable status for stack-ui and scripts. Only the JSON goes to stdout. Shape:
 #   { "version": 1, "boot": "on"|"off"|null,            start at boot; null = no unit installed
+#     ("version" is this shape's version, not the release; that is "release")
+#     "release": { "version": "1.0.0", "commit": "eb1e253"|null, "modified": bool },
 #     "switch": same as "boot" — its old name, kept for older readers
 #     "route": { "text": "koboldcpp-local:5001", "where": "local"|"halo",
 #                "router_config": "current"|"stale"|null },   null = router not running
@@ -397,6 +409,7 @@ status_json() {
   fi
   {
     echo "S$US$sw$US$(route_now)$US$(route_is_local && echo local || echo halo)$US$cfg"
+    echo "R$US$STACK_VERSION$US$(stack_commit)$US$(stack_modified && echo 1)"
     for a in "${all[@]}"; do
       g=backend
       [[ " ${FRONTENDS[*]} " == *" $a "* ]] && g=frontend
@@ -411,12 +424,14 @@ status_json() {
     for w in "${FRONTEND_WARN[@]}"; do echo "W$US$w"; done
   } | python3 -c '
 import json, sys
-out = {"version": 1, "boot": None, "switch": None, "route": {}, "apps": [], "warnings": []}
+out = {"version": 1, "release": None, "boot": None, "switch": None, "route": {}, "apps": [], "warnings": []}
 for line in sys.stdin:
     f = line.rstrip("\n").split("\x1f")
     if f[0] == "S":
         out["boot"] = out["switch"] = f[1] or None
         out["route"] = {"text": f[2], "where": f[3], "router_config": f[4] or None}
+    elif f[0] == "R":
+        out["release"] = {"version": f[1], "commit": f[2] or None, "modified": f[3] == "1"}
     elif f[0] == "A":
         name, group, label, cap, port, up, cname, loc, probed, icon, https, setup, desc = f[1:14]
         app = {"name": name, "group": group, "label": label, "capability": cap or None,
@@ -1043,6 +1058,7 @@ cmd_install() {
 }
 
 cmd_doctor() {
+  echo "${C_B}$(stack_release)${C_OFF}"
   echo "${C_B}Prerequisites${C_OFF}"; check_prereqs
   echo "${C_B}Installed${C_OFF}"
   podman image exists "$IMG_KOBOLD" && ok "$IMG_KOBOLD" || warn "$IMG_KOBOLD missing — stack install koboldcpp"
@@ -1120,6 +1136,7 @@ case "${1:-}" in
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
   fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
+  version|--version|-V) stack_release ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as
   # soon as a command was added.

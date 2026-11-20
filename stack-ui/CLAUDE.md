@@ -44,7 +44,9 @@ the `stack status` description, and the startup banner all say that. Everything 
 operator *types* is unchanged and must stay unchanged: the `stackui` service key (`stack stackui`,
 `stack down stackui`, `stack install stackui`), the `localhost/stackui` image, this `stack-ui/`
 directory, and the pytincture application name `stackui` (the page is `/stackui/`; `/`
-redirects there). Rename labels, never identifiers.
+redirects there). Rename labels, never identifiers. AI Ecosystem is also the whole product's brand now
+(`../CLAUDE.md` → *Branding*); the toolbar shows its release beside the name (`_show_release`,
+from `release` in `stack status --json`), with the checkout's commit in the tooltip.
 
 ## A container that drives the host
 
