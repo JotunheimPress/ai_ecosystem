@@ -557,8 +557,8 @@ About dialog and toolbar badge), adapted:
   `release` in the overview and the server reads in `release_check.current_version()`, so About,
   `stack version` and the toolbar can't disagree. A cached answer is dropped when that version
   changes (after an update the old "newer" must not stick).
-- **The repo is private**, which IguanaXterm's isn't: GitHub answers 404 for its releases without a
-  token. `GITHUB_TOKEN` (tokens.env, passed in by `run-podman.sh` like `HF_TOKEN`) is sent as a
+- **A private repo or fork** (ai-stack itself was private until it went public): GitHub answers
+  404 for its releases without a token. `GITHUB_TOKEN` (tokens.env, passed in by `run-podman.sh` like `HF_TOKEN`) is sent as a
   bearer header, only to api.github.com; read-only *Contents* on the repo is enough. Failures are
   told apart for the screen: `private` (404, no token), `token` (sent one, refused), `unreachable`.
   `stack version --check` exists so nobody *needs* a token: it uses git and the user's login.

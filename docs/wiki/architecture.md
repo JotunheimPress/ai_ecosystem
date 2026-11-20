@@ -39,10 +39,10 @@ the environment, an optional `host.env`, or detection:
 | `GPU` | `nvidia`, `amd`, `none` | GPU flags for every container, image tags. Detection tries NVIDIA CDI first (a workstation with an AMD CPU also has `/dev/kfd`) |
 | `LLM_BACKEND` | `cuda`, `vulkan`, `rocm` | KoboldCPP and Fortuna images |
 | `BIND` | an IPv4 address | which address published ports bind to |
-| `COMFYUI_PORT` | a port | ComfyUI's host port (8189 on AMD Rex, whose OS owns 8188) |
+| `COMFYUI_PORT` | a port | ComfyUI's host port (e.g. 8189 where the OS already runs ComfyUI on 8188) |
 
-Both profiles stay supported: the 12 GB RTX 4070 workstation (NVIDIA) and the Strix Halo box
-(AMD, 128 GB unified memory). See [`HALO_PLAN.md`](../../HALO_PLAN.md).
+Both profiles stay supported. Tested on an RTX 4070 with 12 GB (NVIDIA) and a Strix Halo with
+128 GB unified memory (AMD). See [`HALO_PLAN.md`](../../HALO_PLAN.md).
 
 ## Code versus state
 

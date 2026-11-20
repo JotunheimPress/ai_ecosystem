@@ -33,9 +33,8 @@ never need to know which copy serves them, and text can be moved to another mach
 `stack route` without changing anything else.
 
 **Frontends** are separate repos, each with a `frontend.json`; the stack discovers whichever are
-cloned next to it (`stack frontends` lists them). Today's set includes Whimsy (`companion`, 7861),
-the Narrative Engine (`ai-story-maker`, 7860), Iguana Studio (7862), Nocturne (7864), the
-`npc_maker` and `narrative_engine` forks (7865, 7866) and Cantinero (`companion-assistant`, 7867).
+cloned next to it (`stack frontends` lists them) and runs each on its own port, side by side. See
+[Frontends](docs/wiki/frontends.md) for how to install one and how to make your own.
 
 **The AI Ecosystem dashboard** (`stack-ui/`, port 7863) is the control panel: start and stop, start at
 boot, what each backend has loaded, model downloads and selection (HuggingFace, Civitai,
@@ -46,9 +45,9 @@ Fortuna's pinned files), the VRAM planner, logs, the doctor, and six colour them
 - **Podman** (rootless).
 - A GPU, detected automatically (pin it in `host.env`, from `host.env.example`):
   - **NVIDIA** with the container toolkit: `nvidia-smi` works and `nvidia-ctk cdi list` shows
-    `nvidia.com/gpu=all`. The reference machine is an RTX 4070 (12 GB).
-  - **AMD** Strix Halo (gfx1151, 128 GB unified memory), on Vulkan or ROCm: `/dev/kfd`,
-    `/dev/dri`, and your user in `render` and `video`. See [`HALO_PLAN.md`](HALO_PLAN.md).
+    `nvidia.com/gpu=all`. Tested on an RTX 4070 (12 GB).
+  - **AMD** on Vulkan or ROCm: `/dev/kfd`, `/dev/dri`, and your user in `render` and `video`.
+    Tested on a Strix Halo (gfx1151, 128 GB unified memory); see [`HALO_PLAN.md`](HALO_PLAN.md).
 - **git** and **curl**.
 
 `stack doctor` checks all of it.
@@ -100,16 +99,16 @@ repo (a frontend, a script reading `stack status --json`) needs a change too.
 
 ### Frontends
 
-Clone the ones you want into the same parent directory as `ai-stack/`, then start one by its
-repo name, e.g. `stack iguana_studio`. Each builds its own image on its first start; see its own
-README. They are private repos; ask for access.
+A frontend is any repo with a `frontend.json` at its root. Clone it into the same parent
+directory as `ai-stack/`, then start it by its repo name:
 
 ```bash
 cd ..
-git clone https://github.com/JotunheimPress/iguana_studio.git
-git clone https://github.com/JotunheimPress/nocturne.git
-git clone https://github.com/JotunheimPress/muninn.git    # memory library some frontends build against
+git clone https://github.com/<owner>/<frontend>.git
+stack <frontend>         # builds its image on the first start; see its own README
 ```
+
+[Frontends](docs/wiki/frontends.md) has the `frontend.json` format, for making your own.
 
 ## Usage
 
@@ -155,3 +154,7 @@ ai_ecosystem/            # the ecosystem root ($AI_ECOSYSTEM, else this checkout
 Recipes (Containerfiles, start scripts, configs) live in this repo; state lives in the sibling
 directories and is never committed. More in the wiki's [Architecture](docs/wiki/architecture.md)
 page and in [`CLAUDE.md`](CLAUDE.md).
+
+## License
+
+[MIT](LICENSE).

@@ -30,7 +30,8 @@ loading. Check `stack status`, then `stack logs <backend>`.
 **The dashboard says the router config is older.** The router was created from an older
 template. The next `stack up` (or `stack router`) recreates it.
 
-**Port 8188 is taken (AMD Rex).** The OS ships its own ComfyUI service on `127.0.0.1:8188`. Set
+**Port 8188 is taken.** Some AMD-focused distributions ship their own ComfyUI service on
+`127.0.0.1:8188`. Set
 `COMFYUI_PORT=8189` in `host.env`; inside `ai-net` it is still `comfyui:8188`. If that OS service
 crash-loops ("No CUDA GPUs are available"), it can be turned off with
 `systemctl --user mask comfyui@8188.socket` (undo with `unmask`).

@@ -9,7 +9,7 @@ remembered for ``CHECK_TTL`` (a failure for ``FAILURE_TTL``), so the 60-an-hour 
 limit is never near. Nothing is sent but the request, an ``AI-Ecosystem/<version>``
 User-Agent and, when set, the token.
 
-**The repo is private**, and GitHub answers 404 for a private repo's releases without a
+**For a private repo or fork**, GitHub answers 404 for its releases without a
 token. So ``GITHUB_TOKEN`` (``stack-ui/tokens.env``, like ``HF_TOKEN``; a fine-grained token
 with read-only *Contents* on ``JotunheimPress/ai-stack`` is enough) is sent as a bearer
 header when set, and only to api.github.com. Without one, a 404 is reported as

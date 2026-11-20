@@ -7,34 +7,33 @@ with a `frontend.json` at its root. The stack lists exactly what is installed:
 
 ```bash
 stack frontends          # repo name, brand, port, directory
-stack <repo>             # start one, e.g. stack companion
+stack <repo>             # start one by its repo name
 stack down <repo>        # stop it
 stack logs <repo>
 ```
 
-Frontends run side by side on their own ports. Installed on the Halo box today, for example:
-`companion` (Whimsy, 7861), `ai-story-maker` (7860), `iguana_studio` (7862), `nocturne` (7864),
-`npc_maker` (7865), `narrative_engine` (7866), `companion-assistant` (Cantinero, 7867).
+Frontends run side by side on their own ports, so several can be up at once. The backends'
+ports (5001, 8188, 8009) and the dashboard's (7863) are taken; pick something else for yours.
 
 ## Installing and removing
 
 - **Install:** clone the repo into the ecosystem root, next to `ai-stack/`. It builds its own
-  image on its first `stack <repo>`. These are private repos; ask for access.
+  image on its first `stack <repo>`.
 - **Remove:** stop it and delete the clone.
 
 ## `frontend.json`
 
 ```json
 {
-  "repo": "companion",
-  "brand": "Whimsy",
-  "description": "Character-card AI companion",
-  "port": 7861,
-  "health": "http://127.0.0.1:7861/api/health",
-  "container": "companion",
+  "repo": "my-app",
+  "brand": "My App",
+  "description": "What it does, in one line",
+  "port": 7870,
+  "health": "http://127.0.0.1:7870/api/health",
+  "container": "my-app",
   "start": "run-podman.sh",
-  "icon": "mdi-account-heart-outline",
-  "https_port": 7868,
+  "icon": "mdi-robot-outline",
+  "https_port": 7871,
   "https_setup": "/ca"
 }
 ```

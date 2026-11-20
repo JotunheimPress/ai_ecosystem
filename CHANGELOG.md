@@ -16,6 +16,15 @@ releases*).
 
 ## Unreleased
 
+### Added
+
+- MIT license.
+
+### Changed
+
+- The README and wiki are written for anyone installing from scratch: frontends are described in
+  general, not as a list of private repos, and hardware is given as what it was tested on.
+
 ## 1.1.0 — 2026-11-20
 
 ### Added

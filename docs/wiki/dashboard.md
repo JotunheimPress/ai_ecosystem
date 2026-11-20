@@ -47,16 +47,16 @@ screen.
 - **Downloads** run one at a time in a strip at the top; cancelling keeps the partial file, and
   starting again resumes it.
 - **Update badge:** when a newer release is out, an **Update** button appears in the toolbar and
-  opens About. The check asks GitHub at most every 6 hours. The repo is private, so it needs a
-  `GITHUB_TOKEN` with read access in `stack-ui/tokens.env`; without one, About says so, and
-  `stack version --check` in a terminal does the same check with your own git login.
+  opens About. The check asks GitHub at most every 6 hours. A private fork needs a `GITHUB_TOKEN` with read
+  access in `stack-ui/tokens.env`; without one, About says so, and `stack version --check` in a
+  terminal does the same check with your own git login.
   `STACK_UPDATE_CHECK=off` turns it off.
 - **Doctor from the dashboard:** two checks always fail from inside its container (the NVIDIA
   CDI spec and the systemd unit file). Run `stack doctor` in a terminal for those.
 
 ## Themes
 
-The swatches at the foot of the sidebar pick a theme: **Bone, Ember, Moss, Dusk, Harbor** (the
-same five dark colourways as Whimsy) or **Daylight** (light). The choice is remembered per
+The swatches at the foot of the sidebar pick a theme: **Bone, Ember, Moss, Dusk, Harbor** (five dark
+colourways) or **Daylight** (light). The choice is remembered per
 browser. Until you pick one, the page follows your system: Harbor in dark mode, Daylight in light
 mode.

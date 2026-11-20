@@ -213,9 +213,9 @@ so an old unit (wrong path, or the old 240 s start timeout) is reported.
   release; don't confuse the two. The commit is omitted where git isn't available (the
   stack-ui image).
 - **Is there a newer one?** `stack version --check` asks origin through git
-  (`git ls-remote --tags`), so your own login reaches the private repo. The dashboard's About
+  (`git ls-remote --tags`), so your own login reaches a private fork too. The dashboard's About
   screen and toolbar Update badge ask GitHub's latest-release API from the server
-  (`stack-ui/appcode/services/release_check.py`, cached 6 h), which for a private repo needs
+  (`stack-ui/appcode/services/release_check.py`, cached 6 h), which for a private repo or fork needs
   `GITHUB_TOKEN` in `stack-ui/tokens.env`; `STACK_UPDATE_CHECK=off` disables it. Both see a
   release only once its tag is pushed, which is why step 2 below matters.
 - **Cutting a release**, in order:
