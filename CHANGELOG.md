@@ -16,8 +16,13 @@ releases*).
 
 ## Unreleased
 
+## 1.5.0 — 2026-11-20
+
 ### Added
 
+- World Builder (beta) joins the official frontends: Godot VR scene generation from a prompt.
+  `stack frontend add world-builder`, or Install on the dashboard, gets v0.1.0 (port 7880,
+  uses text and decisions).
 - `stack frontend add <git URL>` installs any frontend, not just official ones: its newest
   release, checked against the stack and your installed frontends, then built. It shows what
   it is and asks first, since nobody reviewed it (`--yes` to skip).
