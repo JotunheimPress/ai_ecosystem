@@ -6,13 +6,14 @@ all of it. One command, `stack`, drives everything. Bring the backends up once, 
 apps you want.
 
 **Names:** AI Ecosystem is the product's name, what you see and what the docs call it. The repo
-is `ai-stack` (`JotunheimPress/ai-stack`), the command is `stack`, and the dashboard's service key
+is `JotunheimPress/ai_ecosystem`, cloned as `ai-stack/` (any folder name works; the docs use
+that one), the command is `stack`, and the dashboard's service key
 is `stackui`. Those are what you type, and they don't change with the brand.
 
 **Version:** see [`VERSION`](VERSION) and the [changelog](CHANGELOG.md); `stack version` prints
 the one you have.
 
-**Documentation:** the [wiki](https://github.com/JotunheimPress/ai-stack/wiki) has the full user
+**Documentation:** the [wiki](https://github.com/JotunheimPress/ai_ecosystem/wiki) has the full user
 guide (install, running, the dashboard, models, frontends, troubleshooting) and a developer guide.
 Its source is [`docs/wiki/`](docs/wiki/README.md), published with `docs/publish-wiki.sh`.
 
@@ -55,7 +56,7 @@ Fortuna's pinned files), the VRAM planner, logs, the doctor, and six colour them
 ## Install
 
 ```bash
-git clone https://github.com/JotunheimPress/ai-stack.git
+git clone https://github.com/JotunheimPress/ai_ecosystem.git ai-stack
 cd ai-stack
 ./stack install          # idempotent: safe to re-run any time
 ```

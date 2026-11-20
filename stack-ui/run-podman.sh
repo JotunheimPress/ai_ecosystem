@@ -27,9 +27,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# ai-stack/stack-ui -> ai-stack -> the ecosystem root. Two dirnames, not one: this app
-# ships inside the ai-stack checkout (like the comfyui recipe), not as a sibling project.
-ECO="${AI_ECOSYSTEM:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
+# stack-ui -> the checkout (any folder name) -> the ecosystem root. This app ships inside
+# the checkout (like the comfyui recipe), not as a sibling project.
+CHECKOUT="$(dirname "$SCRIPT_DIR")"
+ECO="${AI_ECOSYSTEM:-$(dirname "$CHECKOUT")}"
 IMAGE="localhost/stackui:latest"
 CONTAINER="stackui"
 PORT="${STACK_UI_PORT:-7863}"
@@ -146,6 +147,7 @@ podman run -d \
   -e "XDG_RUNTIME_DIR=/tmp/xdg" \
   -e "HOME=/tmp/home" \
   -e "AI_ECOSYSTEM=${ECO}" \
+  -e "STACK_CHECKOUT=${CHECKOUT}" \
   -e "DBUS_SESSION_BUS_ADDRESS=unix:path=${BUS}" \
   -v "$(dirname "$SOCK"):/run/podman" \
   "${BUS_ARGS[@]}" \

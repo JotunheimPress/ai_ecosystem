@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 
 from services import provenance
-from services.stackctl import ECO
+from services.stackctl import CHECKOUT, ECO
 
 KOBOLD_MODELS = ECO / "koboldcpp" / "models"
 MODEL_ENV = ECO / "koboldcpp" / "model.env"
@@ -28,16 +28,16 @@ MODEL_ENV = ECO / "koboldcpp" / "model.env"
 # switching models loses the layer count you worked out for the previous one — and the
 # right value differs per quant, which is exactly why it's worth remembering.
 PRESETS = ECO / "koboldcpp" / "model-presets.json"
-START_SH = ECO / "ai-stack" / "koboldcpp" / "start.sh"
+START_SH = CHECKOUT / "koboldcpp" / "start.sh"
 # Where the backend router sends text (`stack route`); written only by `stack`.
 ROUTE_FILE = ECO / "router" / "route.conf"
 COMFY_MODELS = Path(os.environ.get("COMFYUI_STATE") or (ECO / "ComfyUI")) / "models"
 # Fortuna: its model table ships in the recipe; its files and fortuna.env are state.
-FORTUNA_TABLE = ECO / "ai-stack" / "fortuna" / "models.table"
+FORTUNA_TABLE = CHECKOUT / "fortuna" / "models.table"
 FORTUNA_STATE = ECO / "fortuna"
 FORTUNA_MODELS = FORTUNA_STATE / "models"
 FORTUNA_ENV = FORTUNA_STATE / "fortuna.env"
-HOST_ENV = ECO / "ai-stack" / "host.env"
+HOST_ENV = CHECKOUT / "host.env"
 
 # Subtrees worth showing separately. Anything else under models/ is rolled up as "other".
 COMFY_KINDS = ["checkpoints", "loras", "vae", "diffusion_models", "text_encoders",

@@ -39,6 +39,12 @@ Full roadmap: [`../STACK_UI_PLAN.md`](../STACK_UI_PLAN.md). This lives *inside* 
 repo — it's part of the stack, not a consumer of it, so `stack install` builds it and `stack`
 reaches it via `$SELF` like the comfyui recipe.
 
+**Where the checkout is** (`stackctl.CHECKOUT`): `STACK_CHECKOUT` (set by `run-podman.sh`, since
+the image's copy of the code isn't inside the checkout), else the checkout this code runs from
+(the dev server), else `<ecosystem>/ai-stack`. Never assume the folder is called `ai-stack`:
+the GitHub repo is `ai_ecosystem`, and a plain `git clone` names the folder after it.
+`ECO` (the ecosystem root) is `AI_ECOSYSTEM`, else the checkout's parent.
+
 **Naming.** The facing name is **AI Ecosystem** — the browser tab title, the toolbar brand,
 the `stack status` description, and the startup banner all say that. Everything an
 operator *types* is unchanged and must stay unchanged: the `stackui` service key (`stack stackui`,

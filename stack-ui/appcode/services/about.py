@@ -17,7 +17,7 @@ __all__ = ["NAME", "REPO", "REPO_URL", "WIKI_URL", "RELEASES_URL", "ISSUES_URL",
            "CHANGELOG_URL", "parse_version", "is_newer"]
 
 NAME = "AI Ecosystem"
-REPO = "JotunheimPress/ai-stack"
+REPO = "JotunheimPress/ai_ecosystem"
 REPO_URL = f"https://github.com/{REPO}"
 WIKI_URL = f"{REPO_URL}/wiki"
 RELEASES_URL = f"{REPO_URL}/releases"

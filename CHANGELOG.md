@@ -22,6 +22,8 @@ releases*).
 
 ### Changed
 
+- The repo is `JotunheimPress/ai_ecosystem` on GitHub (it was `ai-stack`). Clone it as
+  `ai-stack/` as before; the dashboard now works whatever the checkout's folder is called.
 - The README and wiki are written for anyone installing from scratch: frontends are described in
   general, not as a list of private repos, and hardware is given as what it was tested on.
 

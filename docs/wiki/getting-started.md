@@ -19,7 +19,7 @@ The GPU is detected automatically. To pin it, copy `host.env.example` to `host.e
 ## Install
 
 ```bash
-git clone https://github.com/JotunheimPress/ai-stack.git
+git clone https://github.com/JotunheimPress/ai_ecosystem.git ai-stack
 cd ai-stack
 ./stack install        # idempotent: safe to re-run any time
 ```

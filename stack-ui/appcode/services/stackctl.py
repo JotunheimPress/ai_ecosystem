@@ -14,8 +14,10 @@ Three rules this module exists to enforce:
 Status is read from `stack status --json` (stdout only). A stack without it falls back to
 scraping the text, the way this module worked before.
 
-`stack` is found the way `stack` finds everything else: AI_ECOSYSTEM if set, else the
-parent of this project, with the checkout expected as a sibling.
+The checkout (the repo, whatever its folder is called) is STACK_CHECKOUT if set (run-podman.sh
+sets it, since the image's copy of this code is not in the checkout), else the checkout this file
+is in, else ``<ecosystem>/ai-stack``. The ecosystem root is AI_ECOSYSTEM if set, else the
+checkout's parent.
 """
 from __future__ import annotations
 
@@ -29,10 +31,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
-# stack-ui/appcode/services/stackctl.py -> parents[2] is stack-ui, parents[4] the ecosystem.
+# stack-ui/appcode/services/stackctl.py -> parents[2] is stack-ui, parents[3] the checkout.
 BASE = Path(__file__).resolve().parents[2]
-ECO = Path(os.environ.get("AI_ECOSYSTEM") or BASE.parent.parent)
-STACK = ECO / "ai-stack" / "stack"
+
+
+def _checkout() -> Path:
+    if os.environ.get("STACK_CHECKOUT"):
+        return Path(os.environ["STACK_CHECKOUT"])
+    if (BASE.parent / "stack").is_file():
+        return BASE.parent
+    return Path(os.environ.get("AI_ECOSYSTEM") or BASE.parent.parent) / "ai-stack"
+
+
+CHECKOUT = _checkout()
+ECO = Path(os.environ.get("AI_ECOSYSTEM") or CHECKOUT.parent)
+STACK = CHECKOUT / "stack"
 
 # This app's own name in the registry. It is never a legal target: `down stackui` or
 # `restart stackui` issued through the UI would kill the server mid-request, leaving the

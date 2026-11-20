@@ -11,7 +11,7 @@ User-Agent and, when set, the token.
 
 **For a private repo or fork**, GitHub answers 404 for its releases without a
 token. So ``GITHUB_TOKEN`` (``stack-ui/tokens.env``, like ``HF_TOKEN``; a fine-grained token
-with read-only *Contents* on ``JotunheimPress/ai-stack`` is enough) is sent as a bearer
+with read-only *Contents* on ``JotunheimPress/ai_ecosystem`` is enough) is sent as a bearer
 header when set, and only to api.github.com. Without one, a 404 is reported as
 ``reason: "private"`` so the About screen can say what to do, rather than "unreachable".
 ``stack version --check`` needs no token: it asks through git, with your own login.

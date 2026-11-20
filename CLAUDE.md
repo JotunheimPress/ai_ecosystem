@@ -1,9 +1,11 @@
-# AI Ecosystem (repo: ai-stack) — unified AI backend + frontend launcher
+# AI Ecosystem (repo: ai_ecosystem, cloned as ai-stack) — unified AI backend + frontend launcher
 
 **Branding.** The product is **AI Ecosystem**: the README title, the wiki, the dashboard (its
 browser tab and toolbar), `stack version` and the changelog all say that. What an operator
-*types* stays as it is: the repo `ai-stack`, the command `stack`, the `stackui` service key, the
-`localhost/stackui` image, the `stack-ui/` directory. Rename labels, never identifiers (same
+*types* stays as it is: the checkout folder `ai-stack/`, the command `stack`, the `stackui`
+service key, the `localhost/stackui` image, the `stack-ui/` directory. The GitHub repo is
+`JotunheimPress/ai_ecosystem` (named `ai-stack` until it went public, 2026-11); nothing may depend
+on the checkout's folder name (`stackctl.CHECKOUT`, `STACK_CHECKOUT` from `run-podman.sh`). Rename labels, never identifiers (same
 rule as `stack-ui/CLAUDE.md` → *Naming*, and the repo-is-identity rule for frontends).
 
 One `stack` command to run the **shared AI backends** and then **pick a frontend**. Backends are
@@ -11,7 +13,7 @@ shared across every app; frontends run side-by-side on their own ports.
 
 **Wiki:** `docs/wiki/` (user guide + developer guide, linked Markdown) is the source, reviewed in
 PRs with the code. `docs/publish-wiki.sh` publishes it to the GitHub wiki
-(`github.com/JotunheimPress/ai-stack/wiki`, enabled 2026-11-20): pages are named from their
+(`github.com/JotunheimPress/ai_ecosystem/wiki`, enabled 2026-11-20): pages are named from their
 titles (`README.md` → Home), links out of `docs/wiki/` become GitHub links on master, and it adds
 a sidebar and a footer naming the release and commit. Edits made on GitHub are overwritten by the
 next publish. It publishes only committed pages; `--dry-run` shows the change, `--out DIR` just
@@ -223,7 +225,7 @@ so an old unit (wrong path, or the old 240 s start timeout) is reported.
   2. After it merges, on an up-to-date `master`: `git tag -a vX.Y.Z -m "AI Ecosystem X.Y.Z"`
      and `git push origin vX.Y.Z`.
   3. The GitHub release, with that changelog section as its notes:
-     `gh release create vX.Y.Z --repo JotunheimPress/ai-stack --verify-tag
+     `gh release create vX.Y.Z --repo JotunheimPress/ai_ecosystem --verify-tag
      --title "AI Ecosystem X.Y.Z" --notes-file …`.
   4. Publish the wiki: `docs/publish-wiki.sh` (`--dry-run` first). Every release does this,
      even with no page changed, so the wiki's footer names the new release. Between releases,
@@ -328,6 +330,6 @@ above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `la
   recipe is ever mirrored out the way `koboldcpp/` is.
 - The old `sillytavern-net` may linger while stopped legacy containers (mongodb, old ai-story-maker) are
   still associated with it; it clears once they're recreated on `ai-net`.
-- This dir is a git repo, pushed to `github.com/JotunheimPress/ai-stack`. Its default branch is
+- This dir is a git repo, pushed to `github.com/JotunheimPress/ai_ecosystem`. Its default branch is
   **`master`**, while the sibling `iguana_studio` repo uses `main` — worth knowing before scripting
   across both.
