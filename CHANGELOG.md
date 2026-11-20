@@ -16,11 +16,16 @@ releases*).
 
 ## Unreleased
 
+### Changed
+
+- World Builder's description in the official list no longer names Godot: "VR scene generation
+  from a prompt".
+
 ## 1.5.0 — 2026-11-20
 
 ### Added
 
-- World Builder (beta) joins the official frontends: Godot VR scene generation from a prompt.
+- World Builder (beta) joins the official frontends: VR scene generation from a prompt.
   `stack frontend add world-builder`, or Install on the dashboard, gets v0.1.0 (port 7880,
   uses text and decisions).
 - `stack frontend add <git URL>` installs any frontend, not just official ones: its newest
