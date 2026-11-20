@@ -176,13 +176,30 @@ official frontends. First entry: iguana_studio. Adding one is a PR that adds its
 - `stack frontend available [--json]`: the list, and per entry installed / available / why not
   (`problems`: `min_stack`, a port or container clash with the stack or an installed frontend,
   or a folder of that name already there). `--json` is what the dashboard's Frontends screen reads (`stack-ui/CLAUDE.md` → *Installing frontends*).
-- `stack frontend add NAME`: **a name from the list only, never a URL**, so what gets cloned is
-  decided in review, not by whoever asks (the dashboard will only ever send a name). Clones into
+- `stack frontend add NAME`: **a name from the list**, so what gets cloned is decided in review,
+  not by whoever asks; the dashboard sends only names (a URL is the terminal's custom install,
+  next bullet, and asks a human first). Clones into
   `$ECO/.frontend-install/` (dot-folders aren't discovered), checks out the newest `vX.Y.Z` tag
   (else the default branch), validates the clone's `frontend.json` with `frontend_manifests` and
   requires its port, https_port and container to equal the entry, then moves it into place and
   runs its `build`. Any failure removes the staged clone. No terminal → `GIT_TERMINAL_PROMPT=0`,
   so a private repo fails instead of waiting for a password.
+- `stack frontend add URL [--yes]` (since 1.5.0): **any** frontend's git repo, a *custom*
+  install. A URL is any argument with `/` or `:` (a name holds neither); `frontend_catalog
+  custom` accepts only `https://`, `ssh://`, `user@host:path` and `file://` with plain path
+  characters (no `ext::`, no options; git gets `--` before it). The repo name comes from the URL
+  and must equal the clone's `frontend.json` `repo`. The official frontend's own repo (https, ssh
+  and scp forms compare equal, `norm_url`) installs the official way; another URL under an
+  official name is refused (a fork needs its own name). After cloning, `vetcustom` refuses the
+  same clashes an official entry would and only warns about a port or container the list hands
+  out. It then shows brand, ports, container and `build` and asks, since it runs code nobody
+  reviewed; with no terminal it needs `--yes`. The dashboard still sends names only.
+- **`GITHUB_TOKEN`** (since 1.5.0): `add`, `update` and `check` run git through
+  `with_github_token`, which offers the token (env, else `stack-ui/tokens.env`, parsed;
+  `STACK_TOKENS` for tests) as a credential helper for `https://github.com` only, appended after
+  the user's own helpers, so their login answers first. It travels in `GIT_CONFIG_*` and
+  `STACK_GIT_TOKEN`: never in argv, never in `.git/config`. The dashboard's container gets it from
+  `run-podman.sh`, so its update check reaches private frontend repos too.
 - `stack frontend update NAME`: refuses with uncommitted changes; on a branch (a clone someone
   works in) `git pull --ff-only`, at a tag (installed from the list) the newest tag; rebuilds if
   HEAD moved, and says to `stack restart` it if it's running. Works on any installed frontend.
