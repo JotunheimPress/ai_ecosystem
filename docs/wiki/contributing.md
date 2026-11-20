@@ -10,6 +10,9 @@
   it, e.g. `fix: ComfyUI keeps its database with the rest of its state`.
 - The `CLAUDE.md` next to the code you change is part of the change: keep it current. This wiki
   summarises; update it when behaviour a user sees changes.
+- This wiki's source is `docs/wiki/` in the repo; the GitHub wiki is built from it. Edit the
+  Markdown there, in a PR, and after it merges run `docs/publish-wiki.sh` (`--dry-run` first to
+  see what changes). Edits made directly on GitHub are overwritten by the next publish.
 - No CI: run the checks below before opening a PR, and say in the PR what you ran and what you
   didn't.
 

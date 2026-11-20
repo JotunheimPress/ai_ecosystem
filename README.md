@@ -12,8 +12,9 @@ is `stackui`. Those are what you type, and they don't change with the brand.
 **Version:** see [`VERSION`](VERSION) and the [changelog](CHANGELOG.md); `stack version` prints
 the one you have.
 
-**Documentation:** the [wiki](docs/wiki/README.md) has the full user guide (install, running,
-the dashboard, models, frontends, troubleshooting) and a developer guide.
+**Documentation:** the [wiki](https://github.com/JotunheimPress/ai-stack/wiki) has the full user
+guide (install, running, the dashboard, models, frontends, troubleshooting) and a developer guide.
+Its source is [`docs/wiki/`](docs/wiki/README.md), published with `docs/publish-wiki.sh`.
 
 ![AI Ecosystem: the router, the text, image and decision backends with what each has loaded, and the GPU](stack-ui/docs/dashboard.png)
 

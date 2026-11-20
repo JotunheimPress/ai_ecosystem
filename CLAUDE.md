@@ -9,10 +9,15 @@ rule as `stack-ui/CLAUDE.md` → *Naming*, and the repo-is-identity rule for fro
 One `stack` command to run the **shared AI backends** and then **pick a frontend**. Backends are
 shared across every app; frontends run side-by-side on their own ports.
 
-**Wiki:** `docs/wiki/` (user guide + developer guide, linked Markdown; GitHub's own wiki isn't
-available on this private repo under the org's free plan). It summarises and links to these
-CLAUDE.md files, which stay the source of truth; update a wiki page when behaviour a user sees
-changes.
+**Wiki:** `docs/wiki/` (user guide + developer guide, linked Markdown) is the source, reviewed in
+PRs with the code. `docs/publish-wiki.sh` publishes it to the GitHub wiki
+(`github.com/JotunheimPress/ai-stack/wiki`, enabled 2026-11-20): pages are named from their
+titles (`README.md` → Home), links out of `docs/wiki/` become GitHub links on master, and it adds
+a sidebar and a footer naming the release and commit. Edits made on GitHub are overwritten by the
+next publish. It publishes only committed pages; `--dry-run` shows the change, `--out DIR` just
+builds. Run it after a PR that touches `docs/wiki/` merges. The wiki summarises and links to
+these CLAUDE.md files, which stay the source of truth; update a wiki page when behaviour a user
+sees changes.
 
 ## Structure
 
