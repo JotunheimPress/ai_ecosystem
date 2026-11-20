@@ -16,6 +16,8 @@ releases*).
 
 ## Unreleased
 
+## 1.4.0 — 2026-11-20
+
 ### Added
 
 - A frontend with a newer release on its origin says so: "vX.Y.Z available" on its card on the
