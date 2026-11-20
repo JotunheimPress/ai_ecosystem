@@ -7,7 +7,8 @@ backend gets comes from its `capability` in `stack status --json`, via
 ``services.backends.ADAPTERS``, so a new backend is a row in the stack, not a name check here.
 
 **Frontends** is the apps that use them: cards for the installed ones, with HTTPS links where a
-frontend offers them, an Official / Custom label, Update and Remove, and the problems `stack`
+frontend offers them, an Official / Custom label, a "vX.Y.Z available" badge when its origin has
+a newer release (`stack frontend check`), Update and Remove, and the problems `stack`
 found in their frontend.json; then the official frontends not installed yet, with Install
 (`stack frontend available|add|update|remove`; the browser only ever sends a name).
 
@@ -420,6 +421,9 @@ class FrontendsView(_Cards):
         self.ov = ov
         self._render()
 
+    def on_frontend_updates(self) -> None:
+        self._render()
+
     def on_busy(self, busy: bool) -> None:
         self._render()
         if not busy:                      # an install, update or remove may have just finished
@@ -492,25 +496,35 @@ class FrontendsView(_Cards):
                    "Not from the official list: a repo you cloned yourself, or a fork")
             label = (f'<span class="su-tag {"su-official" if official else "su-custom"}" '
                      f'title="{tip}">{"Official" if official else "Custom"}</span> ')
-        manage = self._manage_buttons(a["name"], a.get("label") or a["name"])
+        # A newer release on its origin (stack frontend check, via the app's cached check).
+        upd = (self.app.frontend_updates or {}).get(a["name"]) or {}
+        latest = str(upd.get("latest") or "") if upd.get("newer") else ""
+        if latest:
+            now = f'; this is {upd["current"]}' if upd.get("current") else ""
+            label += (f'<span class="su-tag su-newer" title="{esc(f"{latest} is out{now}. Update installs it.")}">'
+                      f'<i class="mdi mdi-arrow-up-circle"></i>{esc(latest)} available</span> ')
+        manage = self._manage_buttons(a["name"], a.get("label") or a["name"], latest)
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub, title_html=title)}'
                 f'<div class="su-card-body"><p class="su-desc">{label}{esc(a.get("desc"))}</p></div>'
                 f'<div class="su-actions">{self._buttons(a, compact=True)}{links}'
                 f'<span class="su-fe-manage">{manage}</span></div></div>')
 
-    def _manage_buttons(self, repo: str, brand: str) -> str:
-        """Update and Remove, each confirmed with what it does."""
+    def _manage_buttons(self, repo: str, brand: str, latest: str = "") -> str:
+        """Update and Remove, each confirmed with what it does. ``latest``: a newer release is
+        out, so Update is labelled and green like the badge."""
         update = (f"Update {brand}? It moves to its newest release (or pulls its branch) and "
                   "rebuilds its image. If it is running, restart it afterwards to use the new "
                   "version.")
+        up_cls, up_label = ("su-newer", "Update") if latest else ("su-ghost", "")
+        up_tip = f"Update to {latest}, rebuilt" if latest else "Update: its newest release, rebuilt"
         remove = (f"Remove {brand}? It is stopped, and its image and its folder next to "
                   "ai-stack are deleted. If the folder holds anything git doesn't have, such as "
                   "saved data or local changes, nothing is deleted and the log lists what's there.")
         dis = self._dis()
-        return (f'<button class="su-btn su-ghost" data-act="frontend_update" data-target="{esc(repo)}" '
-                f'data-confirm="{esc(update)}" title="Update: its newest release, rebuilt"{dis}>'
-                '<i class="mdi mdi-update"></i></button>'
+        return (f'<button class="su-btn {up_cls}" data-act="frontend_update" data-target="{esc(repo)}" '
+                f'data-confirm="{esc(update)}" title="{esc(up_tip)}"{dis}>'
+                f'<i class="mdi mdi-update"></i>{up_label}</button>'
                 f'<button class="su-btn su-ghost" data-act="frontend_remove" data-target="{esc(repo)}" '
                 f'data-confirm="{esc(remove)}" title="Remove: stop it, delete its image and folder"{dis}>'
                 '<i class="mdi mdi-delete-outline"></i></button>')

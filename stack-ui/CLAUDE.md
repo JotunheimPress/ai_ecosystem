@@ -577,6 +577,15 @@ The Frontends screen drives `stack frontend available|add|update|remove` (`ai-st
   `textContent`, so a brand from a `frontend.json` can't inject markup.
 - **Available cards** show what the frontend uses (`needs`) and, when Install is disabled, why
   (`problems`: a port or container clash, a newer AI Ecosystem needed, a folder already there).
+- **Newer release badge** (since 2026-11-20): `stack frontend check --json` (verb `frontend_check`,
+  read-only: `git ls-remote` on each installed frontend's origin, nothing fetched), cached in
+  `services/frontend_updates.py` like `release_check` (6 h, 30 min after a failure, off with
+  `STACK_UPDATE_CHECK=off`) and served by `StackApi.frontend_updates`. The app asks at load
+  (`check_frontend_updates`), keeps `app.frontend_updates` (repo → row), puts the count of
+  newer ones on the sidebar's *Installed apps* entry, and asks again with `force` after any
+  `frontend_*` job. A card whose row has `newer` gets a green "vX.Y.Z available" tag and a
+  labelled green Update button. Git in the container has no login, so a private frontend repo
+  reads as `unreachable` and shows nothing.
 - `STACK_CATALOG` is passed through to `stack` (tests only; unset in the image).
 - Tests: `tests/test_frontend_actions.py` (what `resolve` accepts), and end to end with the dev
   server on a scratch `AI_ECOSYSTEM` and a test list: install, Official vs Custom, remove refused

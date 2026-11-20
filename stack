@@ -19,6 +19,8 @@
 #   stack frontend update NAME  newest release (or git pull --ff-only on a branch), rebuilt
 #   stack frontend remove NAME  stop it, remove its image and folder; refuses if the folder
 #                           holds anything git doesn't (user data)
+#   stack frontend check [--json]  is a newer release out for each installed frontend? (asks
+#                           each origin's tags; changes nothing)
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
@@ -554,7 +556,9 @@ cmd_frontend() {
              frontend_update "$name" ;;
     remove)  [[ -n "$name" ]] || { echo "usage: stack frontend remove NAME"; return 1; }
              frontend_remove "$name" ;;
-    *) echo "usage: stack frontend available [--json] | add NAME | update NAME | remove NAME"
+    check)   [[ -z "$name" || "$name" == --json ]] || { echo "usage: stack frontend check [--json]"; return 1; }
+             frontend_manifests json | frontend_check "${name:+json}" ;;
+    *) echo "usage: stack frontend available [--json] | add NAME | update NAME | remove NAME | check [--json]"
        [[ -z "$sub" ]] && return 0 || return 1 ;;
   esac
 }
@@ -643,6 +647,76 @@ frontend_remove() {
   if [[ -n "$image" ]] && podman rmi "$image" >/dev/null 2>&1; then echo "  removed image $image"; fi
   rm -rf "${dir:?}"
   echo "${C_GREEN}removed $name${C_OFF} ($dir)"
+}
+
+# Is a newer release out for each installed frontend? Asks every frontend's origin for its
+# vX.Y.Z tags (git ls-remote, in parallel, 15 s each; nothing is fetched or changed). The
+# newest one is "newer" unless its commit is already in the clone's history, so a clone on a
+# branch past that tag, or one at the tag, is up to date. A frontend whose origin has no
+# release tags (a repo someone works in) has nothing to report. Installed frontends
+# (frontend_manifests json) come on stdin. Mode "json" is what the dashboard reads.
+frontend_check() {
+  local installed; installed="$(cat)"
+  INSTALLED="$installed" python3 - "${1:-list}" <<'PY'
+import json, os, re, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
+
+mode = sys.argv[1]
+TAG = re.compile(r"^([0-9a-f]{40})\trefs/tags/v(\d+)\.(\d+)\.(\d+)(\^\{\})?$")
+ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+def git(d, *args, timeout=10):
+    return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True,
+                          timeout=timeout, env=ENV)
+
+def check(f):
+    d, row = f["dir"], {"repo": f["repo"], "current": "", "latest": "", "newer": False,
+                        "checked": False, "reason": ""}
+    try:
+        if git(d, "remote", "get-url", "origin").returncode != 0:
+            row["reason"] = "no origin"; return row
+        row["current"] = git(d, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").stdout.strip()
+        p = git(d, "ls-remote", "--tags", "origin", "v*", timeout=15)
+    except subprocess.TimeoutExpired:
+        row["reason"] = "unreachable"; return row
+    if p.returncode != 0:
+        row["reason"] = "unreachable"; return row     # offline, or a private repo without access
+    tags = {}
+    for line in p.stdout.splitlines():
+        if m := TAG.match(line):
+            v = tuple(map(int, m.group(2, 3, 4)))
+            if m.group(5) or v not in tags:           # an annotated tag's commit wins
+                tags[v] = m.group(1)
+    row["checked"] = True
+    if not tags:
+        row["reason"] = "no releases"; return row
+    v = max(tags)
+    row["latest"] = "v%d.%d.%d" % v
+    have = git(d, "cat-file", "-e", tags[v] + "^{commit}").returncode == 0
+    row["newer"] = not (have and git(d, "merge-base", "--is-ancestor", tags[v], "HEAD").returncode == 0)
+    return row
+
+fronts = [f for f in json.loads(os.environ["INSTALLED"] or "{}").get("frontends", []) if f.get("dir")]
+with ThreadPoolExecutor(max_workers=8) as pool:
+    rows = list(pool.map(check, fronts))
+if mode == "json":
+    print(json.dumps({"frontends": rows}))
+    sys.exit(0)
+G, D, B, O = "\x1b[32m", "\x1b[2m", "\x1b[1m", "\x1b[0m"
+for r in rows:
+    at = r["current"] or "no release"
+    if r["newer"]:
+        msg = f"{B}{r['latest']} is out{O}: stack frontend update {r['repo']}"
+    elif r["latest"]:
+        msg = f"{G}✓{O} up to date"
+    elif r["reason"] == "unreachable":
+        msg = f"{D}couldn't ask its origin (offline, or no access to the repo){O}"
+    else:
+        msg = f"{D}{r['reason'] or 'nothing to check'}{O}"
+    print(f"  {r['repo']:<20} {at:<12} {msg}")
+if not rows:
+    print("  no frontends installed")
+PY
 }
 
 C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'

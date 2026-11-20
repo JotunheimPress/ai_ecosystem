@@ -82,6 +82,13 @@ class StackApi:
 
         return {"ok": True, **stackctl.catalog()}
 
+    def frontend_updates(self, force: bool = False) -> dict:
+        """Which installed frontends have a newer release on their origin, for the Frontends
+        cards and the sidebar badge. Checked and cached in `services.frontend_updates`."""
+        from services.frontend_updates import frontend_updates
+
+        return {"ok": True, **frontend_updates(force=bool(force))}
+
     def doctor(self) -> dict:
         """Not polled — it shells out to podman several times. On demand only."""
         from services import stackctl

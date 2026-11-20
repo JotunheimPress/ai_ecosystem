@@ -74,6 +74,9 @@ VERBS: dict[str, Verb] = {
     "frontends": Verb(["frontends", "--json"], False),
     # The official frontends (frontends.json) and which are installed, official or not.
     "frontend_catalog": Verb(["frontend", "available", "--json"], False),
+    # Is a newer release out for each installed frontend (git ls-remote, nothing fetched)?
+    # Cached in services.frontend_updates.
+    "frontend_check": Verb(["frontend", "check", "--json"], False, timeout=60),
     "logs":    Verb(["logs"], False, target="app", stream=True),
     # mutating — phase 1. What runs now (up / down) and start-at-boot (boot_on / boot_off) are
     # separate settings; `stack on`/`off` are the same as up / down backends, so not listed.

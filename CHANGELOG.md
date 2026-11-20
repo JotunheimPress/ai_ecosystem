@@ -16,6 +16,13 @@ releases*).
 
 ## Unreleased
 
+### Added
+
+- A frontend with a newer release on its origin says so: "vX.Y.Z available" on its card on the
+  dashboard's Frontends screen, with a green Update button, and a count beside *Installed apps*
+  in the sidebar. From a terminal, `stack frontend check`. Checked every 6 hours and after any
+  install, update or remove; `STACK_UPDATE_CHECK=off` turns it off.
+
 ## 1.3.0 — 2026-11-20
 
 ### Added

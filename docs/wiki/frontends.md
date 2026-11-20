@@ -26,11 +26,18 @@ stack frontend available          # what's listed, and whether each is installed
 stack frontend add <name>         # clone its latest release next to ai-stack, check it, build it
 stack frontend update <name>      # its newest release (or git pull on a branch), rebuilt
 stack frontend remove <name>      # stop it and delete its image and folder
+stack frontend check              # is a newer release out for any installed frontend?
 ```
 
 - `add` takes only names from the list. It refuses before cloning if the frontend's port or
   container name is already taken, or if it needs a newer AI Ecosystem, and refuses after
   cloning if the frontend's own `frontend.json` doesn't match the list.
+- `check` asks each installed frontend's origin for its release tags (`vX.Y.Z`) and changes
+  nothing. A frontend counts as behind when the newest tag isn't in its history yet, so a clone
+  you work in on a branch past that tag is up to date. The dashboard runs the same check
+  (cached for 6 hours, again after an install, update or remove) and shows "vX.Y.Z available"
+  on the frontend's card and a count beside *Installed apps*. `STACK_UPDATE_CHECK=off` turns it
+  off. From the dashboard a private frontend repo can't be checked, since it has no git login.
 - `remove` won't delete a folder holding anything git doesn't: saved data, local changes or
   unpushed commits. It lists them; move what you want to keep and delete the folder yourself.
 

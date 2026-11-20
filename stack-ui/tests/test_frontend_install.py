@@ -194,3 +194,43 @@ def test_official_means_cloned_from_the_listed_url(env):
     _git(env["eco"] / "demo", "remote", "set-url", "origin", "https://example.com/fork/demo.git")
     [row] = _available(env)
     assert row["installed"] and not row["official"]
+
+
+def _check(env):
+    return {r["repo"]: r for r in json.loads(env["run"]("frontend", "check", "--json").stdout)["frontends"]}
+
+
+def test_check_reports_a_newer_release_until_update_takes_it(env):
+    env["run"]("frontend", "add", "demo")
+    row = _check(env)["demo"]
+    assert row == {"repo": "demo", "current": "v0.10.0", "latest": "v0.10.0", "newer": False,
+                   "checked": True, "reason": ""}
+    _git(env["origin"], "tag", "-a", "v0.11.0", "-m", "annotated")   # peeled to its commit
+    row = _check(env)["demo"]
+    assert row["newer"] and row["latest"] == "v0.11.0" and row["current"] == "v0.10.0"
+    assert "v0.11.0 is out" in env["run"]("frontend", "check").stdout
+    head = subprocess.run(["git", "-C", env["eco"] / "demo", "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout
+    assert not (env["eco"] / "demo" / "FETCH_HEAD").exists() and head    # check fetched nothing
+    env["run"]("frontend", "update", "demo")
+    assert not _check(env)["demo"]["newer"]
+
+
+def test_check_a_working_clone_past_the_newest_tag_is_up_to_date(env):
+    subprocess.run(["git", "clone", "-q", str(env["origin"]), str(env["eco"] / "demo")], check=True)
+    row = _check(env)["demo"]
+    assert row["latest"] == "v0.10.0" and not row["newer"]
+
+
+def test_check_without_releases_or_origin_reports_nothing_newer(env, tmp_path):
+    bare = tmp_path / "eco" / "demo"
+    bare.mkdir()
+    (bare / "frontend.json").write_text(json.dumps(_manifest()))
+    _exe(bare / "run.sh", "exit 0\n")
+    _exe(bare / "build.sh", "exit 0\n")
+    _git(bare, "init", "-q")
+    row = _check(env)["demo"]
+    assert not row["newer"] and not row["checked"] and row["reason"] == "no origin"
+    _git(bare, "remote", "add", "origin", str(tmp_path / "nowhere"))
+    row = _check(env)["demo"]
+    assert not row["newer"] and row["reason"] == "unreachable"
