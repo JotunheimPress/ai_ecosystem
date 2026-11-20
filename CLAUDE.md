@@ -212,10 +212,16 @@ so an old unit (wrong path, or the old 240 s start timeout) is reported.
   (`{version, commit, modified}`). Its `"version": 1` is the JSON *shape's* version, not the
   release; don't confuse the two. The commit is omitted where git isn't available (the
   stack-ui image).
-- **Cutting a release**: a PR that moves *Unreleased* under a new `## X.Y.Z — date` heading and
-  bumps `VERSION`; after it merges, tag `vX.Y.Z` on `master` and create a GitHub release with
-  that section as its notes (`gh release create vX.Y.Z --repo JotunheimPress/ai-stack
-  --notes-file …`).
+- **Cutting a release**, in order:
+  1. A PR that bumps `VERSION` and moves *Unreleased* under a new `## X.Y.Z — date` heading.
+  2. After it merges, on an up-to-date `master`: `git tag -a vX.Y.Z -m "AI Ecosystem X.Y.Z"`
+     and `git push origin vX.Y.Z`.
+  3. The GitHub release, with that changelog section as its notes:
+     `gh release create vX.Y.Z --repo JotunheimPress/ai-stack --verify-tag
+     --title "AI Ecosystem X.Y.Z" --notes-file …`.
+  4. Publish the wiki: `docs/publish-wiki.sh` (`--dry-run` first). Every release does this,
+     even with no page changed, so the wiki's footer names the new release. Between releases,
+     run it after any merged PR that touches `docs/wiki/`.
 
 ## Running now vs. start at boot (two separate settings)
 

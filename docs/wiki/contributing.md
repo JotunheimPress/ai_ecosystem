@@ -19,10 +19,14 @@
 ## Releases
 
 AI Ecosystem uses SemVer in [`VERSION`](../../VERSION). Add a line to *Unreleased* in
-[`CHANGELOG.md`](../../CHANGELOG.md) for anything a user would notice. To release: a PR that bumps
-`VERSION` and moves *Unreleased* under the new version's heading; after it merges, tag
-`vX.Y.Z` on `master` and create a GitHub release with that section. When to bump which number
-is in `CLAUDE.md` → *Versioning and releases*.
+[`CHANGELOG.md`](../../CHANGELOG.md) for anything a user would notice. When to bump which number
+is in `CLAUDE.md` → *Versioning and releases*. To release:
+
+1. Open a PR that bumps `VERSION` and moves *Unreleased* under the new version's heading.
+2. After it merges, tag `vX.Y.Z` on `master` and push the tag.
+3. Create the GitHub release, titled `AI Ecosystem X.Y.Z`, with that changelog section as its
+   notes.
+4. Publish this wiki with `docs/publish-wiki.sh`, so its footer names the new release.
 
 ## The `stack` script and start scripts
 

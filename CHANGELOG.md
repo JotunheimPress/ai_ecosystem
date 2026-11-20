@@ -10,8 +10,9 @@ AI Ecosystem (repo: `ai-stack`) releases. The version is in [`VERSION`](VERSION)
 - **Patch**: a fix.
 
 `stack version` prints the release and the checkout's commit, and the dashboard shows it beside
-its name. Each release is tagged `v<version>` on `master` and has a GitHub release with its
-section from this file.
+its name. Each release is tagged `v<version>` on `master`, has a GitHub release with its
+section from this file, and republishes the wiki (steps in `CLAUDE.md` → *Versioning and
+releases*).
 
 ## Unreleased
 
