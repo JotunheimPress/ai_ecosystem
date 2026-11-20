@@ -482,19 +482,22 @@ class FrontendsView(_Cards):
                     links += (f'<a class="su-btn su-ghost" href="http://{host}:{port}{esc(a["https_setup"])}" '
                               'target="_blank" rel="noreferrer" title="Trust its certificate on this device">'
                               '<i class="mdi mdi-certificate-outline"></i>Certificate</a>')
+        # The label goes at the start of the description, not in the subtitle: the subtitle is
+        # one line that ellipsises, and a long repo name would hide the label.
         listed = {f.get("repo"): f for f in (self.catalog or {}).get("frontends") or []}
+        label = ""
         if self.catalog is not None:
             official = bool(listed.get(a["name"], {}).get("official"))
             tip = ("Installed from the official list" if official else
                    "Not from the official list: a repo you cloned yourself, or a fork")
-            sub += (f' · <span class="su-tag {"su-official" if official else "su-custom"}" '
-                    f'title="{tip}">{"Official" if official else "Custom"}</span>')
+            label = (f'<span class="su-tag {"su-official" if official else "su-custom"}" '
+                     f'title="{tip}">{"Official" if official else "Custom"}</span> ')
         manage = self._manage_buttons(a["name"], a.get("label") or a["name"])
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub, title_html=title)}'
-                f'<div class="su-card-body"><p class="su-desc">{esc(a.get("desc"))}</p></div>'
+                f'<div class="su-card-body"><p class="su-desc">{label}{esc(a.get("desc"))}</p></div>'
                 f'<div class="su-actions">{self._buttons(a, compact=True)}{links}'
-                f'<span class="su-flex"></span>{manage}</div></div>')
+                f'<span class="su-fe-manage">{manage}</span></div></div>')
 
     def _manage_buttons(self, repo: str, brand: str) -> str:
         """Update and Remove, each confirmed with what it does."""
