@@ -16,6 +16,8 @@ releases*).
 
 ## Unreleased
 
+## 1.5.1 — 2026-11-20
+
 ### Removed
 
 - World Builder is off the official list for now. Its repo isn't public yet, so Install failed
