@@ -17,7 +17,7 @@
       "repo": "world-builder",
       "url": "https://github.com/JotunheimPress/world-builder.git",
       "brand": "World Builder",
-      "description": "Godot VR scene generation from a prompt (beta)",
+      "description": "VR scene generation from a prompt (beta)",
       "icon": "mdi-cube-outline",
       "port": 7880,
       "container": "world-builder",
