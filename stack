@@ -962,14 +962,39 @@ cmd_fortuna_model() {
   esac
 }
 
+# The dashboard's code is baked into its image, so "the image exists" isn't enough: one built
+# before a `git pull` keeps serving the old dashboard. run-podman.sh labels the image with
+# the hash of the source it was built from (stack-ui/source-hash.sh); this compares.
+# Prints current, stale or missing.
+stackui_image_state() {
+  podman image exists "$IMG_STACKUI" || { echo missing; return; }
+  local want have
+  want="$("$SELF/stack-ui/source-hash.sh" 2>/dev/null)"
+  have="$(podman image inspect --format '{{index .Labels "ai-stack.source"}}' "$IMG_STACKUI" 2>/dev/null)"
+  [[ -n "$want" && "$want" == "$have" ]] && echo current || echo stale
+}
+
 install_stackui() {
   step "stack-ui"
-  if podman image exists "$IMG_STACKUI"; then
-    ok "image $IMG_STACKUI built"
+  local state; state="$(stackui_image_state)"
+  if [[ "$state" == current ]]; then
+    ok "image $IMG_STACKUI built from this checkout"
   else
-    echo "  building (python + podman client; ~1 minute)…"
-    podman build --format docker -t "$IMG_STACKUI" "$SELF/stack-ui" || { warn "build failed"; return 1; }
+    [[ "$state" == stale ]] && echo "  stack-ui/ has changed since the image was built — rebuilding (~1 minute)…" \
+                            || echo "  building (python + podman client; ~1 minute)…"
+    "$SELF/stack-ui/run-podman.sh" --build-only >/dev/null || { warn "build failed"; return 1; }
     ok "image built"
+    # A running dashboard keeps the old image until it is recreated. From a terminal, do it
+    # now. From inside the dashboard itself, recreating it would kill this very command.
+    if [[ "$(podman container inspect -f '{{.State.Running}}' stackui 2>/dev/null)" == true ]]; then
+      if [[ -e /run/.containerenv ]]; then
+        echo "  the running dashboard still has the old code — from a terminal: stack restart stackui"
+      elif "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1; then
+        ok "dashboard restarted on the new image"
+      else
+        warn "dashboard didn't restart — run: stack-ui/run-podman.sh"
+      fi
+    fi
   fi
   # It drives the host engine through this socket, so without it the dashboard builds
   # fine and then can't do anything. Not enabled for you: it's your session config, the
@@ -1024,7 +1049,11 @@ cmd_doctor() {
   podman image exists "$IMG_COMFY"  && ok "$IMG_COMFY"  || warn "$IMG_COMFY missing — stack install comfyui"
   podman image exists "$IMG_FORTUNA" && ok "$IMG_FORTUNA" || warn "$IMG_FORTUNA missing — stack install fortuna"
   fortuna_model_check
-  podman image exists "$IMG_STACKUI" && ok "$IMG_STACKUI" || warn "$IMG_STACKUI missing — stack install stackui"
+  case "$(stackui_image_state)" in
+    current) ok "$IMG_STACKUI" ;;
+    stale)   warn "$IMG_STACKUI is older than stack-ui/ in this checkout — stack install stackui" ;;
+    *)       warn "$IMG_STACKUI missing — stack install stackui" ;;
+  esac
   [ -n "$IMG_ROUTER" ] && podman image exists "$IMG_ROUTER" && ok "$IMG_ROUTER" \
     || warn "${IMG_ROUTER:-router image} missing — stack install router"
   podman network exists "$NET" 2>/dev/null && ok "network $NET" || warn "network $NET missing — stack install"

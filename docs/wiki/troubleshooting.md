@@ -45,6 +45,10 @@ crash-loops ("No CUDA GPUs are available"), it can be turned off with
 `podman.socket`: `systemctl --user enable --now podman.socket`, then rebuild it
 (`stack-ui/run-podman.sh --rebuild`).
 
+**The dashboard still looks old after an update.** Its code is baked into its image. Run
+`stack install stackui`: it sees that `stack-ui/` changed since the image was built, rebuilds it
+and restarts the dashboard. Then hard-refresh the browser (Ctrl+Shift+R).
+
 **No "Start at boot" toggle.** The systemd unit isn't installed: `stack install service`.
 
 **A gated download fails with 401/403.** Add `HF_TOKEN` or `CIVITAI_TOKEN` to

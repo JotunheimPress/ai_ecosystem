@@ -81,12 +81,22 @@ verbs exits 2 rather than pretending to work.
 ## Running
 
 ```bash
-stack install stackui      # build the image (part of `stack install`)
-stack stackui              # start
+stack install stackui      # build the image if missing or stale, restart a running dashboard on it
+stack stackui              # start (rebuilds first if the image is stale)
 stack down stackui         # stop
-./run-podman.sh --rebuild  # rebuild after a code change (code is baked into the image)
+./run-podman.sh --rebuild  # force a build; --build-only builds if needed and starts nothing
 stack logs stackui         # podman logs -f
 ```
+
+**Stale images are rebuilt** (since 2026-11-20). The code is baked into the image, and until
+then `stack install` only checked that an image *existed*, so after a `git pull` it kept the old
+one and the old dashboard: a collaborator saw Fortuna but the old interface. `source-hash.sh`
+hashes the Containerfile and everything the build context takes in (exclusions follow
+`.containerignore`); `run-podman.sh` stamps it on the image as the label `ai-stack.source` and
+rebuilds when it differs. `stack install` does the same through `run-podman.sh --build-only`,
+then recreates a running dashboard, except from inside the dashboard itself (`/run/.containerenv`),
+where that would kill the command; `stack doctor` reports a stale image. A file added to the image
+outside `stack-ui/` would need adding to the hash.
 
 Then http://localhost:7863 (redirects to `/stackui/`), or `http://<host>.local:7863` from any device on the LAN. `stack status` lists it under **Control**.
 The image clones wapyt from GitHub at the pinned `WAPYT_REF` (the Containerfile header says

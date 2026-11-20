@@ -39,7 +39,8 @@ STACKUI_URL=http://127.0.0.1:7873 CHROME=<chromium> \
 - The dev server drives the real host (podman, systemd), so it is a real control plane, not a
   mock. The smoke test only reads, plus one HuggingFace search (`STACKUI_OFFLINE=1` skips it)
   and theme clicks, which only touch the browser's storage.
-- After merging, rebuild the running dashboard: `stack-ui/run-podman.sh --rebuild`.
+- After merging (or pulling), `stack install stackui` rebuilds the dashboard if `stack-ui/` has
+  changed and restarts it on the new image. `stack-ui/run-podman.sh --rebuild` forces a build.
 
 ## Backends
 

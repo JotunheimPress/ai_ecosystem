@@ -35,18 +35,37 @@ CONTAINER="stackui"
 PORT="${STACK_UI_PORT:-7863}"
 
 REBUILD=0
+BUILD_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --rebuild|-r) REBUILD=1; shift ;;
-    --help|-h) echo "Usage: $0 [--rebuild]"; exit 0 ;;
+    --build-only) BUILD_ONLY=1; shift ;;
+    --help|-h) echo "Usage: $0 [--rebuild] [--build-only]"
+               echo "  --rebuild     build the image even if it matches this checkout"
+               echo "  --build-only  build the image if needed, then stop: don't (re)start the dashboard"
+               exit 0 ;;
     *) echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
 
-if [[ "$REBUILD" -eq 1 ]] || ! podman image exists "$IMAGE"; then
-  echo "==> Building image $IMAGE …"
-  podman build --format docker -t "$IMAGE" -f "$SCRIPT_DIR/Containerfile" "$SCRIPT_DIR"
+# The code is baked into the image, so an image built from an older checkout serves the
+# old dashboard. The image carries the hash of the source it was built from
+# (source-hash.sh); a different hash here means the checkout moved on, so build again.
+SOURCE="$("$SCRIPT_DIR/source-hash.sh")"
+WHY=""
+if [[ "$REBUILD" -eq 1 ]]; then
+  WHY="asked to rebuild"
+elif ! podman image exists "$IMAGE"; then
+  WHY="no image yet"
+elif [[ "$(podman image inspect --format '{{index .Labels "ai-stack.source"}}' "$IMAGE" 2>/dev/null)" != "$SOURCE" ]]; then
+  WHY="stack-ui/ has changed since the image was built"
 fi
+if [[ -n "$WHY" ]]; then
+  echo "==> Building image $IMAGE ($WHY) …"
+  podman build --format docker --label "ai-stack.source=$SOURCE" \
+    -t "$IMAGE" -f "$SCRIPT_DIR/Containerfile" "$SCRIPT_DIR"
+fi
+[[ "$BUILD_ONLY" -eq 1 ]] && exit 0
 
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 SOCK="$RUNTIME_DIR/podman/podman.sock"

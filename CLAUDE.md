@@ -178,6 +178,10 @@ points at the relevant INSTALL.md section instead. Because of that, a fresh inst
 *"install done, N item(s) need you"* rather than "complete": the images are built but nothing can
 start until you supply a GGUF and a checkpoint.
 
+The dashboard image is the exception to "already in place means done": its code is baked in, so
+install rebuilds it when `stack-ui/` has changed since it was built and restarts a running
+dashboard on it (`stack-ui/CLAUDE.md` → *Stale images are rebuilt*).
+
 It also pulls the router's stock nginx image, so the first `stack up` (at boot, maybe offline)
 doesn't have to.
 
