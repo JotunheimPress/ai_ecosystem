@@ -82,8 +82,9 @@ done
 
 # Port check BEFORE the old router is removed: if something else holds one of its ports,
 # removing it would leave every capability with no router at all. Ports the running router
-# already publishes are its own; every other one must be free.
-own=" $(podman port "${CONTAINER_NAME}" 2>/dev/null | grep -oE ':[0-9]+$' | tr -d : | tr '\n' ' ') "
+# already publishes are its own; every other one must be free. On a fresh install there is no
+# router yet, so `podman port` fails: `|| true` keeps pipefail from ending the script here.
+own=" $(podman port "${CONTAINER_NAME}" 2>/dev/null | grep -oE ':[0-9]+$' | tr -d : | tr '\n' ' ' || true) "
 if command -v ss >/dev/null 2>&1; then
     for port in "${HOST_PORTS[@]}"; do
         [[ "${own}" == *" ${port} "* ]] && continue

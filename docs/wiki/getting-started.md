@@ -19,10 +19,15 @@ The GPU is detected automatically. To pin it, copy `host.env.example` to `host.e
 ## Install
 
 ```bash
+mkdir ai_ecosystem && cd ai_ecosystem   # the stack puts its other folders next to the checkout
 git clone https://github.com/JotunheimPress/ai_ecosystem.git ai-stack
 cd ai-stack
 ./stack install        # idempotent: safe to re-run any time
 ```
+
+Clone it inside a folder of its own, as above: `stack install` creates `koboldcpp/`,
+`ComfyUI/` and `fortuna/` *next to* the checkout (see [Directory layout](#directory-layout)),
+and frontends are cloned there too.
 
 `stack install` checks prerequisites, puts `stack` on your PATH (`~/.local/bin/stack`), installs the
 systemd user unit for this checkout, creates the `ai-net` network, builds the backend images and
@@ -31,7 +36,7 @@ ComfyUI custom nodes. You can install parts:
 `stack install all|backends|router|koboldcpp|comfyui|fortuna|stackui|service|path`.
 
 **It never downloads model weights.** A fresh install ends with *"install done, N item(s) need
-you"* and says what is missing:
+you"* followed by the list of what is missing:
 
 | Backend | What it needs | Where | How |
 |---|---|---|---|
@@ -50,7 +55,12 @@ stack boot on       # optional: also start them at every boot
 stack stackui       # the dashboard, on http://localhost:7863
 ```
 
-For start at boot before you log in, also run `loginctl enable-linger` once.
+Two settings belong to your login session, so `stack install` checks them and warns rather than
+changing them:
+
+- `systemctl --user enable --now podman.socket`: the dashboard drives podman through it, and
+  without it it opens but can't start or stop anything.
+- `loginctl enable-linger`: lets the backends start at boot before you log in.
 
 ## Directory layout
 

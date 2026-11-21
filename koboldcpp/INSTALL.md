@@ -51,7 +51,10 @@ works too: symlink or copy the files, then `mkdir models`.
 
 ## 2. Get a model
 
-Any GGUF works. Drop it in `models/` and point `KOBOLDCPP_MODEL` at the filename. On **12 GB VRAM**,
+Any GGUF works. Drop it in `models/` and point `KOBOLDCPP_MODEL` at the filename: the
+dashboard's **Language models → Use for KoboldCPP** does it for you, or write
+`KOBOLDCPP_MODEL=<file>.gguf` into `koboldcpp/model.env` (next to `start.sh`, in the ecosystem
+folder, not in `ai-stack/`) and `stack restart koboldcpp`. Without it the default below is used. On **12 GB VRAM**,
 target a ≤13B model at Q4–Q5 quantization. What's in use here:
 
 | Model | Size | Note |

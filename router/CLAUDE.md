@@ -60,6 +60,8 @@ stack logs router            # errors only (access log is off)
   label doesn't match. `route.conf` isn't hashed: `stack route` reloads it live.
 - **Replacing it checks the port first.** If 5001 is held by something that isn't a running
   router, `start.sh` stops before removing anything, so a failed swap can't leave text unrouted.
+  With no router container at all (a fresh install) `podman port` fails; the check tolerates that
+  (`|| true` under `pipefail`), which 1.5.1 didn't, so `stack on` could never start one.
 - **`stack restart router` doesn't stop it first** (start.sh replaces it), and **it stops last** in
   `stack down`.
 - **ComfyUI's listener is set up for ComfyUI**: WebSocket upgrade for `/ws` (job progress),
