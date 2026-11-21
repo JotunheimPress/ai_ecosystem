@@ -56,10 +56,15 @@ Fortuna's pinned files), the VRAM planner, logs, the doctor, and six colour them
 ## Install
 
 ```bash
+mkdir ai_ecosystem && cd ai_ecosystem   # the stack puts its other folders next to the checkout
 git clone https://github.com/JotunheimPress/ai_ecosystem.git ai-stack
 cd ai-stack
 ./stack install          # idempotent: safe to re-run any time
 ```
+
+Clone it inside a folder of its own, as above: `stack install` creates `koboldcpp/`,
+`ComfyUI/` and `fortuna/` *next to* the checkout, and frontends are cloned there too, so in your
+home folder they would land loose in `~`.
 
 `stack install` checks prerequisites, puts `stack` on your PATH, installs the systemd unit for
 this checkout, creates `ai-net`, builds the backend images and the dashboard, lays out

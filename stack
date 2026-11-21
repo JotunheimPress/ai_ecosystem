@@ -1265,7 +1265,8 @@ CUSTOM_NODES=(
 
 WARNS=0
 ok()   { echo "  ${C_GREEN}✓${C_OFF} $*"; }
-warn() { WARNS=$((WARNS+1)); echo "  ${C_RED}!${C_OFF} $*"; }
+WARN_MSGS=()
+warn() { WARNS=$((WARNS+1)); WARN_MSGS+=("$*"); echo "  ${C_RED}!${C_OFF} $*"; }
 step() { echo "==> $*"; }
 
 check_prereqs() {
@@ -1632,6 +1633,8 @@ cmd_install() {
     echo "${C_RED}install failed${C_OFF} — unmet prerequisites above"
   elif ((WARNS)); then
     echo "${C_RED}install done, $WARNS item(s) need you${C_OFF} — the stack won't start until they're resolved"
+    # Repeated here: above, they're scattered through a thousand lines of image builds.
+    local m; for m in "${WARN_MSGS[@]}"; do echo "  ${C_RED}!${C_OFF} $m"; done
   else
     echo "${C_GREEN}install complete${C_OFF} — start with: stack on (and stack boot on to start at every boot)"
   fi

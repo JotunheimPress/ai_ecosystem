@@ -16,6 +16,14 @@ releases*).
 
 ## Unreleased
 
+- Fix: on a fresh install `stack on` could never start the router (so no backend came up):
+  its port check failed under `pipefail` when no `backend-router` container existed yet.
+- `stack install` repeats the items that need you after its summary line, instead of leaving
+  them scattered through the image builds.
+- Docs: clone into a folder of your own (the stack creates its folders next to the checkout);
+  Getting started names the podman socket; `koboldcpp/INSTALL.md` says where `KOBOLDCPP_MODEL`
+  is set.
+
 ## 1.5.1 — 2026-11-20
 
 ### Removed
