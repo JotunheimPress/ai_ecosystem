@@ -60,6 +60,8 @@ STACKUI_URL=http://127.0.0.1:7873 CHROME=<chromium> \
   uv run --with playwright python tests/smoke.py    # every screen and theme; fails on any console error
 ```
 
+How the smoke tests work, and how to write one: [Playwright testing](playwright-testing.md).
+
 - The dev server drives the real host (podman, systemd), so it is a real control plane, not a
   mock. The smoke test only reads, plus one HuggingFace search (`STACKUI_OFFLINE=1` skips it)
   and theme clicks, which only touch the browser's storage.

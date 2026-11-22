@@ -23,6 +23,8 @@ releases*).
 - Docs: clone into a folder of your own (the stack creates its folders next to the checkout);
   Getting started names the podman socket; `koboldcpp/INSTALL.md` says where `KOBOLDCPP_MODEL`
   is set.
+- Docs: a developer-guide page on Playwright testing: running the dashboard's and Iguana
+  Studio's browser smoke tests, and writing one for a new pytincture app.
 
 ## 1.5.1 — 2026-11-20
 

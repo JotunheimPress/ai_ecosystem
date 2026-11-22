@@ -31,6 +31,7 @@ the code.
 | [Backends](backends.md) | The KoboldCPP, ComfyUI and Fortuna recipes and their quirks |
 | [Dashboard internals](dashboard-internals.md) | stack-ui: pytincture/wapyt, BFFs, the action allowlist, the systemctl shim, themes |
 | [Contributing](contributing.md) | Branches and PRs, tests, the smoke test, rebuilding |
+| [Playwright testing](playwright-testing.md) | Browser smoke tests for the pytincture apps: running them, writing one, gotchas |
 
 ## Where else to look
 
