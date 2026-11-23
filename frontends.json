@@ -12,6 +12,20 @@
       "needs": [
         "image-sound"
       ]
+    },
+    {
+      "repo": "companion-assistant",
+      "url": "https://github.com/El-Iguana/companion-assistant.git",
+      "brand": "Cantinero",
+      "description": "El Iguana's bartender — a character-card voice assistant (alpha)",
+      "icon": "mdi-account-voice",
+      "port": 7867,
+      "https_port": 7868,
+      "container": "companion-assistant",
+      "needs": [
+        "text",
+        "image-sound"
+      ]
     }
   ]
 }
