@@ -25,6 +25,9 @@ releases*).
   is set.
 - Docs: a developer-guide page on Playwright testing: running the dashboard's and Iguana
   Studio's browser smoke tests, and writing one for a new pytincture app.
+- Fix: removing a frontend no longer refuses because of a virtualenv or cache (`.venv/`,
+  `__pycache__/`, `.pytest_cache/`) at the top of its folder; only those in subfolders were
+  ignored.
 
 ## 1.5.1 — 2026-11-20
 

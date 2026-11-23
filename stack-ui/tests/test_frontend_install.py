@@ -153,14 +153,22 @@ def test_update_fast_forwards_a_working_clone(env):
     assert "pull --ff-only (main)" in out and "now at" in out
 
 
+def _caches(dest):
+    """Non-empty caches at the clone's top level: git lists them, an empty dir it wouldn't."""
+    for d in ("__pycache__", ".venv", ".pytest_cache"):
+        (dest / d).mkdir()
+        (dest / d / "x").write_text("x")
+
+
 def test_remove_keeps_a_folder_with_user_data(env):
     env["run"]("frontend", "add", "demo")
     dest = env["eco"] / "demo"
     (dest / "data").mkdir()
     (dest / "data" / "save.db").write_text("x")
-    (dest / "__pycache__").mkdir()
+    _caches(dest)
     out = env["run"]("frontend", "remove", "demo", check=False)
-    assert out.returncode != 0 and "data/" in out.stdout and "__pycache__" not in out.stdout
+    assert out.returncode != 0 and "data/" in out.stdout
+    assert not any(c in out.stdout for c in ("__pycache__", ".venv", ".pytest_cache"))
     assert dest.exists() and "built.log" in out.stdout
 
 
@@ -168,7 +176,7 @@ def test_remove_stops_it_and_deletes_a_clean_clone(env):
     env["run"]("frontend", "add", "demo")
     dest = env["eco"] / "demo"
     (dest / "built.log").unlink()
-    (dest / "__pycache__").mkdir()
+    _caches(dest)   # top-level caches don't block (`!! .venv/` once failed the filter)
     out = env["run"]("frontend", "remove", "demo").stdout
     assert "removed demo" in out and not dest.exists()
     log = env["log"].read_text()
