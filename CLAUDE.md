@@ -170,7 +170,7 @@ file:// for a mirror), `brand`, `description`, `icon`, `port`, `https_port`, `co
 `needs` (CAP values) and optional `min_stack`. It ships with each release, reviewed in a PR, so
 what a release offers is fixed and works offline, and it doubles as the **port registry** for
 official frontends. Entries: iguana_studio, then companion-assistant (Cantinero, alpha,
-added after 1.5.1). Adding one is a PR that adds its entry
+since 1.5.2). Adding one is a PR that adds its entry
 (the frontend must have a release tag and a `frontend.json` agreeing with the entry).
 `STACK_CATALOG` points elsewhere (tests). Parsed by `frontend_catalog` in `stack`.
 
@@ -265,7 +265,8 @@ so an old unit (wrong path, or the old 240 s start timeout) is reported.
 
 - **`VERSION`** holds the release, SemVer. **Major**: something outside this repo breaks (the
   `frontend.json` format, the `stack status --json` shape, a backend's name or port on `ai-net`,
-  a command removed or renamed). **Minor**: a feature. **Patch**: a fix.
+  a command removed or renamed). **Minor**: a feature. **Patch**: a fix, or a frontend added to
+  the official list (`frontends.json`; the code that offers it is unchanged).
 - **`CHANGELOG.md`**: a PR that users would notice adds a line under *Unreleased*.
 - **Shown by** `stack version` (`-V`, `--version`), the first line of `stack doctor`, and the
   dashboard beside its name, with the commit in the tooltip. All read `VERSION` through `stack`
