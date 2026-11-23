@@ -609,11 +609,12 @@ frontend_build() {
 }
 
 # Files in a frontend's clone that git doesn't have: user data, local changes, unpushed
-# commits. Caches and virtualenvs don't count. Empty = safe to delete.
+# commits. Caches and virtualenvs don't count. Empty = safe to delete. Porcelain lines are
+# "XY path", so a top-level path follows a space, not the start of the line.
 frontend_unsaved() {
   local dir=$1
   git -C "$dir" status --porcelain --ignored 2>/dev/null \
-    | grep -vE '(^|/)(__pycache__|\.venv|venv|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache)/?$|\.py[co]$' || true
+    | grep -vE '(^.. |/)(__pycache__|\.venv|venv|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache)/?$|\.py[co]$' || true
   git -C "$dir" log --oneline --branches --not --remotes 2>/dev/null | sed 's/^/unpushed commit: /' || true
 }
 
