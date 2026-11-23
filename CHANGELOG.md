@@ -7,7 +7,7 @@ AI Ecosystem (repo: `ai-stack`) releases. The version is in [`VERSION`](VERSION)
   shape of `stack status --json`, a backend's name or port on `ai-net`, or a command removed or
   renamed.
 - **Minor**: a new feature: a backend, a command, a dashboard screen.
-- **Patch**: a fix.
+- **Patch**: a fix, or a frontend added to the official list.
 
 `stack version` prints the release and the checkout's commit, and the dashboard shows it beside
 its name. Each release is tagged `v<version>` on `master`, has a GitHub release with its
@@ -16,21 +16,31 @@ releases*).
 
 ## Unreleased
 
+## 1.5.2 — 2026-11-23
+
+### Added
+
 - Cantinero (`companion-assistant`), El Iguana's character-card voice assistant, is on the
   official list as an alpha: the dashboard's Frontends screen offers Install, or
   `stack frontend add companion-assistant`.
-- Fix: on a fresh install `stack on` could never start the router (so no backend came up):
-  its port check failed under `pipefail` when no `backend-router` container existed yet.
 - `stack install` repeats the items that need you after its summary line, instead of leaving
   them scattered through the image builds.
-- Docs: clone into a folder of your own (the stack creates its folders next to the checkout);
-  Getting started names the podman socket; `koboldcpp/INSTALL.md` says where `KOBOLDCPP_MODEL`
-  is set.
-- Docs: a developer-guide page on Playwright testing: running the dashboard's and Iguana
-  Studio's browser smoke tests, and writing one for a new pytincture app.
-- Fix: removing a frontend no longer refuses because of a virtualenv or cache (`.venv/`,
+
+### Fixed
+
+- On a fresh install `stack on` could never start the router (so no backend came up):
+  its port check failed under `pipefail` when no `backend-router` container existed yet.
+- Removing a frontend no longer refuses because of a virtualenv or cache (`.venv/`,
   `__pycache__/`, `.pytest_cache/`) at the top of its folder; only those in subfolders were
   ignored.
+
+### Docs
+
+- Clone into a folder of your own (the stack creates its folders next to the checkout);
+  Getting started names the podman socket; `koboldcpp/INSTALL.md` says where `KOBOLDCPP_MODEL`
+  is set.
+- A developer-guide page on Playwright testing: running the dashboard's and Iguana
+  Studio's browser smoke tests, and writing one for a new pytincture app.
 
 ## 1.5.1 — 2026-11-20
 
