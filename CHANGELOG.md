@@ -16,6 +16,9 @@ releases*).
 
 ## Unreleased
 
+- Fix: the official list no longer says Cantinero needs image and sound; it uses text only
+  since it dropped expression sprites and ComfyUI.
+
 ## 1.5.2 — 2026-11-23
 
 ### Added
