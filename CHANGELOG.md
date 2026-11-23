@@ -16,6 +16,9 @@ releases*).
 
 ## Unreleased
 
+- Cantinero (`companion-assistant`), El Iguana's character-card voice assistant, is on the
+  official list as an alpha: the dashboard's Frontends screen offers Install, or
+  `stack frontend add companion-assistant`.
 - Fix: on a fresh install `stack on` could never start the router (so no backend came up):
   its port check failed under `pipefail` when no `backend-router` container existed yet.
 - `stack install` repeats the items that need you after its summary line, instead of leaving
