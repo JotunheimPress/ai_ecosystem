@@ -8,7 +8,7 @@ The host can tell us directly, and both sources are already reachable from this 
   without root. On the Halo box the "VRAM" carve-out is small and models live in **GTT**,
   the system RAM the iGPU borrows, so usable memory is VRAM + GTT, the same sum
   `koboldcpp/start.sh` waits on. Both parts are reported too.
-- **NVIDIA**: `nvidia-smi`, injected from the host by the CDI spec (`run-podman.sh`).
+- **NVIDIA**: the host's `nvidia-smi` and NVML, bind-mounted by `run-podman.sh`.
 - **Fallback**: ComfyUI's `/system_stats`, when neither of the above can be read.
 
 `read()` never raises: no figures is a normal state, reported with `available: False` and a

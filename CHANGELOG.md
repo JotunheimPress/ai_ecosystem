@@ -18,6 +18,11 @@ releases*).
 
 - Fix: the official list no longer says Cantinero needs image and sound; it uses text only
   since it dropped expression sprites and ComfyUI.
+- Fix: the dashboard starts again on NVIDIA hosts with podman 6.2 on a composefs root (Bazzite
+  since 2026-11-23). It gets the host's `nvidia-smi` through plain bind mounts instead of the
+  CDI device, whose mounts podman now id-maps under `--userns=keep-id`, which the kernel refuses
+  there. The failed start also stopped `podman-restart.service` at boot, taking other
+  containers' log readers with it.
 
 ## 1.5.2 — 2026-11-23
 
