@@ -29,6 +29,7 @@ the code.
 | [Architecture](architecture.md) | Containers, the `ai-net` network, the router, host profiles, state on disk |
 | [The `stack` script](stack-script.md) | The registry, `status --json`, install and doctor, the boot unit |
 | [Backends](backends.md) | The KoboldCPP, ComfyUI and Fortuna recipes and their quirks |
+| [Decision models](decision-models.md) | An ongoing POC: moving apps' decisions from the LLM to Fortuna, how Whimsy, Cantinero and World Builder changed, and the pattern to follow |
 | [Dashboard internals](dashboard-internals.md) | stack-ui: pytincture/wapyt, BFFs, the action allowlist, the systemctl shim, themes |
 | [Contributing](contributing.md) | Branches and PRs, tests, the smoke test, rebuilding |
 | [Playwright testing](playwright-testing.md) | Browser smoke tests for the pytincture apps: running them, writing one, gotchas |
