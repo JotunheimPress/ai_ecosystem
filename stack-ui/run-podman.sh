@@ -123,15 +123,34 @@ done
 . "$SCRIPT_DIR/../lib/host.sh"
 host_profile_load
 
-# NVIDIA: nvidia-smi, injected from the HOST by the NVIDIA CDI spec rather than installed
-# in the image: it has to match the host driver exactly, and the driver moves with Bazzite
-# updates. koboldcpp/start.sh reads free VRAM through it to wait for a swapped-out model's
-# memory to come back, and `stack doctor` checks it. No CUDA context is created, so it
-# costs no VRAM. AMD needs nothing: start.sh reads amdgpu's counters in /sys, which the
-# container sees as it is.
+# NVIDIA: the HOST's nvidia-smi and NVML, bind-mounted rather than installed in the image:
+# they have to match the host driver exactly, and the driver moves with Bazzite updates.
+# koboldcpp/start.sh reads free VRAM through it to wait for a swapped-out model's memory to
+# come back, and `stack doctor` checks it. No CUDA context is created, so it costs no VRAM.
+# AMD needs nothing: start.sh reads amdgpu's counters in /sys, which the container sees as
+# it is.
+#
+# Not `--device nvidia.com/gpu=all` (CDI), which this used until 2026-11-24: under
+# --userns=keep-id, podman 6.2 makes every CDI mount id-mapped (`ridmap`), and the kernel
+# refuses id-mapped mounts on Bazzite's composefs root, so the container could not start
+# at all (`crun: mount_setattr /usr/bin/nvidia-cuda-mps-control: Operation not
+# permitted`). Plain -v binds are not id-mapped. nvidia-smi needs only these two files and
+# the control + GPU device nodes. The backends themselves still get CDI: they are started
+# through the host's podman socket and don't use keep-id.
+nvidia_args() {
+  local smi nvml dev
+  smi=$(command -v nvidia-smi) || { echo "!! nvidia-smi not found on the host — no VRAM readings" >&2; return; }
+  nvml=$(ldconfig -p 2>/dev/null | awk '/libnvidia-ml\.so\.1 .*x86-64/ {print $NF; exit}')
+  [[ -n "$nvml" ]] || { echo "!! libnvidia-ml.so.1 not found on the host — no VRAM readings" >&2; return; }
+  GPU_ARGS+=(-v "$smi:/usr/bin/nvidia-smi:ro" -v "$(readlink -f "$nvml"):/usr/lib64/libnvidia-ml.so.1:ro")
+  for dev in /dev/nvidiactl /dev/nvidia[0-9]*; do
+    [[ -e "$dev" ]] && GPU_ARGS+=(--device "$dev")
+  done
+}
+
 GPU_ARGS=()
 case "$HOST_GPU" in
-  nvidia) GPU_ARGS=(--device nvidia.com/gpu=all) ;;
+  nvidia) nvidia_args ;;
   amd)    ;;
   *)      echo "!! no GPU found on this host — the backends will start without one" >&2 ;;
 esac

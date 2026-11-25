@@ -67,7 +67,7 @@ three mounts are load-bearing (all in `run-podman.sh`):
 | session bus (`$XDG_RUNTIME_DIR/bus`) | `stack boot on|off` is `systemctl --user`. Without it the Start at boot toggle can't work. |
 | `--network=host` | `stack` health-probes `http://localhost:5001`. In its own netns those are the *container's* ports and everything reads down. It also means uvicorn binds the host's own interfaces (`0.0.0.0`, the whole LAN), so no port is published. |
 | `--userns=keep-id` | The session bus authenticates EXTERNAL against the uid the **host** sees. Under the default rootless mapping the process is uid 0 inside and 1000 outside, they disagree, and the bus answers `REJECTED`. |
-| `--device nvidia.com/gpu=all` | Injects the **host's** `nvidia-smi` via the CDI spec (it must match the host driver, so it isn't installed in the image). `koboldcpp/start.sh` reads free VRAM with it to wait out a model swap; without it those waits silently skip. Creates no CUDA context, so no VRAM cost. Skipped with a warning if the CDI spec is missing. |
+| `-v` host `nvidia-smi` + `libnvidia-ml.so.1`, `--device /dev/nvidiactl /dev/nvidiaN` | The **host's** `nvidia-smi` (it must match the host driver, so it isn't installed in the image). `koboldcpp/start.sh` reads free VRAM with it to wait out a model swap; without it those waits silently skip. Creates no CUDA context, so no VRAM cost. Skipped with a warning if either file is missing on the host. **Not CDI** (`--device nvidia.com/gpu=all`, used until 2026-11-24): under `--userns=keep-id` podman 6.2 id-maps every CDI mount (`ridmap`), the kernel refuses that on Bazzite's composefs root, and the container could not start (`crun: mount_setattr /usr/bin/nvidia-cuda-mps-control: Operation not permitted`). Because it has a restart policy, that failure also failed `podman-restart.service` at boot. Plain `-v` binds are not id-mapped. |
 
 Consequence: it is the most privileged app in the ecosystem — it can control the host's
 containers and user services. That is the same authority the earlier host-side version
@@ -536,7 +536,7 @@ such container. It reads as KoboldCPP being broken when it is ComfyUI still hold
 - **Live figures come from the host** (`services/gpu.py`, since 2026-11-19), so they show with
   ComfyUI stopped. AMD: amdgpu's sysfs counters, VRAM carve-out + GTT (on the Halo box models live
   in GTT, so the total is the sum, as in `koboldcpp/start.sh`), plus `gpu_busy_percent`. NVIDIA:
-  the host's `nvidia-smi`, injected by CDI. ComfyUI's `/system_stats` is the fallback, and with
+  the host's `nvidia-smi`, bind-mounted by `run-podman.sh`. ComfyUI's `/system_stats` is the fallback, and with
   none of the three the planner says so rather than inventing a total. The dashboard's GPU strip
   reads the same (`overview()["gpu"]`). "Release ComfyUI VRAM" is enabled only while ComfyUI
   answers (`vram.comfy_up()`).
