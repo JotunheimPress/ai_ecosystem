@@ -24,6 +24,7 @@ player intent, does this need a roll…). Added 2026-11-17.
 | `server.py` | The adapter: `POST /v1/systemone`, `GET /v1/models`, `GET /health`. Stdlib only. Request/response shape follows `jevk5/server.py` (which imports torch, so it can't be used on this path). |
 | `entrypoint.sh` | Runs llama-server on **127.0.0.1:8080 inside the container** + the adapter on :8009; if either dies both stop and podman restarts the container. |
 | `models.table` | The files Fortuna will serve: name, file, sha256, size, calibration temperatures, and which GPU boots it by default. Pinned to one Hub commit. Read by `start.sh` **and** stack-ui, so the two can't disagree. |
+| `USE_CASES.md` | What the frontends use it for (Whimsy, Cantinero, World Builder) and what each gained, measured. How the apps were changed: the wiki's *Decision models* page (`docs/wiki/decision-models.md`). |
 | `start.sh` | The recipe: run, `--fetch [NAME]`, `--verify [NAME]`, `--check`, `--models`. State in `$ECO/fortuna/` (`models/`, `fortuna.env`). |
 
 ## Models

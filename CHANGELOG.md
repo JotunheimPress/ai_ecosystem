@@ -16,6 +16,9 @@ releases*).
 
 ## Unreleased
 
+- Docs: a developer wiki page, *Decision models*, on the ongoing proof of concept of moving
+  apps' decisions from the LLM to Fortuna: what changed in the stack and in Whimsy, Cantinero and
+  World Builder, and the pattern to follow. `fortuna/USE_CASES.md` has each app's results.
 - Fix: the official list no longer says Cantinero needs image and sound; it uses text only
   since it dropped expression sprites and ComfyUI.
 - Fix: the dashboard starts again on NVIDIA hosts with podman 6.2 on a composefs root (Bazzite

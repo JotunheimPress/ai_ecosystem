@@ -37,7 +37,8 @@ builds the image if needed, runs the container detached on `ai-net` with
   and `--check` maintain and read the integrity stamps.
 - Runs with llama-server's context checkpoints and prompt cache off: they cost ~250 ms of CPU per
   question and are never used.
-- Notes: [`fortuna/CLAUDE.md`](../../fortuna/CLAUDE.md).
+- Notes: [`fortuna/CLAUDE.md`](../../fortuna/CLAUDE.md). How the apps use it: [Decision models](decision-models.md);
+  results per app: [`fortuna/USE_CASES.md`](../../fortuna/USE_CASES.md).
 
 ## The router: [`router/`](../../router/)
 
