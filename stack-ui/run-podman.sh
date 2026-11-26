@@ -24,7 +24,11 @@
 # services". That is the same authority the host-side version had; it is not new power,
 # but it is real power, so the container is deliberately minimal and loopback-only.
 # ============================================================
-set -euo pipefail
+set -Eeuo pipefail
+# Say where it stopped. `stack` keeps only this script's stderr, and a failure under set -e
+# is otherwise silent: an early-exiting pipe (jp-parent#53) ended it with exit 141 and not a
+# word, after the old dashboard had already been removed.
+trap 'echo "!! run-podman.sh stopped at line $LINENO (exit $?) — run it by hand to see why" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # stack-ui -> the checkout (any folder name) -> the ecosystem root. This app ships inside
@@ -140,11 +144,17 @@ host_profile_load
 nvidia_args() {
   local smi nvml dev
   smi=$(command -v nvidia-smi) || { echo "!! nvidia-smi not found on the host — no VRAM readings" >&2; return; }
-  nvml=$(ldconfig -p 2>/dev/null | awk '/libnvidia-ml\.so\.1 .*x86-64/ {print $NF; exit}')
+  # `|| true`: awk exits at the first match and ldconfig, still writing, dies of SIGPIPE.
+  # Under pipefail that failed the assignment and set -e ended the script, on every host
+  # whose ldconfig lists the library early (jp-parent#53).
+  nvml=$( { ldconfig -p 2>/dev/null || true; } | awk '/libnvidia-ml\.so\.1 .*x86-64/ {print $NF; exit}')
   [[ -n "$nvml" ]] || { echo "!! libnvidia-ml.so.1 not found on the host — no VRAM readings" >&2; return; }
   GPU_ARGS+=(-v "$smi:/usr/bin/nvidia-smi:ro" -v "$(readlink -f "$nvml"):/usr/lib64/libnvidia-ml.so.1:ro")
+  # `|| continue`, not `&&`: a missing last node (the glob unmatched, or nodes the driver
+  # hasn't created yet) made the loop, and so the function, return 1, and set -e ended it.
   for dev in /dev/nvidiactl /dev/nvidia[0-9]*; do
-    [[ -e "$dev" ]] && GPU_ARGS+=(--device "$dev")
+    [[ -e "$dev" ]] || continue
+    GPU_ARGS+=(--device "$dev")
   done
 }
 

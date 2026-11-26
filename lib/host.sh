@@ -37,8 +37,10 @@ _host_env_get() {   # strict KEY=value read, quotes tolerated, nothing executed
 host_detect_gpu() {
   # NVIDIA first: an NVIDIA workstation with an AMD CPU also has /dev/kfd (this one does),
   # so /dev/kfd alone does not mean the GPU is AMD.
+  # `|| true`: grep -q exits at its match, and under pipefail a writer killed by that
+  # (SIGPIPE) would make the test false and skip NVIDIA (the jp-parent#53 pattern).
   if command -v nvidia-ctk >/dev/null 2>&1 \
-     && nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
+     && { nvidia-ctk cdi list 2>/dev/null || true; } | grep -q "nvidia.com/gpu=all"; then
     echo nvidia
   elif [ -e /dev/kfd ] && [ -d /dev/dri ]; then
     echo amd

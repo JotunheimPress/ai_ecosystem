@@ -291,6 +291,11 @@ Deliberate, not incidental:
   and its state comes from `local` in the status JSON.
 - **`run-podman.sh` checks the podman socket before removing the running dashboard**, so a
   missing socket leaves the old one up instead of no dashboard at all.
+- **`run-podman.sh` runs under `set -Eeuo pipefail`, so a pipe whose reader stops early can end
+  it.** `ldconfig -p | awk '… exit'` killed ldconfig with SIGPIPE, and the script died with exit
+  141 and no output, after the old dashboard was removed (jp-parent#53, hosts that list
+  libnvidia-ml early). Give such a writer `{ …; || true; }`. An ERR trap now names the line it
+  stopped at, and `stack` shows the script's stderr. `tests/test_run_podman.py` covers it.
 - **The Kobold default filename is read out of `start.sh`** (`inventory._DEFAULT` regex)
   rather than duplicated here, so the two can't drift. If that line ever changes shape the
   UI reports "unknown" instead of guessing — deliberately no hardcoded fallback name.
