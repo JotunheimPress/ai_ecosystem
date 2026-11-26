@@ -32,6 +32,7 @@ stack down             # stop everything (also: down backends | down frontends |
 stack logs <app>       # follow an app's logs
 stack frontends        # the installed frontends
 stack route [local|halo]   # where text is served (see Text on another machine)
+stack gpu-release      # free the text model's GPU memory (art, games); stack gpu-restore loads it again
 stack doctor           # check everything, change nothing
 ```
 
@@ -62,7 +63,12 @@ With the stack idle, KoboldCPP (~6 GB for a 9B Q4), Fortuna (~3.3 GB) and ComfyU
 - **Run Fortuna on the CPU:** `NGL=0` in `fortuna/fortuna.env` (or the dashboard: Language models →
   Fortuna → GPU layers…), then `stack restart fortuna`. Remove the line to put it back on the GPU.
 - **Release ComfyUI's memory** after a job: *Release ComfyUI VRAM* on the dashboard.
-- **Stop the text model** for a heavy session: `stack down koboldcpp`, then `stack koboldcpp`.
+- **Release the text model** for a heavy session (FLUX, Kontext, a game): `stack gpu-release`
+  unloads KoboldCPP's model and frees all of its memory (about 6 GB for a 9B Q4), and
+  `stack gpu-restore` loads the same model again in seconds. The dashboard has both: **Release
+  VRAM** on the text card, **Restore** once it is released, and a button on the VRAM planner.
+  Until it is restored, every app's text requests fail; `stack status` shows the local copy as
+  `released`, and `stack up` restores it.
 
 ## Timing
 

@@ -89,6 +89,9 @@ stack down         # stop everything   (also: down backends | down frontends | d
 stack restart <app>  # restart router = replace it in place, no stop first
 stack logs <app>   # follow logs (podman logs -f — every app is a container)
 stack route [local|halo]  # show / set where text is served (halo needs HALO_HOST in halo.env)
+stack gpu-release / gpu-restore  # unload this machine's text model to free its GPU memory, and
+                   #   load it again in its running container (KoboldCPP admin mode,
+                   #   koboldcpp/CLAUDE.md → Release and restore); stack up restores too
 stack fortuna-model [list|fetch NAME|verify NAME]  # Fortuna's pinned model files
                    #   (fortuna/models.table): sha256-checked download, or re-hash one
 
@@ -331,13 +334,14 @@ Reuses the stack's own start logic (DRY), verified under the systemd `--user` co
 What stack-ui reads instead of scraping the text. Only JSON goes to stdout; the shape is documented
 above `status_json` in `stack`. Per app: `group` (backend/frontend/control), `label`, `capability`
 (from the `CAP` table: routing, text, image-sound, decision), `port`, `up`. Backends also carry
-`local`: the state of **this machine's copy** (`up`, `loading`, `stopped`, `absent`, or `down`).
+`local`: the state of **this machine's copy** (`up`, `loading`, `released`, `stopped`, `absent`, or `down`).
 
 - `up` is the **served** state, through the router where there is one. With text routed to Halo,
   `koboldcpp.up` is the Halo box.
 - `local` is probed (`podman exec <container> sh -c "$LOCAL_PROBE"`) only when served can't stand
-  for it: the app is routed elsewhere, or the router is down. Otherwise `probed: false` and the state
-  is inferred. Not podman's health field, which reads "starting" for days on `koboldcpp-local`.
+  for it: the app is routed elsewhere, the router is down, or KoboldCPP reads down (to tell
+  `released`, its model unloaded by `stack gpu-release`, from stopped or loading). Otherwise
+  `probed: false` and the state is inferred. Not podman's health field, which reads "starting" for days on `koboldcpp-local`.
 - `route.router_config` is `stale` when the running router was created from an older template,
   image or port set (`router/start.sh --check`); the next `stack up` recreates it.
 - Health probes run in parallel, so status costs one timeout (3 s) however many apps are down.

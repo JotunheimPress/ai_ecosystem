@@ -28,7 +28,7 @@ LAN.
 | Overview | The router (where each capability is served, route text to Halo), one card per capability (text, image and sound, decision) with what it has loaded, and the GPU's memory and load |
 | Language models | KoboldCPP's GGUFs: pick one, set GPU layers and the context window, delete; **Find on HuggingFace**; the **Fortuna** tab |
 | Image and audio | ComfyUI's checkpoints, LoRAs, VAEs, diffusion models and text encoders; find more on Civitai or HuggingFace |
-| VRAM planner | Live GPU memory, **Release ComfyUI VRAM**, and how many layers of a GGUF fit next to a checkpoint and Fortuna |
+| VRAM planner | Live GPU memory, **Release ComfyUI VRAM**, **Release text model VRAM** / **Restore text model**, and how many layers of a GGUF fit next to a checkpoint and Fortuna |
 | Logs | Follow any app's logs live |
 | Custom nodes | ComfyUI node pins versus what is checked out; re-pin |
 | Doctor | `stack doctor`'s report |

@@ -105,6 +105,23 @@ gpu_args() {
 
 publish() { echo "${HOST_BIND:+$HOST_BIND:}$1:$2"; }
 
+# GPU memory in use now, in MiB; nothing when it can't be read. NVIDIA: the host's
+# nvidia-smi. AMD: amdgpu's sysfs counters, VRAM carve-out + GTT (the unified pool), as in
+# koboldcpp/start.sh. Best-effort: `stack gpu-release` only uses it to say what was freed.
+gpu_used_mib() {
+  case "$HOST_GPU" in
+    nvidia) nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null \
+              | head -1 | tr -d ' ' || true ;;
+    amd) local d f sum=0 n=0
+         for d in /sys/class/drm/card*/device; do
+           for f in "$d/mem_info_vram_used" "$d/mem_info_gtt_used"; do
+             [ -r "$f" ] && { sum=$((sum + $(cat "$f"))); n=1; }
+           done
+         done
+         ((n)) && echo $((sum / 1048576)) || true ;;
+  esac
+}
+
 kobold_image() {
   case "$HOST_LLM_BACKEND" in
     cuda) echo "localhost/koboldcpp:latest" ;;     # the original tag, kept for the 4070

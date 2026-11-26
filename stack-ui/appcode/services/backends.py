@@ -59,6 +59,7 @@ def kobold() -> dict:
         "gpu_layers": inv.get("gpu_layers"),
         "restart_needed": inv.get("restart_needed"),
         "restart_for": inv.get("restart_for") or [],
+        "released": inv.get("released", False),
         "text_local": inv.get("text_local", True),
         "text_route": inv.get("text_route"),
     }

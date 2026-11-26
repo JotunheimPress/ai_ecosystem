@@ -99,6 +99,10 @@ VERBS: dict[str, Verb] = {
     # one of two verbs, never a host. `halo` reads HALO_HOST from ai-stack/halo.env.
     "route_text_local": Verb(["route", "local"], True, stream=True),
     "route_text_halo":  Verb(["route", "halo"], True, stream=True),
+    # Free the text model's GPU memory for other work, and load it again (`stack gpu-release` /
+    # `gpu-restore`: KoboldCPP's admin mode, on this machine's copy). Fixed argvs, no target.
+    "gpu_release_text": Verb(["gpu-release", "koboldcpp"], True, stream=True),
+    "gpu_restore_text": Verb(["gpu-restore", "koboldcpp"], True, stream=True),
     # Start at boot: enable / disable the systemd unit, nothing started or stopped now.
     "boot_on":  Verb(["boot", "on"], True, stream=True),
     "boot_off": Verb(["boot", "off"], True, stream=True),
