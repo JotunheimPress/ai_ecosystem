@@ -937,7 +937,8 @@ start_app() {
     # Returns once the model is loaded; stderr says what's missing (e.g. the GGUF).
     fortuna)   "$SELF/fortuna/start.sh" >/dev/null ;;
     # Ships in this checkout, like the comfyui recipe — hence $SELF, not $ECO.
-    stackui)   "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1 ;;
+    # stderr shown, as for the backends: its warnings and, on failure, where it stopped.
+    stackui)   "$SELF/stack-ui/run-podman.sh" >/dev/null ;;
     # Frontends: the start script their frontend.json names (checked to be inside the repo).
     *)         [[ -n "${FSTART[$1]:-}" ]] && "${FSTART[$1]}" >/dev/null 2>&1 ;;
   esac
@@ -1714,7 +1715,7 @@ install_stackui() {
     if [[ "$(podman container inspect -f '{{.State.Running}}' stackui 2>/dev/null)" == true ]]; then
       if [[ -e /run/.containerenv ]]; then
         echo "  the running dashboard still has the old code — from a terminal: stack restart stackui"
-      elif "$SELF/stack-ui/run-podman.sh" >/dev/null 2>&1; then
+      elif "$SELF/stack-ui/run-podman.sh" >/dev/null; then
         ok "dashboard restarted on the new image"
       else
         warn "dashboard didn't restart — run: stack-ui/run-podman.sh"

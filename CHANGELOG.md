@@ -16,6 +16,11 @@ releases*).
 
 ## Unreleased
 
+- Fix: the dashboard starts again on NVIDIA hosts whose `ldconfig -p` lists `libnvidia-ml` early.
+  `run-podman.sh` died silently there (a SIGPIPE under `pipefail`), after it had already removed
+  the running dashboard, so `stack install stackui` left no dashboard at all. It also no longer
+  dies when an NVIDIA device node is missing, and any failure now names the line it stopped at;
+  `stack` shows that instead of discarding it.
 - Feature: `stack gpu-release` frees the text model's GPU memory for image work or a game, and
   `stack gpu-restore` loads the same model again in seconds, without restarting its container.
   The dashboard has **Release VRAM** / **Restore** on the text card and the VRAM planner.
