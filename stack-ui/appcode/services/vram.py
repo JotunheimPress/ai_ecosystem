@@ -173,15 +173,25 @@ def free_vram() -> dict:
 
 
 # --- planning ----------------------------------------------------------------
-# Fortuna runs llama-server at a 16,384-token context (fortuna/entrypoint.sh FORTUNA_CTX), fully
-# offloaded, all the time. Its share is the file plus that context's KV cache; for its hybrid
-# Qwen3.5 that cache is small. Compute buffers are not counted, like everywhere in this module.
+# Fortuna runs llama-server at a 16,384-token context (fortuna/entrypoint.sh FORTUNA_CTX), all the
+# time, with NGL layers on the GPU (fortuna.env; all by default). Its share is the file plus that
+# context's KV cache, scaled by the share of layers offloaded (llama.cpp keeps each layer's cache
+# where the layer is); for its hybrid Qwen3.5 the cache is small. Compute buffers are not counted,
+# like everywhere in this module.
 FORTUNA_CTX = 16384
 
 
-def fortuna_bytes(path: Path) -> int:
-    """Estimated GPU memory Fortuna holds with this model loaded: weights + KV cache."""
-    return path.stat().st_size + (kv_cache_bytes(gguf_meta(path), FORTUNA_CTX) or 0)
+def fortuna_bytes(path: Path, ngl: int = 99) -> int:
+    """Estimated GPU memory Fortuna holds with this model loaded on `ngl` GPU layers:
+    weights + KV cache, in proportion. 0 layers (CPU only) holds none."""
+    if ngl <= 0:
+        return 0
+    meta = gguf_meta(path)
+    full = path.stat().st_size + (kv_cache_bytes(meta, FORTUNA_CTX) or 0)
+    n_layers = meta.get("n_layers") or 0
+    if not n_layers or ngl >= n_layers:
+        return full
+    return int(full * ngl / n_layers)
 
 
 def plan(model_path: Path, model_size: int, checkpoint_size: int, vram_total: int,

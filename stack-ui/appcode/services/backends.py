@@ -151,7 +151,9 @@ def fortuna() -> dict:
     model = h.get("model") if up and isinstance(h.get("model"), str) else None
     inv = inventory.fortuna_models(running=model)
     out = {"up": up, "selected": inv["selected"], "selected_integrity": inv["selected_integrity"],
-           "restart_needed": inv["restart_needed"]}
+           "restart_needed": inv["restart_needed"],
+           "ngl": inv["ngl"], "ngl_effective": inv["ngl_effective"],
+           "ngl_invalid": inv["ngl_invalid"]}
     if up:
         out["model"] = model
     return out

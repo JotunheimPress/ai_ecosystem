@@ -43,6 +43,20 @@ Download in the dashboard): explicit, pinned commit, into a `.part`, then sha256
 `stack install` never downloads them, as for every backend. A complete download whose hash is wrong
 is **discarded**, not kept as a `.part` (resuming it would only append to the wrong bytes).
 
+### GPU layers (`NGL=`)
+
+`NGL=<n>` in `fortuna.env` (or `FORTUNA_NGL`, environment first) is how many layers `start.sh`
+hands llama-server as `--n-gpu-layers` (via `FORTUNA_NGL` into `entrypoint.sh`). No line = 99, all
+of them (llama.cpp clamps to the model's count); `HOST_GPU=none` is always 0. Anything but 0–999 is
+refused before the start. **`NGL=0` runs Fortuna on the CPU** and frees its whole allocation:
+~3.3 GB for `jevk5-4b-q4` on the 12 GB 4070, where KoboldCPP + Fortuna + an idle ComfyUI left
+~1 GB free (WEB-009, jp-parent#49). Its questions are short and latency-tolerant, so CPU is a fair
+trade there when image work needs the card. The dashboard sets it (**Language models → Fortuna →
+GPU layers…**, `inventory.set_fortuna_ngl`, keeping the other lines) and offers a restart; the VRAM
+planner counts Fortuna's share in proportion to its layers (`vram.fortuna_bytes`), none at 0.
+Fortuna's `/health` doesn't report its layer count, so the dashboard can't tell a pending change
+from an applied one; it offers the restart when you change it instead.
+
 ### Verification
 
 Two stamps next to each file, both `<size> <mtime> <sha256>` of the file as it was hashed:

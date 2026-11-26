@@ -100,6 +100,18 @@ class ModelsApi:
         except OSError as exc:
             return {"ok": False, "error": f"could not write fortuna.env: {exc}"}
 
+    def set_fortuna_ngl(self, layers=None) -> dict:
+        """How many layers Fortuna puts on the GPU (NGL= in fortuna.env): a whole number,
+        0 = CPU only, or None = all of them (the line removed). Never restarts."""
+        from services import inventory
+
+        try:
+            return {"ok": True, "fortuna": inventory.set_fortuna_ngl(layers)}
+        except inventory.InventoryError as exc:
+            return _err(exc)
+        except OSError as exc:
+            return {"ok": False, "error": f"could not write fortuna.env: {exc}"}
+
     # --- image models (ComfyUI) -----------------------------------------------
     def images(self) -> dict:
         from services import inventory, stackctl
@@ -137,7 +149,8 @@ class ModelsApi:
                    for m in f["models"] if m["present"]]
         return {"ok": True, "vram": vram.stats(), "comfy_up": vram.comfy_up(), "models": models,
                 "checkpoints": inventory.checkpoints(), "active": k["active"],
-                "gpu_layers": k["gpu_layers"], "fortuna": fortuna}
+                "gpu_layers": k["gpu_layers"], "fortuna": fortuna,
+                "fortuna_ngl": f["ngl_effective"]}
 
     def free_vram(self) -> dict:
         """Make ComfyUI release VRAM it is holding after a job — the fix for Kobold OOMing
@@ -151,25 +164,28 @@ class ModelsApi:
 
     def plan(self, model: str, checkpoint: str = "", fortuna: str = "") -> dict:
         """How many layers of ``model`` fit alongside ``checkpoint`` and the Fortuna model
-        named ``fortuna`` (a table name; "" = Fortuna not counted). An estimate."""
+        named ``fortuna`` (a table name; "" = Fortuna not counted) at the GPU layers
+        fortuna.env gives it. An estimate."""
         from services import inventory, vram
 
         try:
             path = inventory._safe_target("kobold", model or "")
             ckpt = inventory._safe_target("checkpoint", checkpoint).stat().st_size \
                 if checkpoint else 0
-            fort = 0
+            fort, ngl = 0, None
             if fortuna:
-                row = next((m for m in inventory.fortuna_models()["models"]
+                f = inventory.fortuna_models()
+                row = next((m for m in f["models"]
                             if m["name"] == fortuna and m["present"]), None)
                 if row is None:
                     raise inventory.InventoryError(f"no downloaded Fortuna model {fortuna!r}")
-                fort = vram.fortuna_bytes(inventory._safe_target("fortuna", row["file"]))
+                ngl = f["ngl_effective"]
+                fort = vram.fortuna_bytes(inventory._safe_target("fortuna", row["file"]), ngl)
         except (inventory.InventoryError, OSError) as exc:
             return _err(exc)
         s = vram.stats()
         return {"ok": True, **vram.plan(path, path.stat().st_size, ckpt, s.get("total") or 0,
-                                        fortuna_size=fort)}
+                                        fortuna_size=fort), "fortuna_ngl": ngl}
 
     # --- HuggingFace ------------------------------------------------------------
     def hf_search(self, query: str, limit: int = 30) -> dict:

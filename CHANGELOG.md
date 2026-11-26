@@ -16,6 +16,10 @@ releases*).
 
 ## Unreleased
 
+- Feature: Fortuna can run on the CPU, or with only some layers on the GPU: `NGL=` in
+  `fortuna/fortuna.env`, or **GPU layers…** on the dashboard's Fortuna tab. `NGL=0` frees about
+  3.3 GB on a 12 GB card for image work. The VRAM planner counts Fortuna's share accordingly.
+  With no `NGL=` line nothing changes.
 - Docs: a developer wiki page, *Decision models*, on the ongoing proof of concept of moving
   apps' decisions from the LLM to Fortuna: what changed in the stack and in Whimsy, Cantinero and
   World Builder, and the pattern to follow. `fortuna/USE_CASES.md` has each app's results.

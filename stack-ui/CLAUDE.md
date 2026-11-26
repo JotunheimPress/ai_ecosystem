@@ -465,8 +465,15 @@ matters is **integrity** — read from the stamps `start.sh` writes, never compu
 - **The default** (no `MODEL=`) depends on the GPU, as in `start.sh`: `inventory.host_gpu()` reads
   `STACK_GPU` (set by run-podman.sh), then `host.env`, then a coarser detection than
   `lib/host.sh` (a CDI spec → NVIDIA, `/dev/kfd` → AMD) for the host-side dev server.
+- **GPU layers…** writes `NGL=` into `fortuna.env` (`inventory.set_fortuna_ngl`; empty removes the
+  line = all layers, 0 = CPU only), keeping every other line, and offers a restart when Fortuna is
+  running. `fortuna_models()` reports `ngl` (as written), `ngl_effective` (what `start.sh` will use:
+  99 by default, 0 with no GPU) and `ngl_invalid` (a line `start.sh` will refuse); the tab and the
+  decision card show them. `/health` doesn't name the layer count, so there is no
+  `restart_needed` for it.
 - **VRAM planner:** Fortuna's boot model is counted by default — its file plus the KV cache of its
-  16,384-token context (`vram.fortuna_bytes`) — and can be set to "not counted".
+  16,384-token context (`vram.fortuna_bytes`), in proportion to its GPU layers (none at `NGL=0`) —
+  and can be set to "not counted".
 
 ## HuggingFace image models
 

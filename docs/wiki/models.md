@@ -64,10 +64,17 @@ sha256 and its own calibration temperatures. The default is `jevk5-4b-q8` on AMD
   stack fortuna-model verify jevk5-4b-q8
   ```
 - `stack doctor` reports whether the model Fortuna boots is present and verified.
+- **GPU layers…** sets how much of Fortuna runs on the GPU (`NGL=` in `fortuna/fortuna.env`).
+  Leave it empty for all layers (the default). **0 runs it on the CPU only** and frees its VRAM,
+  about 3.3 GB for `jevk5-4b-q4`. On a 12 GB card that is the difference between no image work at
+  all and an SD 1.5/SDXL checkpoint running next to the text model. Each question then takes a
+  little longer, which suits Fortuna's short typed questions. It applies on Fortuna's next start,
+  and the dashboard offers the restart.
 
 ## The VRAM planner
 
 Every backend shares one GPU. The planner reads live memory from the host and estimates how many
 layers of a GGUF fit next to a ComfyUI checkpoint **and** Fortuna's model (its file plus its
-16K-context cache; set it to "not counted" to leave it out). A fixed allowance is held back for
+16K-context cache, in proportion to its GPU layers and nothing when it runs on the CPU; set it to
+"not counted" to leave it out). A fixed allowance is held back for
 the desktop. The numbers are estimates and say so. **Use … with N GPU layers** saves the result.
