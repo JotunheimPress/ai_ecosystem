@@ -49,5 +49,7 @@ which the dashboard parses.
 ## Other commands
 
 `stack route [local|halo]` (writes `route.conf`, reloads the router, waits for the new route),
-`stack frontends [--json]`, `stack fortuna-model [list|fetch|verify]`, `stack logs`, `stack restart`.
+`stack frontends [--json]`, `stack fortuna-model [list|fetch|verify]`, `stack logs`, `stack restart`,
+`stack gpu-release` / `stack gpu-restore` (unload KoboldCPP's model to free its GPU memory, and load
+it again, inside its running container: `koboldcpp/CLAUDE.md` → *Release and restore*).
 `stack --help` prints the header comment, which is kept as the command reference.

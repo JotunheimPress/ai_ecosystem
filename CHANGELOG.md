@@ -16,6 +16,11 @@ releases*).
 
 ## Unreleased
 
+- Feature: `stack gpu-release` frees the text model's GPU memory for image work or a game, and
+  `stack gpu-restore` loads the same model again in seconds, without restarting its container.
+  The dashboard has **Release VRAM** / **Restore** on the text card and the VRAM planner.
+  KoboldCPP now runs in admin mode for this, limited to unload and reload, behind a password made
+  on each start; a KoboldCPP started before this update is stopped and started instead.
 - Feature: Fortuna can run on the CPU, or with only some layers on the GPU: `NGL=` in
   `fortuna/fortuna.env`, or **GPU layers…** on the dashboard's Fortuna tab. `NGL=0` frees about
   3.3 GB on a 12 GB card for image work. The VRAM planner counts Fortuna's share accordingly.

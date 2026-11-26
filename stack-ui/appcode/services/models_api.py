@@ -150,6 +150,9 @@ class ModelsApi:
         return {"ok": True, "vram": vram.stats(), "comfy_up": vram.comfy_up(), "models": models,
                 "checkpoints": inventory.checkpoints(), "active": k["active"],
                 "gpu_layers": k["gpu_layers"], "fortuna": fortuna,
+                # The text model, for Release / Restore next to ComfyUI's release.
+                "text": {"loaded": k["running"], "released": k["released"],
+                         "local": k["text_local"]},
                 "fortuna_ngl": f["ngl_effective"]}
 
     def free_vram(self) -> dict:

@@ -72,6 +72,39 @@ The container is **`koboldcpp-local`** and publishes no host port: the backend r
    Before this, the restart policy repeated the identical OOM five times and `stack` only said "did
    not come up". A non-memory failure exits 1 with the last log lines.
 
+### Release and restore: admin mode (since jp-parent#50)
+
+KoboldCPP holds its whole allocation while idle (~5.9 GB for a 9B Q4 on the 4070), and a heavy
+ComfyUI job (FLUX schnell Q4 ≈ 6.8 GB, Kontext ≈ 12.5 GB) needs it back. `stack gpu-release` frees
+it and `stack gpu-restore` loads the same model again, without replacing the container:
+
+- **`--admin`**: the KoboldCPP process becomes a supervisor that runs the model in a child
+  process. `POST /api/admin/reload_config {"filename": "unload_model"}` ends that child (every
+  byte of its VRAM is freed) and starts one with no model; `"initial_model"` starts it again with
+  the container's own arguments (model, layers, context, adapter, the unified-memory setting a
+  fallback may have picked). A restore is a model load, not a boot: no container, no image, none
+  of this script's checks. Measured in 1.111.2's `koboldcpp.py`; a failed first load still exits
+  the container, so the OOM retries above work as before. A failed *restore* is retried once
+  with the original arguments by KoboldCPP itself, then the container exits.
+- **Locked to those two requests.** The admin folder is an empty tmpfs mounted `ro`
+  (`/kcpp-admin`; mode 0555 alone didn't stop root in the container from writing there, found in
+  the live test), so no `.kcpps` or `.gguf` can be named to swap to; and `KCPP_ADMINPASSWORD` is random on every
+  start and exists only in the container's environment. Port 5001 is on ai-net and behind the
+  router's host port, so without the password anything there could unload the model. `stack`
+  reaches it with `podman exec koboldcpp-local curl … 127.0.0.1:5001` (curl is in all three images).
+- **Released, it still answers.** `/api/v1/model` says `{"result": "inactive"}` with a 200 (no
+  `koboldcpp/` prefix, unlike a loaded model's name; both forms are matched), so
+  `stack`'s `is_up` and the local probe treat that as not up, `local_state` reports `released`,
+  and `stack up` (or `stack koboldcpp`) restores rather than rebuilding the container.
+- `gpu-restore` asks ComfyUI to free its cache first, as a start does (`KOBOLDCPP_FREE_COMFY=0`
+  skips it). It doesn't retry with fewer layers: on failure it says to `stack restart koboldcpp`,
+  which does.
+- **Measured 2026-11-26 on the Halo** (Cydonia 24B Q8, 32K context): release 4.6 s, freeing
+  27.7 GB (34.4 → 6.7 GB in use); restore 7 s, against 15 s for `stack restart koboldcpp`; the
+  first generation after it was correct. The 4070's numbers are still to be taken.
+- `KOBOLDCPP_ADMIN=0` starts without admin mode. A container started that way, or before this
+  existed, can't unload: `gpu-release` stops it instead, and `gpu-restore` starts it (a full start).
+
 ## Configuration
 
 Resolved by `start.sh` as **env var → `model.env` → built-in default**:

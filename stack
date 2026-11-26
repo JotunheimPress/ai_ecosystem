@@ -28,6 +28,10 @@
 #   stack restart <app>
 #   stack logs <app>
 #   stack route [local|halo]  show / set where text is served (backend router)
+#   stack gpu-release [koboldcpp]  free this machine's text model's GPU memory for other work
+#                           (art, games): the model is unloaded, the container keeps running
+#   stack gpu-restore [koboldcpp]  load it again, same model and settings (seconds, not a boot);
+#                           `stack up` does the same for a released model
 #   stack fortuna-model [list | fetch NAME | verify NAME]  Fortuna's model files (fortuna/models.table):
 #                           pinned, sha256-checked download, or re-hash one already here
 #   stack install [target]  one-time setup: build backend images, create the network,
@@ -142,7 +146,9 @@ declare -A CAP=(
 # halo`). Not podman's health field: it is unreliable for koboldcpp-local, which reads
 # "starting" for days. ComfyUI's image has python3 but no curl.
 declare -A LOCAL_PROBE=(
-  [koboldcpp]="curl -sf -m 3 -o /dev/null http://127.0.0.1:5001/api/v1/model"
+  # Released (`stack gpu-release`) still answers, with the model "inactive": not up. (1.111.2
+  # says plain "inactive" then, without its usual "koboldcpp/" prefix; both are matched.)
+  [koboldcpp]="curl -sf -m 3 http://127.0.0.1:5001/api/v1/model | grep -qvE '\"(koboldcpp/)?inactive\"'"
   [comfyui]="python3 -c 'import urllib.request as u; u.urlopen(\"http://127.0.0.1:8188/system_stats\", timeout=3)'"
   [fortuna]="curl -sf -m 3 -o /dev/null http://127.0.0.1:8009/health"
 )
@@ -174,7 +180,7 @@ declare -A LOCAL_PROBE=(
 # `stack <name>` would never reach them.
 FRONTEND_RESERVED=("${BACKENDS[@]}" "${CONTROL[@]}" all backends frontends
   menu on enable off disable gaming up status st down restart logs route install setup
-  doctor check help fortuna-model boot version frontend)
+  doctor check help fortuna-model gpu-release gpu-restore boot version frontend)
 
 # mode: tsv (records for load_frontends) | json (stack-ui) — both from the same checks.
 # dir: where to look (default $ECO); `stack frontend add` checks a staged clone this way.
@@ -862,7 +868,17 @@ C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 
 ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating network $NET"; podman network create "$NET" >/dev/null; }; }
 
-is_up() { curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null; }
+is_up() {
+  # KoboldCPP with its model released answers /api/v1/model with "inactive" (no "koboldcpp/"
+  # prefix, unlike a loaded model): it is running, but there is no text to be had, so it reads
+  # as down (local state: released).
+  if [[ $1 == koboldcpp ]]; then
+    local b; b=$(curl -sf --max-time 3 "${HEALTH[$1]}" 2>/dev/null) \
+      && ! [[ $b =~ \"(koboldcpp/)?inactive\" ]]
+  else
+    curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null
+  fi
+}
 
 # PID currently listening on a host port ("" if free). Used by the `proc` kind — no
 # app uses it today (ComfyUI, the last one, is now a container), but the branch is
@@ -878,12 +894,15 @@ serves_local()   { [[ $1 != koboldcpp ]] || route_is_local; }
 
 # This machine's copy of a backend, bypassing the router:
 #   absent (no container) | stopped | loading (running, not answering yet) | up
+#   | released (koboldcpp only: running with its model unloaded, `stack gpu-release`)
 local_state() {
   local a=$1 c=${CNAME[$1]} st
   st=$(podman inspect -f '{{.State.Status}}' "$c" 2>/dev/null) || { echo absent; return; }
   [[ $st == running ]] || { echo stopped; return; }
   if [[ -n ${LOCAL_PROBE[$a]:-} ]]; then
-    podman exec "$c" sh -c "${LOCAL_PROBE[$a]}" >/dev/null 2>&1 && echo up || echo loading
+    if podman exec "$c" sh -c "${LOCAL_PROBE[$a]}" >/dev/null 2>&1; then echo up
+    elif [[ $a == koboldcpp && $(kobold_local_model) == inactive ]]; then echo released
+    else echo loading; fi
   else
     is_up "$a" && echo up || echo loading
   fi
@@ -946,7 +965,12 @@ row() { printf "  %-16s [%b]  %b:%s%b  %b%s%b\n" "$1" "$(dot "$1")" "$C_DIM" "${
 
 # The local copy is probed only when the served state can't stand for it: text routed to
 # another machine, or the router down (then every routed app reads down).
-needs_local_probe() { [[ -n ${LOCAL_PROBE[$1]:-} ]] && { ! serves_local "$1" || [[ ${UP[router]:-0} == 0 ]]; }; }
+# KoboldCPP is also probed whenever it reads down, to tell a released model from a stopped
+# or loading one (one podman exec, only then).
+needs_local_probe() {
+  [[ -n ${LOCAL_PROBE[$1]:-} ]] || return 1
+  ! serves_local "$1" || [[ ${UP[router]:-0} == 0 ]] || [[ $1 == koboldcpp && ${UP[$1]:-0} == 0 ]]
+}
 
 cmd_status() {
   [[ ${1:-} == --json ]] && { status_json; return; }
@@ -976,7 +1000,8 @@ cmd_status() {
 #                "router_config": "current"|"stale"|null },   null = router not running
 #     "apps": [ { "name", "group": backend|frontend|control, "label", "capability"|null,
 #                 "port", "up", "container", "description",
-#                 backends:  "local": { "state": up|loading|stopped|absent|down, "probed" }
+#                 backends:  "local": { "state": up|loading|released|stopped|absent|down,
+#                                       "probed" }   released: koboldcpp, `stack gpu-release`
 #                            (probed false = inferred from "up", no podman call made)
 #                 frontends: "icon", "https_port"|null, "https_setup" } ],
 #     "warnings": [ "…" ] }                              frontend.json problems
@@ -1044,6 +1069,10 @@ start_one() {
     serves_local "$a" && echo "  $a already up (:${PORT[$a]})" || echo "  $a local copy already up"
     return 0
   fi
+  # A released text model comes back the fast way: loaded in its running container.
+  if [[ $a == koboldcpp && $(local_state koboldcpp) == released ]]; then
+    cmd_gpu_restore koboldcpp; return
+  fi
   # Health says down, but for a `proc` app the port may still be held — by an instance
   # that's mid-startup, or wedged. Starting now would just lose the port race, and the
   # loser's exit says nothing about the process actually serving the port. Report the
@@ -1068,6 +1097,104 @@ start_one() {
     [[ "${KIND[$a]}" == container ]] && podman logs --tail 3 "${CNAME[$a]}" 2>&1 | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
     return 1
   fi
+}
+
+# ---- GPU release / restore: free the text model's memory for other work ----------------
+# One 12 GB card holds KoboldCPP (~6 GB for a 9B Q4) all the time, and a heavy ComfyUI job
+# (FLUX, Kontext) or a game needs that memory back (jp-parent#50). KoboldCPP runs in admin mode
+# (koboldcpp/start.sh): its API ends the process holding the model, which frees every byte of
+# it, and starts it again with the arguments the container was started with. The container,
+# the router's route and every check start.sh made stay as they are, so a restore is a load.
+# Always this machine's copy, through `podman exec`: the admin password is only in its
+# environment, and it is this GPU's memory that matters.
+KOBOLD_LOCAL=koboldcpp-local
+
+kobold_local_model() {   # what this machine's copy reports: a model name, "inactive", or nothing
+  # A loaded model is "koboldcpp/<name>"; released, 1.111.2 says just "inactive".
+  podman exec "$KOBOLD_LOCAL" curl -sf -m 3 http://127.0.0.1:5001/api/v1/model 2>/dev/null \
+    | grep -oP '"result":\s*"(koboldcpp/)?\K[^"]*' || true
+}
+
+kobold_admin() {   # $1 = unload_model | initial_model; 0 when KoboldCPP accepted it
+  # The filename goes in as $0 of the inner shell, never pasted into the script text.
+  podman exec "$KOBOLD_LOCAL" sh -c 'curl -sf -m 10 -X POST http://127.0.0.1:5001/api/admin/reload_config \
+      -H "Content-Type: application/json" -H "Authorization: Bearer ${KCPP_ADMINPASSWORD:-}" \
+      -d "{\"filename\": \"$0\"}"' "$1" 2>/dev/null | grep -q '"success": *true'
+}
+
+kobold_running() { [[ "$(podman inspect -f '{{.State.Status}}' "$KOBOLD_LOCAL" 2>/dev/null)" == running ]]; }
+
+gpu_target() {   # only the text model can be released this way today
+  case "${1:-koboldcpp}" in
+    koboldcpp) return 0 ;;
+    comfyui) echo "ComfyUI loads per job: release its cache from the dashboard (Release ComfyUI VRAM) or POST /free"; return 1 ;;
+    fortuna) echo "Fortuna: NGL=0 in fortuna/fortuna.env runs it on the CPU (then stack restart fortuna)"; return 1 ;;
+    *) echo "usage: stack gpu-release|gpu-restore [koboldcpp]"; return 1 ;;
+  esac
+}
+
+cmd_gpu_release() {
+  gpu_target "${1:-}" || return 1
+  if ! kobold_running; then echo "  koboldcpp: the local copy is not running — nothing to release"; return 0; fi
+  local m before after i
+  m=$(kobold_local_model)
+  if [[ $m == inactive ]]; then echo "  koboldcpp: already released ${C_DIM}(stack gpu-restore loads it again)${C_OFF}"; return 0; fi
+  route_is_local || echo "  ${C_DIM}text is routed to $(route_now): this frees the local copy only${C_OFF}"
+  before=$(gpu_used_mib)
+  echo "==> releasing koboldcpp's GPU memory (${m:-still loading}) …"
+  if ! kobold_admin unload_model; then
+    # Started before release/restore existed, or with KOBOLDCPP_ADMIN=0: stop it instead.
+    echo "  ${C_DIM}this KoboldCPP has no admin mode (started before it existed, or KOBOLDCPP_ADMIN=0) —"
+    echo "  stopping it instead; gpu-restore will start it again (a full start)${C_OFF}"
+    stop_app koboldcpp
+  else
+    for ((i=0; i<60; i++)); do [[ $(kobold_local_model) == inactive ]] && break; sleep 1; done
+    if [[ $(kobold_local_model) != inactive ]]; then
+      echo "  ${C_RED}✗${C_OFF} koboldcpp did not report the model unloaded — check: stack logs koboldcpp"; return 1
+    fi
+  fi
+  sleep 2   # the driver hands memory back a moment after the process ends
+  after=$(gpu_used_mib)
+  if [[ -n $before && -n $after ]]; then
+    echo "  ${C_GREEN}✓${C_OFF} released: GPU memory ${before} → ${after} MiB (freed $((before - after)) MiB)"
+  else
+    echo "  ${C_GREEN}✓${C_OFF} released"
+  fi
+  echo "  ${C_DIM}text is unavailable until: stack gpu-restore${C_OFF}"
+}
+
+cmd_gpu_restore() {
+  gpu_target "${1:-}" || return 1
+  if ! kobold_running; then
+    echo "  koboldcpp: the local copy is not running — starting it (a full start)"
+    ensure_net; start_one koboldcpp; return
+  fi
+  local m t0 i
+  m=$(kobold_local_model)
+  if [[ -n $m && $m != inactive ]]; then echo "  koboldcpp already has ${m} loaded"; return 0; fi
+  # Memory ComfyUI keeps from its last job is what makes a load fail (koboldcpp/start.sh asks
+  # it the same thing before every start). Best-effort; it reloads on its next job.
+  if [[ ${KOBOLDCPP_FREE_COMFY:-1} != 0 ]] && podman exec comfyui-local python3 -c 'import urllib.request as u; u.urlopen(u.Request("http://127.0.0.1:8188/free", data=b"{\"unload_models\":true,\"free_memory\":true}", headers={"Content-Type": "application/json"}), timeout=5)' >/dev/null 2>&1; then
+    echo "  asked ComfyUI to release its cached models"; sleep 1
+  fi
+  echo "==> restoring koboldcpp's model …"
+  if ! kobold_admin initial_model; then
+    echo "  ${C_RED}✗${C_OFF} koboldcpp refused the restore — restart it instead: stack restart koboldcpp"; return 1
+  fi
+  t0=$SECONDS
+  sleep 2   # it answers "inactive" until the old process is gone
+  for ((i=0; i<300; i++)); do
+    m=$(kobold_local_model)
+    if [[ -n $m && $m != inactive ]]; then
+      echo "  ${C_GREEN}✓${C_OFF} koboldcpp restored ${m} in $((SECONDS - t0)) s"; return 0
+    fi
+    kobold_running || break
+    sleep 1
+  done
+  echo "  ${C_RED}✗${C_OFF} koboldcpp did not load its model again — is the memory still taken?"
+  echo "    ${C_DIM}stack restart koboldcpp starts it over and retries with fewer GPU layers if needed${C_OFF}"
+  podman logs --tail 5 "$KOBOLD_LOCAL" 2>&1 | sed "s/^/    ${C_DIM}/;s/\$/${C_OFF}/"
+  return 1
 }
 
 # ---- backend router: where text is served ----------------------------------------------
@@ -1724,6 +1851,8 @@ case "${1:-}" in
   frontends) cmd_frontends "${2:-}" ;;
   frontend)  cmd_frontend "${@:2}" ;;
   fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
+  gpu-release) cmd_gpu_release "${2:-}" ;;
+  gpu-restore) cmd_gpu_restore "${2:-}" ;;
   version|--version|-V) stack_release; [[ "${2:-}" == --check ]] && version_check ;;
   # Print the header block by finding its closing rule rather than a fixed line
   # number -- the hardcoded 2,22 silently truncated the last lines of help as

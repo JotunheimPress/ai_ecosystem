@@ -23,7 +23,19 @@ from wapyt import progress_html
 
 from services.models_api import ModelsApi
 from services.stack_api import StackApi
-from ui.common import Listeners, ago, attr, by_id, closest, esc, failed, fmt_bytes, spawn, toast
+from ui.common import (
+    RELEASE_TEXT_CONFIRM,
+    Listeners,
+    ago,
+    attr,
+    by_id,
+    closest,
+    esc,
+    failed,
+    fmt_bytes,
+    spawn,
+    toast,
+)
 
 _ICONS = {
     "router": "mdi-router-network",
@@ -53,6 +65,7 @@ _CONFIRM = {
                              "Replies already streaming finish here. The local model stays loaded.",
     ("route_text_local", ""): "Serve text from this machine's copy again?",
     ("down", "frontends"): "Stop every frontend? The infrastructure keeps running.",
+    ("gpu_release_text", ""): RELEASE_TEXT_CONFIRM,
 }
 
 
@@ -242,20 +255,41 @@ class InfrastructureView(_Cards):
             body = self._fortuna_body(a, b.get("fortuna") or {})
         else:
             body = ""
-        if remote:
+        if cap == "text" and local.get("state") == "released":
+            # Released (`stack gpu-release`): Restore loads the same model in its running
+            # container; Stop and Logs still act on that container.
+            dis, name = self._dis(), esc(a["name"])
+            actions = (f'<button class="su-btn su-primary" data-act="gpu_restore_text"{dis} '
+                       'title="Load the same model again (stack gpu-restore)">'
+                       '<i class="mdi mdi-backup-restore"></i>Restore</button>'
+                       f'<button class="su-btn" data-act="down" data-target="{name}"{dis}>'
+                       '<i class="mdi mdi-stop"></i>Stop</button>'
+                       f'<button class="su-btn su-ghost" data-logs="{name}" title="Follow its log">'
+                       '<i class="mdi mdi-text-long"></i>Logs</button>')
+        elif remote:
             # Every button acts on the local copy, and says so; the pill shows what is served.
             local_up = local.get("state") in ("up", "loading")
             actions = self._buttons(a, up=local_up, noun="local copy")
         else:
             actions = self._buttons(a)
+        pill = self._pill(False, "released") if cap == "text" and local.get("state") == "released" else ""
         return (f'<div class="su-card su-backend {"up" if a.get("up") else "down"}">'
-                f'{self._head(a, sub)}<div class="su-card-body">{body}</div>'
-                f'<div class="su-actions">{actions}{self._extra(a)}</div></div>')
+                f'{self._head(a, sub, pill=pill)}<div class="su-card-body">{body}</div>'
+                f'<div class="su-actions">{actions}{self._extra(a, local)}</div></div>')
 
-    def _extra(self, a: dict) -> str:
+    def _extra(self, a: dict, local: dict | None = None) -> str:
         cap = a.get("capability")
         if cap == "text":
-            return ('<button class="su-btn su-ghost" data-go="llms">'
+            # Release: this machine's copy is loaded (served here, or kept warm while text is
+            # routed to Halo). Its memory goes back to the card until Restore.
+            state = (local or {}).get("state")
+            loaded_here = state == "up" or (state is None and a.get("up")
+                                            and self._route().get("where") != "halo")
+            release = ('<button class="su-btn su-ghost" data-act="gpu_release_text"'
+                       f'{self._dis()} title="Unload the model and give its GPU memory back for '
+                       'image work or games (stack gpu-release); Restore loads it again">'
+                       '<i class="mdi mdi-broom"></i>Release VRAM</button>') if loaded_here else ""
+            return (release + '<button class="su-btn su-ghost" data-go="llms">'
                     '<i class="mdi mdi-swap-horizontal"></i>Change model</button>')
         if cap == "image-sound" and a.get("up"):
             return ('<button class="su-btn su-ghost" data-free="1"'
@@ -292,6 +326,9 @@ class InfrastructureView(_Cards):
                 rows.append(self._kv("", '<span class="su-dim">' + " · ".join(facts) + "</span>"))
         elif a.get("up"):
             rows.append(self._kv("Loaded", '<span class="su-dim">up, but it did not name a model</span>'))
+        elif local.get("state") == "released" and not remote:
+            rows.append(self._kv("Loaded", '<span class="su-dim">nothing — released, its GPU memory '
+                                           'is free for other work. Restore loads it again.</span>'))
         else:
             rows.append(self._kv("Loaded", '<span class="su-dim">nothing — not running</span>'))
 

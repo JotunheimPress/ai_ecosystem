@@ -13,7 +13,7 @@ from __future__ import annotations
 from wapyt import progress_html
 
 from services.models_api import ModelsApi
-from ui.common import Listeners, by_id, esc, failed, fmt_bytes, spawn, toast
+from ui.common import RELEASE_TEXT_CONFIRM, Listeners, by_id, esc, failed, fmt_bytes, spawn, toast
 from ui.llms import _div
 
 
@@ -32,7 +32,8 @@ class VramView:
              '<div class="su-panel-head"><h2>Now</h2>'
              '<button class="su-btn" id="vr-free" disabled '
              'title="Ask ComfyUI to unload its models and give the VRAM back">'
-             '<i class="mdi mdi-broom"></i>Release ComfyUI VRAM</button></div>'
+             '<i class="mdi mdi-broom"></i>Release ComfyUI VRAM</button>'
+             '<button class="su-btn" id="vr-text" disabled></button></div>'
              '<div id="vr-now" class="su-dim">loading…</div>')
         _div(page, "su-panel",
              '<div class="su-panel-head"><h2>Plan</h2>'
@@ -47,6 +48,7 @@ class VramView:
              '<div class="su-actions">'
              '<button class="su-btn su-primary" id="vr-apply" hidden></button></div>')
         self.listeners.on(by_id("vr-free"), "click", lambda _e: spawn(self._free(), "free"))
+        self.listeners.on(by_id("vr-text"), "click", lambda _e: self._text())
         self.listeners.on(by_id("vr-model"), "change", lambda _e: spawn(self._plan(), "plan"))
         self.listeners.on(by_id("vr-ckpt"), "change", lambda _e: spawn(self._plan(), "plan"))
         self.listeners.on(by_id("vr-fortuna"), "change", lambda _e: spawn(self._plan(), "plan"))
@@ -85,6 +87,7 @@ class VramView:
         v = self.data.get("vram") or {}
         # Releasing is a ComfyUI call: offered only while it answers, whatever the figures' source.
         by_id("vr-free").disabled = not self.data.get("comfy_up")
+        self._render_text_button()
         if not v.get("available"):
             by_id("vr-now").innerHTML = f'<span class="su-dim">{esc(v.get("source"))}</span>'
             return
@@ -153,6 +156,27 @@ class VramView:
                  else " — applies on its next start"), "success", 6000)
         await self.load()
 
+    def _render_text_button(self) -> None:
+        """Release / Restore the text model (stack gpu-release | gpu-restore). Only while text
+        is served here: routed to Halo, the loaded model isn't this card's."""
+        t = self.data.get("text") or {}
+        btn = by_id("vr-text")
+        if t.get("released"):
+            btn.innerHTML = '<i class="mdi mdi-backup-restore"></i>Restore text model'
+            btn.title = "Load the same model again (stack gpu-restore)"
+        else:
+            btn.innerHTML = '<i class="mdi mdi-broom"></i>Release text model VRAM'
+            btn.title = ("Unload KoboldCPP's model and give its GPU memory back "
+                         "(stack gpu-release); Restore loads it again")
+        btn.hidden = not t.get("local", True)
+        btn.disabled = bool(self.app.busy) or not (t.get("loaded") or t.get("released"))
+
+    def _text(self) -> None:
+        if (self.data.get("text") or {}).get("released"):
+            self.app.act("gpu_restore_text")
+        else:
+            self.app.act("gpu_release_text", confirm=RELEASE_TEXT_CONFIRM)
+
     async def _free(self) -> None:
         by_id("vr-free").disabled = True
         r = await ModelsApi().free_vram_async()
@@ -164,3 +188,8 @@ class VramView:
         btn = by_id("vr-apply")
         if btn:
             btn.disabled = busy
+        if by_id("vr-text"):
+            if busy:
+                by_id("vr-text").disabled = True
+            else:
+                spawn(self.load(), "reload vram")   # a release or restore just finished

@@ -261,6 +261,9 @@ Deliberate, not incidental:
   `stream()`'s second `resolve()` would refuse. With host networking and no proxy the client
   address is the real peer. **A reverse proxy on this machine in front of the dashboard would
   make every request look like the LAN**: don't, or drop this verb.
+- **Release / restore are two fixed verbs**, `gpu_release_text` and `gpu_restore_text`
+  (`stack gpu-release|gpu-restore koboldcpp`), with no target. The admin password they need
+  never reaches the browser or this app: `stack` reads it inside the KoboldCPP container.
 - **The text route is two fixed verbs**, `route_text_local` and `route_text_halo`, with no
   target: the browser picks one of them, never a host. Halo's address comes from
   `ai-stack/halo.env` on the stack's side.
@@ -530,6 +533,12 @@ such container. It reads as KoboldCPP being broken when it is ComfyUI still hold
 
 - **`ModelsApi.free_vram`** ("Release VRAM" on the dashboard's Morpheus card and the VRAM
   screen) is the fix for exactly that, and needs no restart.
+- **The text model can be released too** (`stack gpu-release`, jp-parent#50): "Release VRAM" on
+  the Oracle card and "Release text model VRAM" on the VRAM screen unload KoboldCPP's model inside
+  its container, after a confirm (every app loses text); "Restore" loads it again. Released,
+  `/api/v1/model` names `inactive`: `inventory.kobold()` reports `released` and no running model
+  (so no restart banner), and the status JSON's local state is `released`, which the card shows
+  with a Restore button in place of Start. Offered only for this machine's copy.
 - **Layer counts are read from the GGUF header** (`vram.gguf_meta`) — exact, not guessed.
   Worth knowing: Qwen3.5-9B has **32** layers while the built-in default is
   `KOBOLDCPP_GPU_LAYERS=33`, which is one more than exists. Kobold clamps, but it shows how

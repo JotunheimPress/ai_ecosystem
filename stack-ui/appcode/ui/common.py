@@ -18,6 +18,12 @@ from pyodide.ffi import create_proxy
 from wapyt import message
 
 
+# Asked before `stack gpu-release` (the Oracle card and the VRAM screen both offer it).
+RELEASE_TEXT_CONFIRM = ("Release the text model's GPU memory? Every frontend loses text until it is "
+                        "restored (Restore, or stack gpu-restore), which loads the same model again "
+                        "in seconds. Nothing else stops.")
+
+
 def spawn(coro, label: str):
     """Run a coroutine detached, but never silently — ensure_future swallows errors."""
 

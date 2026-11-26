@@ -145,8 +145,12 @@ def running_model() -> str | None:
             name = json.load(r).get("result") or ""
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
-    # Kobold reports "koboldcpp/<name>" with the extension stripped.
+    # Kobold reports "koboldcpp/<name>" with the extension stripped, and just "inactive"
+    # while its model is released (`stack gpu-release`): running, nothing loaded.
     return name.split("/", 1)[-1] or None
+
+
+RELEASED = "inactive"
 
 
 # Context windows start.sh accepts (KOBOLDCPP_CONTEXT); keep the two lists identical.
@@ -204,6 +208,11 @@ def kobold() -> dict:
             files.append({"name": f.name, "size": size, "active": f.name == active,
                           "path": str(f), "url": sources.get(f.name)})
     running = running_model()
+    # Released (`stack gpu-release`): the server answers with no model. Not a loaded model
+    # called "inactive", so nothing below compares it with the selection.
+    released = running == RELEASED
+    if released:
+        running = None
     ctx = env.get("KOBOLDCPP_CONTEXT")
     context = int(ctx) if ctx and ctx.isdigit() else None
     running_ctx = running_context() if running else None
@@ -227,6 +236,9 @@ def kobold() -> dict:
         # An active model that isn't on disk is a start.sh hard failure, so surface it here.
         "active_present": any(f["active"] for f in files) if active else False,
         "running": running,
+        # Released by `stack gpu-release`. Through the router, so with text routed to Halo
+        # it is Halo's model that is released; the card says which.
+        "released": released,
         "text_local": local,
         "text_route": text_route(),
         "presets": read_presets(),
