@@ -54,6 +54,16 @@ pressed it on; stop it with `stack down stackui`.
 All three capabilities go through the router, so these addresses stay the same whichever copy
 serves them.
 
+## Freeing VRAM on a 12 GB card
+
+With the stack idle, KoboldCPP (~6 GB for a 9B Q4), Fortuna (~3.3 GB) and ComfyUI fill most of a
+12 GB card. To make room for image work:
+
+- **Run Fortuna on the CPU:** `NGL=0` in `fortuna/fortuna.env` (or the dashboard: Language models →
+  Fortuna → GPU layers…), then `stack restart fortuna`. Remove the line to put it back on the GPU.
+- **Release ComfyUI's memory** after a job: *Release ComfyUI VRAM* on the dashboard.
+- **Stop the text model** for a heavy session: `stack down koboldcpp`, then `stack koboldcpp`.
+
 ## Timing
 
 A cold start loads the text model, ComfyUI and Fortuna one after another. KoboldCPP alone can

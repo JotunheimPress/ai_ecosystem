@@ -17,10 +17,14 @@
 #   ./start.sh --models   list the model files this recipe knows (models.table), with sizes.
 #
 # Settings: $ECO/fortuna/fortuna.env (git-ignored state dir; parsed, never sourced), or the
-# environment (FORTUNA_MODEL, FORTUNA_API_KEY), environment first.
+# environment (FORTUNA_MODEL, FORTUNA_API_KEY, FORTUNA_NGL), environment first.
 #   MODEL=jevk5-4b-q8     which known file to serve (--models); default by GPU, see below
 #   API_KEY=...           require "Authorization: Bearer <key>" on /v1/* (off by default:
 #                         nothing outside this machine can reach it)
+#   NGL=0                 how many of the model's layers go on the GPU (llama.cpp's
+#                         --n-gpu-layers). Default 99, i.e. all of them; 0 runs on the CPU and
+#                         frees its VRAM (~3.3 GB for the Q4 on a 12 GB card) at some latency.
+#                         With no GPU (HOST_GPU=none) it is always 0.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,6 +64,7 @@ for r in "${MODELS[@]}"; do
 done
 WANT="${FORTUNA_MODEL:-$(_env_get MODEL)}"; WANT="${WANT:-$DEFAULT_MODEL}"
 API_KEY="${FORTUNA_API_KEY:-$(_env_get API_KEY)}"
+NGL_SET="${FORTUNA_NGL:-$(_env_get NGL)}"
 
 MODE=run
 case "${1:-}" in
@@ -167,6 +172,13 @@ if [[ $MODE == fetch ]]; then
   exit 0
 fi
 
+# A bad layer count is refused before anything is hashed or started: llama-server would read
+# "abc" as 0 and quietly run on the CPU.
+case "$NGL_SET" in
+  ''|[0-9]|[0-9][0-9]|[0-9][0-9][0-9]) ;;
+  *) echo "NGL must be a whole number of GPU layers (0-999), got '${NGL_SET}' — fix it in ${ENV_FILE}" >&2; exit 1 ;;
+esac
+
 if [ ! -f "$GGUF" ]; then
   echo "Fortuna model not found: ${GGUF}" >&2
   echo "Fetch it (pinned commit, sha256-checked): ${SCRIPT_DIR}/start.sh --fetch ${NAME}" >&2
@@ -193,13 +205,17 @@ podman network exists "${NET}" 2>/dev/null || podman network create "${NET}" >/d
 # GPU: same devices as the other llama.cpp backends (lib/host.sh). label=disable on NVIDIA for
 # the CDI device nodes, as ComfyUI; AMD's gpu_args already carry it. With no GPU, CPU only.
 gpu_args --security-opt label=disable
-NGL=99; [ "$HOST_GPU" = none ] && NGL=0
+# Layers on the GPU: NGL= from fortuna.env (or FORTUNA_NGL), else all of them; none without a GPU.
+NGL="${NGL_SET:-99}"; [ "$HOST_GPU" = none ] && NGL=0
+NGL=$((10#$NGL))
 ENV_ARGS=(-e "FORTUNA_GGUF=${FILE}" -e "FORTUNA_MODEL_NAME=${NAME}"
           -e "FORTUNA_TEMPERATURE=${TEMP}" -e "FORTUNA_KNOCKOUT_TEMPERATURE=${KO_TEMP}"
           -e "FORTUNA_NGL=${NGL}")
 [ -n "$API_KEY" ] && ENV_ARGS+=(-e "FORTUNA_API_KEY=${API_KEY}")
 
-echo "Starting Fortuna (${NAME}) as ${CONTAINER_NAME} — http://fortuna:${PORT} on ${NET} via the router"
+if [ "$NGL" = 0 ]; then WHERE="CPU only"; elif [ "$NGL" -ge 99 ]; then WHERE="all layers on the GPU"
+else WHERE="${NGL} layers on the GPU"; fi
+echo "Starting Fortuna (${NAME}, ${WHERE}) as ${CONTAINER_NAME} — http://fortuna:${PORT} on ${NET} via the router"
 # No host port: the router publishes 127.0.0.1:8009 and answers as `fortuna` on ai-net.
 # --restart=on-failure:5 as the other backends. Models are mounted read-only; no :z (labels
 # are disabled above).

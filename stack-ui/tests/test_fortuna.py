@@ -202,3 +202,54 @@ def test_start_sh_verify_and_check(fort, tmp_path):
     # Starting with a recorded mismatch is refused before anything touches podman.
     r = _start(tmp_path, model="fake-b")
     assert r.returncode == 1 and "not starting" in r.stderr
+
+
+# --- GPU layers (NGL= in fortuna.env) ---------------------------------------------------------
+def test_ngl_default_set_cleared_and_kept_with_model(fort):
+    f = inventory.fortuna_models()
+    assert (f["ngl"], f["ngl_effective"], f["ngl_invalid"]) == (None, 99, False)
+    (fort / "fortuna.env").write_text("API_KEY=k\nMODEL=fake-a\n")
+    f = inventory.set_fortuna_ngl(0)
+    assert (f["ngl"], f["ngl_effective"]) == (0, 0)
+    text = (fort / "fortuna.env").read_text()
+    assert "API_KEY=k" in text and "MODEL=fake-a" in text and text.count("NGL=") == 1
+    inventory.set_fortuna_ngl(12)
+    assert "NGL=12" in (fort / "fortuna.env").read_text()
+    assert inventory.fortuna_models()["ngl_effective"] == 12
+    f = inventory.set_fortuna_ngl(None)                 # back to all layers: the line goes
+    assert "NGL=" not in (fort / "fortuna.env").read_text() and f["ngl_effective"] == 99
+    assert "MODEL=fake-a" in (fort / "fortuna.env").read_text()
+
+
+def test_ngl_refuses_nonsense_and_flags_a_bad_line(fort):
+    for bad in (-1, inventory.MAX_GPU_LAYERS + 1, "3", 2.5, True):
+        with pytest.raises(inventory.InventoryError):
+            inventory.set_fortuna_ngl(bad)
+    (fort / "fortuna.env").write_text("NGL=abc\n")
+    f = inventory.fortuna_models()
+    assert f["ngl_invalid"] and f["ngl"] is None
+
+
+def test_ngl_is_zero_without_a_gpu(fort, monkeypatch):
+    monkeypatch.setenv("STACK_GPU", "none")
+    inventory.set_fortuna_ngl(40)
+    assert inventory.fortuna_models()["ngl_effective"] == 0
+
+
+def test_fortuna_bytes_scale_with_gpu_layers(tmp_path):
+    f = tmp_path / "f.gguf"
+    f.write_bytes(b"x" * 1000)
+    vram._GGUF_CACHE[f"{f}:{f.stat().st_mtime_ns}"] = {"n_layers": 10}   # no attention shape: no KV
+    assert vram.fortuna_bytes(f) == 1000
+    assert vram.fortuna_bytes(f, 99) == 1000
+    assert vram.fortuna_bytes(f, 5) == 500
+    assert vram.fortuna_bytes(f, 0) == 0
+
+
+def test_start_sh_refuses_a_bad_ngl(fort, tmp_path):
+    (fort / "fortuna.env").write_text("NGL=lots\n")
+    r = _start(tmp_path)
+    assert r.returncode == 1 and "NGL must be a whole number" in r.stderr
+    (fort / "fortuna.env").write_text("NGL=0\n")
+    r = _start(tmp_path)                                # passes the check; then: no model file
+    assert r.returncode == 1 and "NGL" not in r.stderr and "not found" in r.stderr

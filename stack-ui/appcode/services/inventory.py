@@ -339,6 +339,17 @@ def _integrity(m: dict) -> str:
 
 
 _PROBE = object()
+FORTUNA_ALL_LAYERS = 99   # start.sh's default: llama.cpp clamps it to the model's own count
+
+
+def _fortuna_ngl(env: dict[str, str], gpu: str) -> tuple[int | None, int, bool]:
+    """(NGL= as written or None, the count start.sh will use, whether NGL= is invalid).
+    Same rules as start.sh: digits only, default all layers, always 0 with no GPU."""
+    raw = env.get("NGL", "")
+    valid = raw.isdigit() and len(raw) <= 3
+    configured = int(raw) if valid else None
+    effective = configured if configured is not None else FORTUNA_ALL_LAYERS
+    return configured, (0 if gpu == "none" else effective), bool(raw) and not valid
 
 
 def fortuna_models(running=_PROBE) -> dict:
@@ -351,6 +362,7 @@ def fortuna_models(running=_PROBE) -> dict:
     selected = env.get("MODEL") or default
     if running is _PROBE:
         running = running_fortuna()
+    ngl, ngl_effective, ngl_invalid = _fortuna_ngl(env, gpu)
     rows = []
     for m in t["models"]:
         state = _integrity(m)
@@ -373,7 +385,20 @@ def fortuna_models(running=_PROBE) -> dict:
         "selected_integrity": sel["integrity"] if sel else None,
         "running": running,
         "restart_needed": bool(running) and bool(selected) and running != selected,
+        # GPU layers (NGL= in fortuna.env): as written, as start.sh will use it, and whether
+        # start.sh will refuse it. Not compared with the running copy: /health doesn't say.
+        "ngl": ngl, "ngl_effective": ngl_effective, "ngl_invalid": ngl_invalid,
+        "n_layers": _fortuna_layers(sel),
     }
+
+
+def _fortuna_layers(row: dict | None) -> int | None:
+    """The selected file's layer count from its GGUF header, when it is downloaded."""
+    if not row or not row["present"]:
+        return None
+    from services import vram
+
+    return vram.gguf_meta(FORTUNA_MODELS / row["file"]).get("n_layers") or None
 
 
 def comfyui() -> dict:
@@ -555,17 +580,34 @@ def select_fortuna(name: str) -> dict:
         raise InventoryError(f"{name} is not downloaded — download it first")
     if row["integrity"] == "mismatch":
         raise InventoryError(f"{name} failed its sha256 check — delete it and download it again")
+    _write_fortuna_env("MODEL", name)
+    return fortuna_models()
+
+
+def set_fortuna_ngl(layers: int | None) -> dict:
+    """How many layers Fortuna puts on the GPU: NGL= in fortuna.env; None removes the line
+    (all layers, start.sh's default), 0 is CPU only. Applies on its next start."""
+    if layers is not None and (isinstance(layers, bool) or not isinstance(layers, int)
+                               or not 0 <= layers <= MAX_GPU_LAYERS):
+        raise InventoryError(f"GPU layers must be 0–{MAX_GPU_LAYERS}")
+    _write_fortuna_env("NGL", None if layers is None else str(layers))
+    return fortuna_models()
+
+
+def _write_fortuna_env(key: str, value: str | None) -> None:
+    """Set (or, with None, remove) one KEY= line of fortuna.env, keeping every other line.
+    Written atomically, like model.env: start.sh parses it at the next start."""
     try:
         lines = FORTUNA_ENV.read_text().splitlines()
     except FileNotFoundError:
-        lines = ["# Parsed (never sourced) by ai-stack/fortuna/start.sh. MODEL= written by stack-ui."]
-    lines = [ln for ln in lines if ln.partition("=")[0].strip() != "MODEL"]
-    lines.append(f"MODEL={name}")
+        lines = ["# Parsed (never sourced) by ai-stack/fortuna/start.sh. Written by stack-ui."]
+    lines = [ln for ln in lines if ln.partition("=")[0].strip() != key]
+    if value is not None:
+        lines.append(f"{key}={value}")
     FORTUNA_STATE.mkdir(parents=True, exist_ok=True)
     tmp = FORTUNA_ENV.with_name(FORTUNA_ENV.name + ".tmp")
     tmp.write_text("\n".join(lines) + "\n")
     os.replace(tmp, FORTUNA_ENV)
-    return fortuna_models()
 
 
 def delete_model(kind: str, name: str) -> dict:

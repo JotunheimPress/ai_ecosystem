@@ -13,6 +13,9 @@ Download and Verify are stack actions (`stack fortuna-model fetch|verify NAME`),
 console like any other: the recipe owns the pinned URL and the hash, and this page only names a
 row. Use writes MODEL= into fortuna.env and never restarts; a restart is offered when Fortuna has
 another model loaded. Delete refuses the model Fortuna boots and the one it has loaded.
+
+GPU layers… writes NGL= into fortuna.env (0 = CPU only, which frees its VRAM; empty = all layers,
+the default) and offers a restart when Fortuna is running.
 """
 from __future__ import annotations
 
@@ -73,6 +76,9 @@ class FortunaModels:
             ToolbarButton(id="page", label="Model card", icon="mdi-open-in-new", disabled=True),
             ToolbarButton(id="delete", label="Delete", icon="mdi-delete-outline",
                           variant="danger", disabled=True),
+            ToolbarButton(id="layers", label="GPU layers…", icon="mdi-layers-outline",
+                          tooltip="How much of Fortuna runs on the GPU (0 = CPU only, frees its "
+                                  "VRAM); applies on its next start"),
             ToolbarSpacer(),
             ToolbarButton(id="restart", label="Restart Fortuna", icon="mdi-restart",
                           variant="accent", hidden=True, tooltip="Load the selected model now"),
@@ -160,6 +166,7 @@ class FortunaModels:
             parts.append('<span class="su-dim">No model selected.</span>')
         parts.append(f'<span><i class="mdi mdi-play-circle"></i> Loaded <b>{esc(running)}</b></span>'
                      if running else '<span class="su-dim">Fortuna is not running.</span>')
+        parts.append(self._ngl_html())
         d = r.get("disk") or {}
         if d:
             parts.append(f'<span class="su-dim">{fmt_bytes(d.get("free"))} free on disk</span>')
@@ -171,6 +178,22 @@ class FortunaModels:
         by_id("ft-status").innerHTML = " ".join(parts)
         self.tb.set_hidden("restart", not r.get("restart_needed"))
         self.tb.set_disabled("restart", self.app.busy)
+
+    def _ngl_html(self) -> str:
+        r = self.state
+        if r.get("ngl_invalid"):
+            return ('<span class="su-bad"><i class="mdi mdi-alert"></i> fortuna.env has an NGL= '
+                    'that is not a whole number — Fortuna will not start. Set GPU layers.</span>')
+        n, total = r.get("ngl_effective"), r.get("n_layers")
+        if r.get("gpu") == "none":
+            what = "CPU only (no GPU)"
+        elif n == 0:
+            what = "CPU only"
+        elif r.get("ngl") is None or (total and n >= total):
+            what = "all layers on the GPU"
+        else:
+            what = f"{n} of {total} layers on the GPU" if total else f"{n} layers on the GPU"
+        return f'<span><i class="mdi mdi-layers-outline"></i> {esc(what)}</span>'
 
     def _selected(self):
         rows = self.table.get_selected_rows()
@@ -200,6 +223,9 @@ class FortunaModels:
             return
         if action == "restart":
             self.app.act("restart", "fortuna")
+            return
+        if action == "layers":
+            spawn(self._layers(), "fortuna gpu layers")
             return
         row = self.table.get_row(name) if name else self._selected()
         if not row:
@@ -237,6 +263,36 @@ class FortunaModels:
                 self.app.act("restart", "fortuna")
         else:
             toast(f"{row['name']} will load on Fortuna's next start.", "success")
+
+    async def _layers(self) -> None:
+        r = self.state
+        total = r.get("n_layers")
+        hint = f" {r.get('selected')} has {total} layers." if total else ""
+        current = "" if r.get("ngl") is None else str(r["ngl"])
+        value = await message.prompt(
+            f"How many of Fortuna's layers go on the GPU?{hint} 0 runs it on the CPU only and "
+            "frees its VRAM for ComfyUI, at some latency per question. Leave it empty for all "
+            "layers (the default).", title="Fortuna GPU layers", value=current,
+            placeholder="empty = all, 0 = CPU only")
+        if value is None:
+            return
+        value = str(value).strip()
+        if value and not value.isdigit():
+            toast("GPU layers must be a whole number, or empty for all of them.", "error")
+            return
+        r = await ModelsApi().set_fortuna_ngl_async(int(value) if value else None)
+        if failed(r, "set Fortuna's GPU layers"):
+            return
+        f = r.get("fortuna") or {}
+        await self.load()
+        if f.get("running"):
+            if await message.confirm(
+                    "Saved. Fortuna applies it on its next start.\n\nRestart it now? Decisions "
+                    "are unavailable for the few seconds it takes.",
+                    title="Restart Fortuna?", ok_text="Restart now", cancel_text="Later"):
+                self.app.act("restart", "fortuna")
+        else:
+            toast("Saved — Fortuna uses it on its next start.", "success")
 
     async def _fetch(self, row: dict) -> None:
         free = (self.state.get("disk") or {}).get("free") or 0

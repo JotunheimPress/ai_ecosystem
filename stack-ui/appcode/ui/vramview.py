@@ -72,10 +72,12 @@ class VramView:
         by_id("vr-ckpt").innerHTML = '<option value="">no checkpoint</option>' + "".join(
             f'<option value="{esc(c["name"])}">{esc(c["name"])} ({fmt_bytes(c["size"])})</option>'
             for c in r.get("checkpoints") or [])
-        # Fortuna runs whenever the stack is up, so its boot model is counted by default.
+        # Fortuna runs whenever the stack is up, so its boot model is counted by default, at
+        # the GPU layers fortuna.env gives it (0 = CPU only: nothing on the card).
+        where = " on the CPU" if r.get("fortuna_ngl") == 0 else ""
         by_id("vr-fortuna").innerHTML = '<option value="">not counted</option>' + "".join(
             f'<option value="{esc(m["name"])}"{" selected" if m.get("selected") else ""}>'
-            f'{esc(m["name"])} ({fmt_bytes(m["size"])}){" — boots" if m.get("selected") else ""}'
+            f'{esc(m["name"])} ({fmt_bytes(m["size"])}){" — boots" + where if m.get("selected") else ""}'
             '</option>' for m in r.get("fortuna") or [])
         await self._plan()
 
@@ -121,8 +123,10 @@ class VramView:
             return
         n, total = int(r["suggested_layers"]), int(r.get("n_layers") or 0)
         cls = "su-good" if r.get("fits_fully") else ("su-warn" if n > 0 else "su-bad")
+        # Fortuna on the CPU only (NGL=0) takes nothing on the card: fortuna_size is 0.
         room = [f"{fmt_bytes(r.get('checkpoint_size'))} of checkpoint" if ckpt else "",
-                f"{fmt_bytes(r.get('fortuna_size'))} for Fortuna" if fortuna else ""]
+                f"{fmt_bytes(r.get('fortuna_size'))} for Fortuna" if fortuna and r.get("fortuna_size")
+                else ""]
         room = [x for x in room if x]
         alongside = f", leaving room for {' and '.join(room)}" if room else ""
         out.innerHTML = (

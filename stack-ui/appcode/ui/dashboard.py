@@ -359,6 +359,16 @@ class InfrastructureView(_Cards):
                     "partial": ("su-bad", "download not finished")}.get(
                         integ, ("su-bad", "not in models.table — it will not start"))
             rows.append(self._kv("Boots", f'{esc(sel)} <span class="{note[0]}">· {note[1]}</span>'))
+        # Where it runs, when that isn't the default (all layers on the GPU).
+        if f.get("ngl_invalid"):
+            rows.append(self._kv("GPU", '<span class="su-bad">NGL= in fortuna.env is not a whole '
+                                        'number — it will not start</span>'))
+        elif f.get("ngl_effective") == 0:
+            rows.append(self._kv("GPU", '<span class="su-dim">none — runs on the CPU '
+                                        '(NGL=0)</span>'))
+        elif f.get("ngl") is not None and f["ngl"] < 99:
+            rows.append(self._kv("GPU", f'{int(f["ngl"])} layers <span class="su-dim">'
+                                        '(NGL in fortuna.env)</span>'))
         if f.get("restart_needed"):
             rows.append(
                 '<div class="su-banner"><i class="mdi mdi-information-outline"></i>'
