@@ -24,8 +24,10 @@ case "$1" in
   exec)
     [ "$2" = koboldcpp-local ] || exit 1          # comfyui-local: not running here
     [ "$(cat "$S/status")" = running ] || exit 1
-    if [ "$3" = curl ]; then
-      printf '{"result": "koboldcpp/%s"}' "$(cat "$S/model")"
+    if [ "$3" = curl ]; then                      # released, 1.111.2 drops the prefix
+      m=$(cat "$S/model")
+      if [ "$m" = inactive ]; then printf '{"result": "inactive"}'
+      else printf '{"result": "koboldcpp/%s"}' "$m"; fi
     else                                          # sh -c '<admin request>' <filename>
       [ -f "$S/admin" ] || { echo '{"success": false}'; exit 0; }
       case "${!#}" in

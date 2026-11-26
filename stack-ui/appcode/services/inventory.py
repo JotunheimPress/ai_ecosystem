@@ -145,7 +145,7 @@ def running_model() -> str | None:
             name = json.load(r).get("result") or ""
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
-    # Kobold reports "koboldcpp/<name>" with the extension stripped, and "koboldcpp/inactive"
+    # Kobold reports "koboldcpp/<name>" with the extension stripped, and just "inactive"
     # while its model is released (`stack gpu-release`): running, nothing loaded.
     return name.split("/", 1)[-1] or None
 

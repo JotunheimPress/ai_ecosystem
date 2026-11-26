@@ -239,14 +239,14 @@ esac
 # its API can end that child (freeing all of its VRAM) and start it again with the arguments
 # below, inside the running container: `stack gpu-release` / `stack gpu-restore`. A restore is
 # a model load, not a container boot, and needs none of this script's checks again.
-# Locked to exactly those two requests: the admin folder is an empty tmpfs (so no .kcpps or
-# .gguf can be named to swap to), and the password is new on every start and lives only in
+# Locked to exactly those two requests: the admin folder is an empty read-only tmpfs (so no
+# .kcpps or .gguf can be named to swap to; mode alone wouldn't stop root in the container), and the password is new on every start and lives only in
 # the container's environment, which `stack` reaches with `podman exec`. Port 5001 is on
 # ai-net and behind the router, so without it anything there could unload the model.
 # KOBOLDCPP_ADMIN=0 runs without it (release/restore then stop and start the container).
 ADMIN_ARGS=(); ADMIN_RUN=()
 if [ "${KOBOLDCPP_ADMIN:-1}" != "0" ]; then
-    ADMIN_RUN=(--tmpfs /kcpp-admin:size=64k,mode=0555
+    ADMIN_RUN=(--tmpfs /kcpp-admin:ro,size=64k,mode=0555
                -e "KCPP_ADMINPASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')")
     ADMIN_ARGS=(--admin --admindir /kcpp-admin)
 fi

@@ -146,8 +146,9 @@ declare -A CAP=(
 # halo`). Not podman's health field: it is unreliable for koboldcpp-local, which reads
 # "starting" for days. ComfyUI's image has python3 but no curl.
 declare -A LOCAL_PROBE=(
-  # Released (`stack gpu-release`) still answers, naming the model "inactive": not up.
-  [koboldcpp]="curl -sf -m 3 http://127.0.0.1:5001/api/v1/model | grep -qv koboldcpp/inactive"
+  # Released (`stack gpu-release`) still answers, with the model "inactive": not up. (1.111.2
+  # says plain "inactive" then, without its usual "koboldcpp/" prefix; both are matched.)
+  [koboldcpp]="curl -sf -m 3 http://127.0.0.1:5001/api/v1/model | grep -qvE '\"(koboldcpp/)?inactive\"'"
   [comfyui]="python3 -c 'import urllib.request as u; u.urlopen(\"http://127.0.0.1:8188/system_stats\", timeout=3)'"
   [fortuna]="curl -sf -m 3 -o /dev/null http://127.0.0.1:8009/health"
 )
@@ -868,10 +869,12 @@ C_GREEN=$'\e[32m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'; C_B=$'\e[1m'
 ensure_net() { podman network exists "$NET" 2>/dev/null || { echo "==> creating network $NET"; podman network create "$NET" >/dev/null; }; }
 
 is_up() {
-  # KoboldCPP with its model released answers /api/v1/model as "koboldcpp/inactive": it is
-  # running, but there is no text to be had, so it reads as down (local state: released).
+  # KoboldCPP with its model released answers /api/v1/model with "inactive" (no "koboldcpp/"
+  # prefix, unlike a loaded model): it is running, but there is no text to be had, so it reads
+  # as down (local state: released).
   if [[ $1 == koboldcpp ]]; then
-    local b; b=$(curl -sf --max-time 3 "${HEALTH[$1]}" 2>/dev/null) && [[ $b != *koboldcpp/inactive* ]]
+    local b; b=$(curl -sf --max-time 3 "${HEALTH[$1]}" 2>/dev/null) \
+      && ! [[ $b =~ \"(koboldcpp/)?inactive\" ]]
   else
     curl -sf --max-time 3 -o /dev/null "${HEALTH[$1]}" 2>/dev/null
   fi
@@ -1107,8 +1110,9 @@ start_one() {
 KOBOLD_LOCAL=koboldcpp-local
 
 kobold_local_model() {   # what this machine's copy reports: a model name, "inactive", or nothing
+  # A loaded model is "koboldcpp/<name>"; released, 1.111.2 says just "inactive".
   podman exec "$KOBOLD_LOCAL" curl -sf -m 3 http://127.0.0.1:5001/api/v1/model 2>/dev/null \
-    | grep -oP '"result":\s*"koboldcpp/\K[^"]*' || true
+    | grep -oP '"result":\s*"(koboldcpp/)?\K[^"]*' || true
 }
 
 kobold_admin() {   # $1 = unload_model | initial_model; 0 when KoboldCPP accepted it
@@ -1170,7 +1174,7 @@ cmd_gpu_restore() {
   if [[ -n $m && $m != inactive ]]; then echo "  koboldcpp already has ${m} loaded"; return 0; fi
   # Memory ComfyUI keeps from its last job is what makes a load fail (koboldcpp/start.sh asks
   # it the same thing before every start). Best-effort; it reloads on its next job.
-  if [[ ${KOBOLDCPP_FREE_COMFY:-1} != 0 ]] && podman exec comfyui-local python3 -c 'import urllib.request as u; u.urlopen(u.Request("http://127.0.0.1:8188/free", data=b"{"unload_models":true,"free_memory":true}", headers={"Content-Type": "application/json"}), timeout=5)' >/dev/null 2>&1; then
+  if [[ ${KOBOLDCPP_FREE_COMFY:-1} != 0 ]] && podman exec comfyui-local python3 -c 'import urllib.request as u; u.urlopen(u.Request("http://127.0.0.1:8188/free", data=b"{\"unload_models\":true,\"free_memory\":true}", headers={"Content-Type": "application/json"}), timeout=5)' >/dev/null 2>&1; then
     echo "  asked ComfyUI to release its cached models"; sleep 1
   fi
   echo "==> restoring koboldcpp's model …"
