@@ -208,11 +208,16 @@ since 1.5.2). Adding one is a PR that adds its entry
 - `stack frontend update NAME`: refuses with uncommitted changes; on a branch (a clone someone
   works in) `git pull --ff-only`, at a tag (installed from the list) the newest tag; rebuilds if
   HEAD moved, and says to `stack restart` it if it's running. Works on any installed frontend.
-- `stack frontend remove NAME`: **refuses if the folder holds anything git doesn't** (untracked
-  or ignored files, local changes, unpushed commits; caches and virtualenvs excepted), since
-  frontends keep user data in their repo; it lists them and leaves the deleting to you. Otherwise
-  stops it, removes its container and image, and deletes the folder (only a direct child of
-  `$ECO`, never this checkout).
+- `stack frontend remove NAME [--yes]`: **removes it completely** (since 2026-11-26; it used to
+  refuse a folder with user data): stops it, removes its container and its image (the
+  container's, else the start script's `IMAGE=` line, so a never-started one goes too; an image
+  another container uses is kept), and deletes the folder with its data. Every frontend keeps
+  its data inside its folder (bind-mounted `data/`, `outputs/`). What git can't bring back
+  (untracked or ignored files, local changes, unpushed commits; caches and virtualenvs excepted)
+  is listed first and asked about; with no terminal it needs `--yes`, which the dashboard sends
+  after its own danger confirm. A clean clone goes without asking. Only a direct child of `$ECO`,
+  never this checkout. Things a frontend installs elsewhere (Cantinero's desktop resident on
+  other machines) are its own installer's to undo.
 - `stack frontend check [--json]`: for each installed frontend, `git ls-remote --tags origin`
   (in parallel, 15 s each, nothing fetched); the newest `vX.Y.Z` is `newer` unless its commit is
   already an ancestor of HEAD, so a working clone past the tag is up to date. Origins with no

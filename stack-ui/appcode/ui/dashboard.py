@@ -627,9 +627,10 @@ class FrontendsView(_Cards):
                   "version.")
         up_cls, up_label = ("su-newer", "Update") if latest else ("su-ghost", "")
         up_tip = f"Update to {latest}, rebuilt" if latest else "Update: its newest release, rebuilt"
-        remove = (f"Remove {brand}? It is stopped, and its image and its folder next to "
-                  "ai-stack are deleted. If the folder holds anything git doesn't have, such as "
-                  "saved data or local changes, nothing is deleted and the log lists what's there.")
+        remove = (f"Remove {brand} completely? It is stopped, and its container, its image and "
+                  "its folder next to ai-stack are deleted, including everything it saved "
+                  "(characters, chats, outputs) and any local changes. This can't be undone; "
+                  "the log lists what was there.")
         dis = self._dis()
         return (f'<button class="su-btn {up_cls}" data-act="frontend_update" data-target="{esc(repo)}" '
                 f'data-confirm="{esc(update)}" title="{esc(up_tip)}"{dis}>'

@@ -20,8 +20,9 @@
 #                           git@host:owner/repo); asks first, as nobody reviewed it.
 #                           GITHUB_TOKEN (env or stack-ui/tokens.env) reaches private GitHub repos
 #   stack frontend update NAME  newest release (or git pull --ff-only on a branch), rebuilt
-#   stack frontend remove NAME  stop it, remove its image and folder; refuses if the folder
-#                           holds anything git doesn't (user data)
+#   stack frontend remove NAME [--yes]  remove it completely: container, image and folder,
+#                           its data included. Lists what git can't bring back and asks first
+#                           (no terminal: --yes)
 #   stack frontend check [--json]  is a newer release out for each installed frontend? (asks
 #                           each origin's tags; changes nothing)
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
@@ -650,10 +651,10 @@ with_github_token() {
 
 cmd_frontend() {
   local sub=${1:-} name=${2:-} yes=""
-  if [[ "$sub" == add ]]; then
+  if [[ "$sub" == add || "$sub" == remove ]]; then
     local a; name=""
     for a in "${@:2}"; do
-      case "$a" in -y|--yes) yes=1 ;; *) [[ -z "$name" ]] && name=$a || { echo "usage: stack frontend add NAME|URL [--yes]"; return 1; } ;; esac
+      case "$a" in -y|--yes) yes=1 ;; *) [[ -z "$name" ]] && name=$a || { [[ $sub == add ]] && echo "usage: stack frontend add NAME|URL [--yes]" || echo "usage: stack frontend remove NAME [--yes]"; return 1; } ;; esac
     done
   fi
   case "$sub" in
@@ -665,11 +666,11 @@ cmd_frontend() {
              frontend_add "$name" "$yes" ;;
     update)  [[ -n "$name" ]] || { echo "usage: stack frontend update NAME"; return 1; }
              frontend_update "$name" ;;
-    remove)  [[ -n "$name" ]] || { echo "usage: stack frontend remove NAME"; return 1; }
-             frontend_remove "$name" ;;
+    remove)  [[ -n "$name" ]] || { echo "usage: stack frontend remove NAME [--yes]"; return 1; }
+             frontend_remove "$name" "$yes" ;;
     check)   [[ -z "$name" || "$name" == --json ]] || { echo "usage: stack frontend check [--json]"; return 1; }
              frontend_manifests json | frontend_check "${name:+json}" ;;
-    *) echo "usage: stack frontend available [--json] | add NAME | add URL [--yes] | update NAME | remove NAME | check [--json]"
+    *) echo "usage: stack frontend available [--json] | add NAME | add URL [--yes] | update NAME | remove NAME [--yes] | check [--json]"
        [[ -z "$sub" ]] && return 0 || return 1 ;;
   esac
 }
@@ -770,8 +771,23 @@ frontend_update() {
   return 0
 }
 
+# Everything a frontend put on this machine: its container, its image and its folder, data
+# and all (every installed frontend keeps its data inside its folder). What would be lost that
+# git can't bring back (user data, local changes, unpushed commits) is listed first, and then
+# asked about in a terminal; without one (the dashboard, after its own confirm) --yes is needed.
+# A clean clone goes without asking. Frontends that install things elsewhere (Cantinero's
+# desktop resident, on other machines) are their own installers' to undo.
+frontend_image() {   # the image a frontend runs: its container's, else its start script's IMAGE=
+  local name=$1 img
+  img="$(podman container inspect -f '{{.ImageName}}' "${CNAME[$name]}" 2>/dev/null)"
+  if [[ -z "$img" && -f "${FSTART[$name]:-}" ]]; then
+    img="$(grep -oP '^\s*IMAGE="?\K(localhost/[A-Za-z0-9._/-]+(:[A-Za-z0-9._-]+)?)' "${FSTART[$name]}" | head -1)"
+  fi
+  printf '%s' "$img"
+}
+
 frontend_remove() {
-  local name=$1 dir unsaved image
+  local name=$1 yes=${2:-} dir unsaved image size ans=""
   dir="${FDIR[$name]:-}"
   [[ -n "$dir" ]] || { echo "$name isn't an installed frontend (stack frontends)"; return 1; }
   # Only a folder directly in the ecosystem root, and never this checkout.
@@ -780,16 +796,25 @@ frontend_remove() {
   fi
   unsaved="$(frontend_unsaved "$dir")"
   if [[ -n "$unsaved" ]]; then
-    echo "not removed: $dir has things git doesn't (user data, local changes):"
+    size="$(du -sh "$dir" 2>/dev/null | cut -f1)"
+    echo "${C_RED}$name's folder holds things git can't bring back${C_OFF} ($dir, ${size:-?} in all) — they are deleted too:"
     head -15 <<<"$unsaved" | sed 's/^/    /'
-    (( $(wc -l <<<"$unsaved") > 15 )) && echo "    …"
-    echo "Move what you want to keep, then delete the folder yourself."
-    return 1
+    (( $(wc -l <<<"$unsaved") > 15 )) && echo "    … and $(( $(wc -l <<<"$unsaved") - 15 )) more"
+    if [[ -z "$yes" ]]; then
+      if [[ -t 0 ]]; then read -r -p "  Delete $name and all of this? [y/N] " ans; fi
+      if [[ "$ans" != [yY]* ]]; then
+        [[ -t 0 ]] && echo "not removed" || echo "not removed: no terminal to ask, so add --yes to delete it all"
+        return 1
+      fi
+    fi
   fi
+  image="$(frontend_image "$name")"
   echo "==> stopping $name"; stop_app "$name"
-  image="$(podman container inspect -f '{{.ImageName}}' "${CNAME[$name]}" 2>/dev/null)"
   podman rm -f "${CNAME[$name]}" >/dev/null 2>&1
-  if [[ -n "$image" ]] && podman rmi "$image" >/dev/null 2>&1; then echo "  removed image $image"; fi
+  if [[ -n "$image" ]] && podman image exists "$image" 2>/dev/null; then
+    if podman rmi "$image" >/dev/null 2>&1; then echo "  removed image $image"
+    else echo "  ${C_DIM}kept image $image: another container still uses it${C_OFF}"; fi
+  fi
   rm -rf "${dir:?}"
   echo "${C_GREEN}removed $name${C_OFF} ($dir)"
 }

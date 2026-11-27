@@ -25,7 +25,7 @@ a terminal:
 stack frontend available          # what's listed, and whether each is installed
 stack frontend add <name>         # clone its latest release next to ai-stack, check it, build it
 stack frontend update <name>      # its newest release (or git pull on a branch), rebuilt
-stack frontend remove <name>      # stop it and delete its image and folder
+stack frontend remove <name>      # remove it completely: container, image, folder and its data
 stack frontend check              # is a newer release out for any installed frontend?
 stack frontend add <git URL>      # any other frontend: see "Any other frontend" below
 ```

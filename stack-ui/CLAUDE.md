@@ -634,7 +634,10 @@ The Frontends screen drives `stack frontend available|add|update|remove` (`ai-st
 - `STACK_CATALOG` is passed through to `stack` (tests only; unset in the image).
 - Tests: `tests/test_frontend_actions.py` (what `resolve` accepts), and end to end with the dev
   server on a scratch `AI_ECOSYSTEM` and a test list: install, Official vs Custom, remove refused
-  while the folder holds data, clean remove, 0 console errors.
+  while the folder holds data (before 2026-11-26), clean remove, 0 console errors.
+- **Remove is complete** (since 2026-11-26): `frontend_remove` runs `stack frontend remove --yes
+  NAME`, so the container, the image and the folder go, data included. The confirm says so in
+  the danger style; the log lists what git couldn't have brought back.
 
 ## About and the release check (since 2026-11-20)
 
