@@ -10,9 +10,10 @@ limit is never near. Nothing is sent but the request, an ``AI-Ecosystem/<version
 User-Agent and, when set, the token.
 
 **For a private repo or fork**, GitHub answers 404 for its releases without a
-token. So ``GITHUB_TOKEN`` (``stack-ui/tokens.env``, like ``HF_TOKEN``; a fine-grained token
-with read-only *Contents* on ``JotunheimPress/ai_ecosystem`` is enough) is sent as a bearer
-header when set, and only to api.github.com. Without one, a 404 is reported as
+token. So a token for ``github.com/<owner>`` from the credential store (``stack credential
+add``; ``services/credentials.py``), else the old ``GITHUB_TOKEN`` (``stack-ui/tokens.env``), is
+sent as a bearer header when there is one, and only to api.github.com; a fine-grained token
+with read-only *Contents* on the repo is enough. Without one, a 404 is reported as
 ``reason: "private"`` so the About screen can say what to do, rather than "unreachable".
 ``stack version --check`` needs no token: it asks through git, with your own login.
 
@@ -54,7 +55,16 @@ def current_version() -> str:
 
 
 def _token() -> str:
-    return os.environ.get("GITHUB_TOKEN", "").strip()
+    """A token that can read this repo: the credential store's for github.com/<owner>
+    (``stack credential add``, or pasted in the dashboard), else the old ``GITHUB_TOKEN``."""
+    try:
+        from services import credentials
+        from services.stackctl import CREDENTIALS
+
+        found = credentials.lookup(f"https://github.com/{REPO}", CREDENTIALS)
+    except Exception:  # noqa: BLE001 - an unreadable store is no token, never a failed check
+        found = None
+    return found[1] if found else os.environ.get("GITHUB_TOKEN", "").strip()
 
 
 def _fetch(version: str) -> dict:

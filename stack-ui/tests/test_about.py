@@ -36,6 +36,9 @@ def github(monkeypatch):
     monkeypatch.setattr(release_check, "current_version", lambda: "1.0.0")
     for var in ("STACK_UPDATE_CHECK", "GITHUB_TOKEN"):
         monkeypatch.delenv(var, raising=False)
+    from services import stackctl
+
+    monkeypatch.setattr(stackctl, "CREDENTIALS", Path("/nonexistent/credentials.json"))
     calls = []
 
     def respond(body):
@@ -135,11 +138,26 @@ def test_the_token_goes_only_in_a_header(monkeypatch):
         seen.update(url=req.full_url, auth=req.get_header("Authorization"))
         return Resp(b'{"tag_name": "v1.0.0"}')
 
+    from services import stackctl
+
+    monkeypatch.setattr(stackctl, "CREDENTIALS", Path("/nonexistent/credentials.json"))
     monkeypatch.setenv("GITHUB_TOKEN", "secret")
     monkeypatch.setattr(release_check.urllib.request, "urlopen", urlopen)
     release_check._fetch("1.0.0")
     assert seen == {"url": release_check.LATEST_URL, "auth": "Bearer secret"}
     assert "secret" not in seen["url"]
+
+
+def test_a_saved_token_for_the_owner_beats_github_token(monkeypatch, tmp_path):
+    from services import credentials, stackctl
+
+    store = tmp_path / "credentials.json"
+    credentials.save(store, f"https://github.com/{about.REPO}", "saved_token_1")
+    monkeypatch.setattr(stackctl, "CREDENTIALS", store)
+    monkeypatch.setenv("GITHUB_TOKEN", "old_token")
+    assert release_check._token() == "saved_token_1"
+    monkeypatch.setattr(stackctl, "CREDENTIALS", tmp_path / "missing.json")
+    assert release_check._token() == "old_token"
 
 
 def test_current_version_reads_the_stack_checkout():

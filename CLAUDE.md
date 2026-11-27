@@ -199,12 +199,25 @@ since 1.5.2). Adding one is a PR that adds its entry
   reviewed; with no terminal it needs `--yes`. The dashboard sends a URL (with `--yes`, after
   its own confirm) only from a browser on the local network (`stack-ui/CLAUDE.md` →
   *Security posture*).
-- **`GITHUB_TOKEN`** (since 1.5.0): `add`, `update` and `check` run git through
-  `with_github_token`, which offers the token (env, else `stack-ui/tokens.env`, parsed;
-  `STACK_TOKENS` for tests) as a credential helper for `https://github.com` only, appended after
-  the user's own helpers, so their login answers first. It travels in `GIT_CONFIG_*` and
-  `STACK_GIT_TOKEN`: never in argv, never in `.git/config`. The dashboard's container gets it from
-  `run-podman.sh`, so its update check reaches private frontend repos too.
+- **Private repos: the credential store** (issue #28; `GITHUB_TOKEN` alone since 1.5.0).
+  `stack-ui/credentials.json` (git-ignored, mode 600, written atomically;
+  `stack-ui/appcode/services/credentials.py` documents it; `STACK_CREDENTIALS` for tests) maps a
+  **prefix** (a host, `host/owner` or `host/owner/repo`) to a token; the longest one matching a
+  repo's https URL wins, so each GitHub owner has its own fine-grained token. `stack credential
+  add URL|PREFIX` (a URL saves under its host/owner; the token is asked for hidden, or read
+  from stdin, never an argument), `list` (tokens hidden), `remove PREFIX`.
+  `add`, `update` and `check` run git through `with_git_credentials URL`, which appends
+  `credentials.py --store …` as a **git credential helper for every host**, after the user's own
+  helpers, so their login answers first. It travels in `GIT_CONFIG_*` and reads the store when
+  git asks, so a new token needs no restart: never in argv, never in `.git/config`. git tells a
+  helper only the host, so the repo comes from `STACK_GIT_URL` (set per call: the clone URL, the
+  clone's origin; `check` sets it per repo), or git's `path` with `credential.useHttpPath`.
+  The old `GITHUB_TOKEN` (env, else `stack-ui/tokens.env`, parsed; `STACK_TOKENS` for tests)
+  still answers for github.com when nothing saved matches, via `STACK_GIT_TOKEN`.
+  **A failed https clone** in `add` prints `credential needed: <prefix> <url>` (the dashboard
+  turns that line into a token box, `stack-ui/CLAUDE.md` → *Installing frontends*); in a
+  terminal it also asks for a token (hidden, Enter skips), saves it and clones once more.
+  `GIT_TERMINAL_PROMPT=0` always, so git's own password prompt never appears.
 - `stack frontend update NAME`: refuses with uncommitted changes; on a branch (a clone someone
   works in) `git pull --ff-only`, at a tag (installed from the list) the newest tag; rebuilds if
   HEAD moved, and says to `stack restart` it if it's running. Works on any installed frontend.
@@ -223,7 +236,9 @@ since 1.5.2). Adding one is a PR that adds its entry
   already an ancestor of HEAD, so a working clone past the tag is up to date. Origins with no
   release tags report `no releases`; offline or no access, `unreachable`. The dashboard's
   "vX.Y.Z available" badge reads `--json` (`stack-ui/CLAUDE.md` → *Installing frontends*).
-- Tests: `stack-ui/tests/test_frontend_install.py` (a real git origin, a fake podman).
+- Tests: `stack-ui/tests/test_frontend_install.py` (a real git origin, a fake podman; the
+  credential helper through real `git credential fill`), `stack-ui/tests/test_credentials.py`
+  (the store itself).
 
 - **No desktop avatar** (removed 2026-11-07). `stack desktop`, `stack install desktop` and the
   dashboard's Desktop avatar button are gone. ai-stack is the backends plus frontend discovery, and
@@ -286,7 +301,7 @@ so an old unit (wrong path, or the old 240 s start timeout) is reported.
   (`git ls-remote --tags`), so your own login reaches a private fork too. The dashboard's About
   screen and toolbar Update badge ask GitHub's latest-release API from the server
   (`stack-ui/appcode/services/release_check.py`, cached 6 h), which for a private repo or fork needs
-  `GITHUB_TOKEN` in `stack-ui/tokens.env`; `STACK_UPDATE_CHECK=off` disables it. Both see a
+  a token: the credential store's for `github.com/<owner>`, else `GITHUB_TOKEN`; `STACK_UPDATE_CHECK=off` disables it. Both see a
   release only once its tag is pushed, which is why step 2 below matters.
 - **Cutting a release**, in order:
   1. A PR that bumps `VERSION` and moves *Unreleased* under a new `## X.Y.Z — date` heading.

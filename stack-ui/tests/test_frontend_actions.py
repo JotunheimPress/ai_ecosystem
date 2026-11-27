@@ -154,3 +154,37 @@ def test_the_job_thread_keeps_the_request_local(local, monkeypatch):
         time.sleep(0.02)
     assert job.done and job.error is None and job.exit_code == 0
     assert seen == [["frontend", "add", "--yes", "https://github.com/someone/mine.git"]]
+
+
+def test_saving_a_token_is_refused_unless_the_request_is_from_the_lan(monkeypatch, tmp_path):
+    monkeypatch.setattr(stackctl, "CREDENTIALS", tmp_path / "credentials.json")
+    with pytest.raises(stackctl.StackError, match="local network"):
+        stackctl.save_credential("https://github.com/someone/mine.git", "github_pat_12345678")
+    assert not (tmp_path / "credentials.json").exists()
+
+
+def test_a_token_is_saved_under_the_urls_owner(local, monkeypatch, tmp_path):
+    from services import credentials
+
+    store = tmp_path / "credentials.json"
+    monkeypatch.setattr(stackctl, "CREDENTIALS", store)
+    assert stackctl.save_credential("https://github.com/Someone/mine.git",
+                                    "github_pat_12345678") == "github.com/someone"
+    assert credentials.lookup("https://github.com/someone/other", store) == (
+        "x-access-token", "github_pat_12345678")
+    assert oct(store.stat().st_mode & 0o777) == "0o600"
+
+
+@pytest.mark.parametrize("url, token, why", [
+    ("git@github.com:someone/mine", "github_pat_12345678", "https"),
+    ("ssh://git@example.com/someone/mine.git", "github_pat_12345678", "https"),
+    ("https://x/a/mine;rm -rf ~", "github_pat_12345678", "https"),
+    ("https://github.com/someone/mine.git", "has a space in it", "token"),
+    ("https://github.com/someone/mine.git", "line\nbreak_123", "token"),
+    ("https://github.com/someone/mine.git", "", "token"),
+])
+def test_saving_a_token_refuses_anything_else(local, monkeypatch, tmp_path, url, token, why):
+    monkeypatch.setattr(stackctl, "CREDENTIALS", tmp_path / "credentials.json")
+    with pytest.raises(stackctl.StackError, match=why):
+        stackctl.save_credential(url, token)
+    assert not (tmp_path / "credentials.json").exists()

@@ -18,13 +18,17 @@
 #                           it against the list, build it
 #   stack frontend add URL [--yes]  install any frontend from its git URL (https, ssh,
 #                           git@host:owner/repo); asks first, as nobody reviewed it.
-#                           GITHUB_TOKEN (env or stack-ui/tokens.env) reaches private GitHub repos
+#                           a private repo: a token from stack credential (asked for when
+#                           the clone fails in a terminal)
 #   stack frontend update NAME  newest release (or git pull --ff-only on a branch), rebuilt
 #   stack frontend remove NAME [--yes]  remove it completely: container, image and folder,
 #                           its data included. Lists what git can't bring back and asks first
 #                           (no terminal: --yes)
 #   stack frontend check [--json]  is a newer release out for each installed frontend? (asks
 #                           each origin's tags; changes nothing)
+#   stack credential add URL|PREFIX  save a read-only token for private repos under that host
+#                           or owner (github.com/OWNER); asked for hidden, or read from stdin.
+#                           Also: stack credential list | remove PREFIX
 #   stack down [target]   stop  all|backends|frontends|<app>   (default: all)
 #   stack restart <app>
 #   stack logs <app>
@@ -625,28 +629,80 @@ frontend_unsaved() {
   git -C "$dir" log --oneline --branches --not --remotes 2>/dev/null | sed 's/^/unpushed commit: /' || true
 }
 
-# GITHUB_TOKEN reaches private frontend repos on GitHub: from the environment (the dashboard's
-# container gets it from tokens.env through run-podman.sh), else from stack-ui/tokens.env,
-# parsed, never sourced.
+# Tokens for private frontend repos: stack-ui/credentials.json (services/credentials.py, which
+# says what's in it), one token per host or owner prefix, so two GitHub owners each get their
+# own fine-grained token. STACK_CREDENTIALS points elsewhere (tests).
+CREDS="${STACK_CREDENTIALS:-$SELF/stack-ui/credentials.json}"
+CREDPY="$SELF/stack-ui/appcode/services/credentials.py"
+
+# The old single GITHUB_TOKEN, still honoured for github.com when nothing in the store matches:
+# from the environment (the dashboard's container gets it from tokens.env through
+# run-podman.sh), else from stack-ui/tokens.env, parsed, never sourced.
 github_token() {
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then printf '%s' "$GITHUB_TOKEN"; return; fi
   sed -nE "s/^[[:space:]]*GITHUB_TOKEN[[:space:]]*=[[:space:]]*[\"']?([^\"'[:space:]]+).*/\1/p" \
     "${STACK_TOKENS:-$SELF/stack-ui/tokens.env}" 2>/dev/null | tail -1
 }
 
-# Runs a command (git, or something that runs git) with the token offered as a credential
-# helper for https://github.com only. Helpers are asked in order and this one is appended
-# last, so your own git login (gh, a keyring) still answers first; the token is what's left
-# when there is none, as in the dashboard's container. The helper is set through git's
-# GIT_CONFIG_* environment and reads the token from STACK_GIT_TOKEN: it is never on a command
-# line (ps shows those) and never written to a clone's .git/config. Without a token, as is.
-with_github_token() {
-  local t; t="$(github_token)"
-  [[ -n "$t" ]] || { "$@"; return; }
+# with_git_credentials URL CMD...: runs a command (git, or something that runs git) with the
+# credential store offered as a git credential helper, for every https host. Helpers are asked
+# in order and this one is appended last, so your own git login (gh, a keyring) still answers
+# first; the store is what's left when there is none, as in the dashboard's container. URL is
+# the repo about to be cloned or fetched (STACK_GIT_URL): git names only the host to a helper,
+# and the owner is what picks the token. A command that reaches several repos sets
+# STACK_GIT_URL per git call itself. The helper is set through git's GIT_CONFIG_* environment
+# and reads the store when git asks: no token is ever on a command line (ps shows those) or
+# written to a clone's .git/config, and a new one works at once. With no store and no
+# GITHUB_TOKEN, the command runs as is.
+with_git_credentials() {
+  local url=$1 t; shift
+  t="$(github_token)"
+  [[ -n "$t" || -f "$CREDS" ]] || { "$@"; return; }
   # shellcheck disable=SC2016  # expanded by git's helper shell, not here
-  STACK_GIT_TOKEN="$t" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.https://github.com.helper" \
-    GIT_CONFIG_VALUE_0='!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$STACK_GIT_TOKEN"; }; f' \
+  STACK_GIT_URL="$url" STACK_GIT_TOKEN="$t" STACK_CREDPY="$CREDPY" STACK_CREDS="$CREDS" \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="credential.helper" \
+    GIT_CONFIG_VALUE_0='!python3 "$STACK_CREDPY" --store "$STACK_CREDS"' \
     "$@"
+}
+
+# stack credential list | add URL|PREFIX | remove PREFIX, plus get|store|erase for git.
+cmd_credential() {
+  local sub=${1:-} t prefix
+  case "$sub" in
+    get|store|erase) python3 "$CREDPY" --store "$CREDS" "$sub" ;;
+    list)   python3 "$CREDPY" --store "$CREDS" list "${@:2}" ;;
+    remove) [[ -n "${2:-}" ]] || { echo "usage: stack credential remove PREFIX"; return 1; }
+            python3 "$CREDPY" --store "$CREDS" remove "$2" && echo "removed $2" ;;
+    add)    [[ -n "${2:-}" ]] || { echo "usage: stack credential add URL|PREFIX [USERNAME]  (the token on stdin, or asked for)"; return 1; }
+            if [[ -t 0 ]]; then
+              prefix="$(python3 "$CREDPY" --store "$CREDS" prefix "$2" 2>/dev/null || printf '%s' "$2")"
+              read -rsp "token for $prefix (hidden): " t; echo
+              [[ -n "$t" ]] || { echo "nothing saved"; return 1; }
+            else
+              IFS= read -r t || [[ -n "$t" ]] || { echo "no token on stdin"; return 1; }
+            fi
+            prefix="$(printf '%s\n' "$t" | python3 "$CREDPY" --store "$CREDS" set "$2" "${3:-}")" || return 1
+            echo "saved a token for $prefix (${CREDS})" ;;
+    *) echo "usage: stack credential list [--json] | add URL|PREFIX [USERNAME] | remove PREFIX"
+       [[ -z "$sub" ]] && return 0 || return 1 ;;
+  esac
+}
+
+# After a clone of an https URL fails: the line the dashboard looks for to offer a token box
+# (credential needed: <prefix> <url>), and in a terminal, a chance to paste one and retry. Returns 0
+# when a token was saved.
+offer_credential() {
+  local url=$1 prefix t
+  prefix="$(python3 "$CREDPY" --store "$CREDS" prefix "$url" 2>/dev/null)" || {
+    [[ $url == file://* ]] || echo "  (a token helps only an https URL: for ssh, check your ssh key)"; return 1; }
+  echo "credential needed: $prefix $url"
+  [[ -t 0 ]] || { echo "  for a private repo: stack credential add $url, then try again"; return 1; }
+  echo "  if it's private, paste a read-only token for $prefix (input hidden; Enter to skip)."
+  echo "  GitHub: a fine-grained token, resource owner ${prefix#*/}, Contents: Read-only."
+  read -rsp "  token: " t; echo
+  [[ -n "$t" ]] || return 1
+  printf '%s\n' "$t" | python3 "$CREDPY" --store "$CREDS" set "$prefix" >/dev/null || return 1
+  echo "  saved for $prefix; trying again"
 }
 
 cmd_frontend() {
@@ -696,11 +752,14 @@ frontend_add() {
   echo "==> cloning $url"
   # No password prompt without a terminal (the dashboard): fail and say so instead.
   # `--` ends options: a URL can't pass itself off as one.
-  if ! GIT_TERMINAL_PROMPT=$([[ -t 0 ]] && echo 1 || echo 0) \
-       with_github_token git clone -q -- "$url" "$stage/$name"; then
-    rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null
-    echo "couldn't clone $url (offline, or a private repo you have no access to;"
-    echo "  for a private GitHub repo, GITHUB_TOKEN in stack-ui/tokens.env with read access)"; return 1
+  # A token is asked for by offer_credential, not by git's own prompt.
+  if ! GIT_TERMINAL_PROMPT=0 with_git_credentials "$url" git clone -q -- "$url" "$stage/$name"; then
+    rm -rf "${stage:?}/$name"
+    echo "couldn't clone $url (offline, or a private repo this machine has no access to)"
+    if ! offer_credential "$url" ||
+       ! GIT_TERMINAL_PROMPT=0 with_git_credentials "$url" git clone -q -- "$url" "$stage/$name"; then
+      rm -rf "${stage:?}/$name"; rmdir "$stage" 2>/dev/null; return 1
+    fi
   fi
   tag="$(latest_tag "$stage/$name")"
   if [[ -n "$tag" ]]; then
@@ -754,10 +813,10 @@ frontend_update() {
   if git -C "$dir" symbolic-ref -q HEAD >/dev/null; then
     # A clone someone works in, on a branch: fast-forward only, never a merge.
     echo "==> git pull --ff-only ($(git -C "$dir" rev-parse --abbrev-ref HEAD))"
-    with_github_token git -C "$dir" pull -q --ff-only || { echo "couldn't fast-forward $dir"; return 1; }
+    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" pull -q --ff-only || { echo "couldn't fast-forward $dir"; return 1; }
   else
     # Installed from the official list, at a release tag: move to the newest one.
-    with_github_token git -C "$dir" fetch -q --tags origin || { echo "couldn't reach $name's origin"; return 1; }
+    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" fetch -q --tags origin || { echo "couldn't reach $name's origin"; return 1; }
     tag="$(latest_tag "$dir")"
     [[ -n "$tag" ]] && git -C "$dir" -c advice.detachedHead=false checkout -q "$tag"
   fi
@@ -827,7 +886,7 @@ frontend_remove() {
 # (frontend_manifests json) come on stdin. Mode "json" is what the dashboard reads.
 frontend_check() {
   local installed; installed="$(cat)"
-  INSTALLED="$installed" with_github_token python3 - "${1:-list}" <<'PY'
+  INSTALLED="$installed" with_git_credentials "" python3 - "${1:-list}" <<'PY'
 import json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -835,18 +894,20 @@ mode = sys.argv[1]
 TAG = re.compile(r"^([0-9a-f]{40})\trefs/tags/v(\d+)\.(\d+)\.(\d+)(\^\{\})?$")
 ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
 
-def git(d, *args, timeout=10):
+def git(d, *args, timeout=10, url=""):
+    # url: the repo this call reaches, for the credential store (STACK_GIT_URL, above)
     return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True,
-                          timeout=timeout, env=ENV)
+                          timeout=timeout, env={**ENV, "STACK_GIT_URL": url})
 
 def check(f):
     d, row = f["dir"], {"repo": f["repo"], "current": "", "latest": "", "newer": False,
                         "checked": False, "reason": ""}
     try:
-        if git(d, "remote", "get-url", "origin").returncode != 0:
+        origin = git(d, "remote", "get-url", "origin")
+        if origin.returncode != 0:
             row["reason"] = "no origin"; return row
         row["current"] = git(d, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").stdout.strip()
-        p = git(d, "ls-remote", "--tags", "origin", "v*", timeout=15)
+        p = git(d, "ls-remote", "--tags", "origin", "v*", timeout=15, url=origin.stdout.strip())
     except subprocess.TimeoutExpired:
         row["reason"] = "unreachable"; return row
     if p.returncode != 0:
@@ -1876,6 +1937,7 @@ case "${1:-}" in
   doctor|check)  cmd_doctor ;;
   frontends) cmd_frontends "${2:-}" ;;
   frontend)  cmd_frontend "${@:2}" ;;
+  credential|credentials) cmd_credential "${@:2}" ;;
   fortuna-model) cmd_fortuna_model "${2:-}" "${3:-}" ;;
   gpu-release) cmd_gpu_release "${2:-}" ;;
   gpu-restore) cmd_gpu_restore "${2:-}" ;;

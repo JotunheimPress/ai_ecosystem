@@ -114,8 +114,9 @@ TOKENS="$SCRIPT_DIR/tokens.env"
 if [[ -f "$TOKENS" ]]; then
   TOKEN_ARGS+=(--env-file "$TOKENS")
 fi
-# GITHUB_TOKEN: read access to the private ai-stack repo, for About's release check;
-# STACK_UPDATE_CHECK=off turns that check off.
+# GITHUB_TOKEN: the old single token for private GitHub repos (About's release check, frontend
+# installs); stack-ui/credentials.json (`stack credential add`) is read at use instead, per
+# owner, with no restart. STACK_UPDATE_CHECK=off turns the release check off.
 for var in CIVITAI_TOKEN HF_TOKEN GITHUB_TOKEN STACK_UPDATE_CHECK; do
   if [[ -n "${!var:-}" ]]; then TOKEN_ARGS+=(-e "$var"); fi
 done

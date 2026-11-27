@@ -42,11 +42,11 @@ def release_html(rel: dict) -> str:
     if reason == "off":
         msg = "Release checks are off (<code>STACK_UPDATE_CHECK</code>)."
     elif reason == "private":
-        msg = ("Can't check: the repo is private. Add <code>GITHUB_TOKEN</code> (read access to "
-               f"{esc(REPO)}) to <code>stack-ui/tokens.env</code>, or run "
-               "<code>stack version --check</code> in a terminal.")
+        msg = ("Can't check: the repo is private. Save a token with read access to "
+               f"{esc(REPO)} (<code>stack credential add https://github.com/{esc(REPO)}</code>), "
+               "or run <code>stack version --check</code> in a terminal.")
     elif reason == "token":
-        msg = (f"Can't check: <code>GITHUB_TOKEN</code> can't read {esc(REPO)}'s releases. "
+        msg = (f"Can't check: the saved token can't read {esc(REPO)}'s releases. "
                "Give it read-only <i>Contents</i> on that repo, or run "
                "<code>stack version --check</code> in a terminal.")
     else:

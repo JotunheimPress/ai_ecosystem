@@ -38,8 +38,8 @@ stack frontend add <git URL>      # any other frontend: see "Any other frontend"
   you work in on a branch past that tag is up to date. The dashboard runs the same check
   (cached for 6 hours, again after an install, update or remove) and shows "vX.Y.Z available"
   on the frontend's card and a count beside *Installed apps*. `STACK_UPDATE_CHECK=off` turns it
-  off. A private GitHub repo is checked with `GITHUB_TOKEN` (below); without one the dashboard
-  can't check it, since it has no git login of its own.
+  off. A private repo is checked with its saved token (below); without one the dashboard can't
+  check it, since it has no git login of its own.
 - `remove` won't delete a folder holding anything git doesn't: saved data, local changes or
   unpushed commits. It lists them; move what you want to keep and delete the folder yourself.
 
@@ -65,11 +65,23 @@ stack frontend add git@github.com:someone/my-app.git
 - Cloning it into the ecosystem root yourself, next to `ai-stack/`, still works too; it builds
   its image on its first `stack <repo>`.
 
-**Private GitHub repos:** your own git login (gh, a credential manager, ssh) works from a
-terminal. Otherwise, and always in the dashboard, put a `GITHUB_TOKEN=…` line with read access
-to the repo in `stack-ui/tokens.env` (keep it `chmod 600`; rebuild the dashboard for it to see
-it). git is offered it for github.com only, after your own login, and it is never written into
-the clone.
+**Private repos:** your own git login (gh, a credential manager, ssh) works from a terminal.
+Otherwise, and always in the dashboard, the stack uses a read-only token you give it:
+
+- **When an install can't clone**, the dashboard shows a token box under *From a git URL*
+  naming where the token is for (`github.com/OWNER`). Paste one and choose **Save and retry**.
+  In a terminal, `stack frontend add` asks the same question.
+- **Or save one first:** `stack credential add https://github.com/OWNER/REPO` (it asks for the
+  token without showing it). `stack credential list` shows what's saved, tokens hidden;
+  `stack credential remove github.com/OWNER` forgets one.
+- On GitHub, make a **fine-grained token**: resource owner *OWNER*, only the repos it needs,
+  *Contents: Read-only*. A token is saved per owner, so repos from two owners each get their
+  own. GitLab (`read_repository` scope) and other hosts work the same way.
+- Tokens are kept in `stack-ui/credentials.json` (private to your user, never committed) and
+  used at once, with no restart. git asks your own login first, and a token is never written
+  into a clone.
+- An older `GITHUB_TOKEN=…` line in `stack-ui/tokens.env` still works for github.com when
+  nothing saved matches.
 
 ## `frontend.json`
 

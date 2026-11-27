@@ -84,6 +84,19 @@ class StackApi:
 
         return {"ok": True, **stackctl.catalog(), "url_install": stackctl.REQUEST_LAN.get()}
 
+    def save_credential(self, url: str = "", token: str = "") -> dict:
+        """Save a read-only token for a private frontend repo after its install failed
+        (``credential needed`` in the log), under the URL's host and owner. Local network only
+        (``stackctl.save_credential``); the token is never sent back. The page then retries
+        the install with ``action("frontend_add_url", url)``, which checks everything again."""
+        from services import stackctl
+
+        try:
+            prefix = stackctl.save_credential(str(url or ""), str(token or ""))
+        except stackctl.StackError as exc:
+            return _err(exc)
+        return {"ok": True, "prefix": prefix}
+
     def frontend_updates(self, force: bool = False) -> dict:
         """Which installed frontends have a newer release on their origin, for the Frontends
         cards and the sidebar badge. Checked and cached in `services.frontend_updates`."""

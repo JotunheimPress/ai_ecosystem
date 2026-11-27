@@ -365,13 +365,14 @@ def test_ssh_and_https_urls_of_one_repo_are_the_same_official_repo(env):
 
 
 def test_github_token_reaches_git_only_through_its_environment(env, tmp_path):
-    """The token is a credential helper for https://github.com, set in GIT_CONFIG_* and read
-    from STACK_GIT_TOKEN (from GITHUB_TOKEN or tokens.env); never in the clone's .git/config."""
+    """The old single token (GITHUB_TOKEN, or tokens.env) still answers for github.com when the
+    store has nothing: the credential helper is set in GIT_CONFIG_* and reads it from
+    STACK_GIT_TOKEN; it is never on the helper's command line or in the clone's .git/config."""
     real_git = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
     seen = tmp_path / "git-env.json"
     bin_ = tmp_path / "bin"
     _exe(bin_ / "git", "python3 -c 'import json,os; json.dump({k: v for k, v in os.environ.items() "
-                       "if k.startswith((\"GIT_CONFIG_\", \"STACK_GIT_\"))}, "
+                       "if k.startswith((\"GIT_CONFIG_\", \"STACK_GIT_\", \"STACK_CREDPY\", \"STACK_CREDS\"))}, "
                        f"open(\"{seen}\", \"a\")); print(file=open(\"{seen}\", \"a\"))'\n"
                        f'exec {real_git} "$@"\n')
     tokens = tmp_path / "tokens.env"
@@ -381,24 +382,73 @@ def test_github_token_reaches_git_only_through_its_environment(env, tmp_path):
         stdin=subprocess.DEVNULL,
         env={**{k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"},
              "AI_ECOSYSTEM": str(env["eco"]), "STACK_CATALOG": str(tmp_path / "frontends.json"),
-             "STACK_TOKENS": str(tokens), "STACK_GPU": "none",
-             "PATH": f"{bin_}:{os.environ['PATH']}"})
+             "STACK_TOKENS": str(tokens), "STACK_CREDENTIALS": str(tmp_path / "none.json"),
+             "STACK_GPU": "none", "PATH": f"{bin_}:{os.environ['PATH']}"})
     assert out.returncode == 0, out.stdout + out.stderr
     calls = [json.loads(line) for line in seen.read_text().splitlines() if line.strip()]
-    [got] = [c for c in calls if c]      # only the clone, nothing else, carries the token
-    assert got["GIT_CONFIG_KEY_0"] == "credential.https://github.com.helper"
+    [got] = [c for c in calls if c]      # only the clone, nothing else, carries the helper
+    assert got["GIT_CONFIG_KEY_0"] == "credential.helper"
     assert got["STACK_GIT_TOKEN"] == "ghp_secret" and "ghp_secret" not in got["GIT_CONFIG_VALUE_0"]
     assert "ghp_secret" not in (env["eco"] / "demo" / ".git" / "config").read_text()
     # What git gets when it asks for github.com (no other helpers: an empty HOME).
     home = tmp_path / "home"
     home.mkdir()
-    fill = subprocess.run([real_git, "credential", "fill"], input="protocol=https\nhost=github.com\n\n",
-                          capture_output=True, text=True,
+    fill = _fill(real_git, home, got, "github.com")
+    assert "username=x-access-token" in fill and "password=ghp_secret" in fill
+    assert "ghp_secret" not in _fill(real_git, home, got, "example.com")
+
+
+def _fill(git, home, extra, host, path=""):
+    """`git credential fill` for https://HOST with only the stack's helper configured."""
+    req = f"protocol=https\nhost={host}\n" + (f"path={path}\n" if path else "") + "\n"
+    return subprocess.run([git, "credential", "fill"], input=req, capture_output=True, text=True,
                           env={"PATH": os.environ["PATH"], "HOME": str(home),
-                               "GIT_TERMINAL_PROMPT": "0", **got})
-    assert "username=x-access-token" in fill.stdout and "password=ghp_secret" in fill.stdout
-    other = subprocess.run([real_git, "credential", "fill"], input="protocol=https\nhost=example.com\n\n",
-                           capture_output=True, text=True,
-                           env={"PATH": os.environ["PATH"], "HOME": str(home),
-                                "GIT_TERMINAL_PROMPT": "0", **got})
-    assert "ghp_secret" not in other.stdout
+                               "GIT_TERMINAL_PROMPT": "0", **extra}).stdout
+
+
+def test_the_store_picks_each_owners_token(env, tmp_path):
+    """Two GitHub owners, two fine-grained tokens: the repo stack is reaching (STACK_GIT_URL,
+    or git's own path) picks the longest saved prefix, and the store beats GITHUB_TOKEN."""
+    store = tmp_path / "credentials.json"
+    for where, tok in (("https://github.com/El-Iguana/companion-assistant.git", "tok_iguana_1"),
+                       ("github.com/JotunheimPress", "tok_jotun_22"),
+                       ("github.com/jotunheimpress/ai_ecosystem", "tok_repo_333")):
+        out = subprocess.run([str(STACK), "credential", "add", where], input=tok + "\n",
+                             capture_output=True, text=True,
+                             env={**os.environ, "STACK_CREDENTIALS": str(store)})
+        assert out.returncode == 0, out.stdout + out.stderr
+    assert oct(store.stat().st_mode & 0o777) == "0o600"
+    listed = subprocess.run([str(STACK), "credential", "list"], capture_output=True, text=True,
+                            env={**os.environ, "STACK_CREDENTIALS": str(store)}).stdout
+    assert "github.com/el-iguana" in listed and "tok_iguana_1" not in listed
+    real_git = subprocess.run(["which", "git"], capture_output=True, text=True).stdout.strip()
+    home = tmp_path / "home"
+    home.mkdir()
+    helper = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+              "GIT_CONFIG_VALUE_0": f'!python3 "{STACK.parent}/stack-ui/appcode/services/credentials.py" '
+                                    f'--store "{store}"',
+              "STACK_GIT_TOKEN": "legacy_token"}
+
+    def fill(url):
+        return _fill(real_git, home, {**helper, "STACK_GIT_URL": url}, url.split("/")[2])
+
+    assert "password=tok_iguana_1" in fill("https://github.com/el-iguana/other")
+    assert "password=tok_jotun_22" in fill("https://github.com/JotunheimPress/iguana_studio.git")
+    assert "password=tok_repo_333" in fill("https://github.com/JotunheimPress/ai_ecosystem")
+    assert "password=legacy_token" in fill("https://github.com/someone-else/x")
+    # git's own path (credential.useHttpPath, if the user turned it on) works without the hint
+    with_path = {**helper, "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_1": "credential.useHttpPath",
+                 "GIT_CONFIG_VALUE_1": "true"}
+    assert "password=tok_jotun_22" in _fill(real_git, home, with_path, "github.com",
+                                            "JotunheimPress/x.git")
+
+
+def test_a_failed_https_clone_asks_for_a_credential(env, tmp_path):
+    """No terminal: the clone fails, and stack names the prefix and URL a token would be saved
+    under (the line the dashboard turns into a token box). Nothing is left staged."""
+    url = "https://127.0.0.1:9/Someone/mine.git"
+    out = env["run"]("frontend", "add", url, "--yes", check=False)
+    assert out.returncode != 0
+    assert f"credential needed: 127.0.0.1:9/someone {url}" in out.stdout
+    assert "stack credential add" in out.stdout
+    assert list(env["eco"].iterdir()) == []
