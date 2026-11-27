@@ -28,7 +28,7 @@ _lock = threading.Lock()
 
 
 def frontend_updates(now: float | None = None, force: bool = False) -> dict:
-    """{checked: bool, frontends: {repo: {current, latest, newer, checked, reason}},
+    """{checked: bool, frontends: {repo: {current, latest, newer, checked, reason, origin}},
     reason?: off|unreachable, error?}. Never raises: being offline is a normal state."""
     from services import stackctl
 
@@ -43,7 +43,7 @@ def frontend_updates(now: float | None = None, force: bool = False) -> dict:
         if not isinstance(rows, list):
             raise ValueError("no frontends list")
         result = {"checked": True, "frontends": {
-            str(r["repo"]): {k: r.get(k) for k in ("current", "latest", "newer", "checked", "reason")}
+            str(r["repo"]): {k: r.get(k) for k in ("current", "latest", "newer", "checked", "reason", "origin")}
             for r in rows if isinstance(r, dict) and r.get("repo")}}
         ttl = CHECK_TTL
     except Exception as exc:  # noqa: BLE001 - a failed check is shown as "not checked"

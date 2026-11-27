@@ -236,7 +236,7 @@ def test_check_reports_a_newer_release_until_update_takes_it(env):
     env["run"]("frontend", "add", "demo")
     row = _check(env)["demo"]
     assert row == {"repo": "demo", "current": "v0.10.0", "latest": "v0.10.0", "newer": False,
-                   "checked": True, "reason": ""}
+                   "checked": True, "reason": "", "origin": f"file://{env['origin']}"}
     _git(env["origin"], "tag", "-a", "v0.11.0", "-m", "annotated")   # peeled to its commit
     row = _check(env)["demo"]
     assert row["newer"] and row["latest"] == "v0.11.0" and row["current"] == "v0.10.0"
@@ -452,3 +452,11 @@ def test_a_failed_https_clone_asks_for_a_credential(env, tmp_path):
     assert f"credential needed: 127.0.0.1:9/someone {url}" in out.stdout
     assert "stack credential add" in out.stdout
     assert list(env["eco"].iterdir()) == []
+
+
+def test_check_reports_the_origin_without_what_was_written_into_it(env):
+    env["run"]("frontend", "add", "demo")
+    _git(env["eco"] / "demo", "remote", "set-url", "origin",
+         "https://x-access-token:ghp_secret@127.0.0.1:9/acme/demo.git")
+    [row] = json.loads(env["run"]("frontend", "check", "--json").stdout)["frontends"]
+    assert row["origin"] == "https://127.0.0.1:9/acme/demo.git" and row["reason"] == "unreachable"

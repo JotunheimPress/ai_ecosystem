@@ -16,6 +16,12 @@ releases*).
 
 ## Unreleased
 
+- Feature: a **Credentials** screen in the dashboard (Frontends workspace) lists the saved
+  repo tokens, hidden, with when each was last used and which frontends it covers. **Test**
+  tries one (on GitHub it also says whether GitHub still accepts it and when it expires),
+  **Remove** forgets one, and **Add a token** saves one. A frontend card whose repo can't be
+  reached shows **No access?**, which opens it with the URL filled in. `stack credential list`
+  shows the last-used date too.
 - Feature: private frontend repos no longer need a hand-edited `GITHUB_TOKEN`. When an install
   fails to clone, the dashboard (from the local network) and a terminal ask for a read-only
   token and try again. Tokens are saved per host or owner in `stack-ui/credentials.json`

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "appcode"))
 from services import frontend_updates as fu, stackctl  # noqa: E402
 
 ROW = {"repo": "demo", "current": "v1.0.0", "latest": "v1.1.0", "newer": True,
-       "checked": True, "reason": ""}
+       "checked": True, "reason": "", "origin": "https://github.com/acme/demo.git"}
 
 
 @pytest.fixture()
@@ -38,7 +38,7 @@ def test_reports_by_repo_and_caches(stack):
     answer(json.dumps({"frontends": [ROW]}))
     r = fu.frontend_updates(now=1000)
     assert r == {"checked": True, "frontends": {"demo": {k: ROW[k] for k in
-                 ("current", "latest", "newer", "checked", "reason")}}}
+                 ("current", "latest", "newer", "checked", "reason", "origin")}}}
     fu.frontend_updates(now=1000 + fu.CHECK_TTL - 1)
     assert calls == ["frontend_check"]
     fu.frontend_updates(now=1001, force=True)

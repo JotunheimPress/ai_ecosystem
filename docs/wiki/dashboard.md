@@ -45,6 +45,15 @@ stack machine's address or local name (`http://192.168.1.x:7863`, `http://halo:7
 another website, is refused. Every one of these asks first, and its output streams in the console, like any other
 action. See [Frontends](frontends.md).
 
+**Credentials** (in the Frontends workspace): the read-only tokens the stack uses for private
+repos, one card per host or owner (`github.com/OWNER`). The token itself is never shown: you see
+its last four characters, when it was added and last used, and which installed frontends it
+covers. **Test** tries it on those frontends (and, on GitHub, says whether GitHub still accepts
+it and when it expires); **Remove** forgets it. **Add a token** saves one for a repo's owner.
+Adding and removing work only from your local network, like installing from a URL. A frontend
+card whose repo can't be reached shows **No access?**, which opens this screen with its URL
+filled in.
+
 The URL keeps your place (`#/llms`, `#/vram` …), so a reload or a bookmark returns to the same
 screen.
 

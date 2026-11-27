@@ -97,6 +97,34 @@ class StackApi:
             return _err(exc)
         return {"ok": True, "prefix": prefix}
 
+    def credentials(self) -> dict:
+        """The Credentials screen: saved tokens (hidden: prefix, last four characters, dates,
+        the last test's result), the installed frontends each one covers, and ``lan``: this
+        browser may add or remove one. Never a token."""
+        from services import credential_check, stackctl
+
+        return {"ok": True, **credential_check.overview(), "lan": stackctl.REQUEST_LAN.get()}
+
+    def credential_test(self, prefix: str = "") -> dict:
+        """Try one saved token against the frontends it covers (and GitHub, for github.com).
+        Read-only apart from saving the result on the entry; may take up to ~15 s."""
+        from services import credential_check
+
+        try:
+            return {"ok": True, **credential_check.test(str(prefix or ""))}
+        except KeyError:
+            return {"ok": False, "error": f"no token saved for {prefix!r}"}
+
+    def credential_remove(self, prefix: str = "") -> dict:
+        """Forget a saved token (local network only; ``stackctl.remove_credential``)."""
+        from services import stackctl
+
+        try:
+            stackctl.remove_credential(str(prefix or ""))
+        except stackctl.StackError as exc:
+            return _err(exc)
+        return {"ok": True}
+
     def frontend_updates(self, force: bool = False) -> dict:
         """Which installed frontends have a newer release on their origin, for the Frontends
         cards and the sidebar badge. Checked and cached in `services.frontend_updates`."""

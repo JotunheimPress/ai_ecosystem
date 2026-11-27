@@ -71,9 +71,14 @@ Otherwise, and always in the dashboard, the stack uses a read-only token you giv
 - **When an install can't clone**, the dashboard shows a token box under *From a git URL*
   naming where the token is for (`github.com/OWNER`). Paste one and choose **Save and retry**.
   In a terminal, `stack frontend add` asks the same question.
-- **Or save one first:** `stack credential add https://github.com/OWNER/REPO` (it asks for the
-  token without showing it). `stack credential list` shows what's saved, tokens hidden;
-  `stack credential remove github.com/OWNER` forgets one.
+- **Or save one first:** the dashboard's **Credentials** screen (*Add a token*), or
+  `stack credential add https://github.com/OWNER/REPO` (it asks for the token without showing
+  it). The screen, or `stack credential list`, shows what's saved with the tokens hidden, when
+  each was last used and which frontends it covers; **Test** checks one still works (GitHub
+  also says when it expires). **Remove**, or `stack credential remove github.com/OWNER`,
+  forgets one.
+- A frontend whose repo can't be reached for its update check shows **No access?** on its card,
+  which opens Credentials with its URL filled in.
 - On GitHub, make a **fine-grained token**: resource owner *OWNER*, only the repos it needs,
   *Contents: Read-only*. A token is saved per owner, so repos from two owners each get their
   own. GitLab (`read_repository` scope) and other hosts work the same way.

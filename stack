@@ -813,10 +813,14 @@ frontend_update() {
   if git -C "$dir" symbolic-ref -q HEAD >/dev/null; then
     # A clone someone works in, on a branch: fast-forward only, never a merge.
     echo "==> git pull --ff-only ($(git -C "$dir" rev-parse --abbrev-ref HEAD))"
-    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" pull -q --ff-only || { echo "couldn't fast-forward $dir"; return 1; }
+    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" pull -q --ff-only || {
+      echo "couldn't fast-forward $dir (diverged, offline, or a private repo without a working"
+      echo "  token: stack credential list, or the dashboard's Credentials screen)"; return 1; }
   else
     # Installed from the official list, at a release tag: move to the newest one.
-    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" fetch -q --tags origin || { echo "couldn't reach $name's origin"; return 1; }
+    with_git_credentials "$(git -C "$dir" remote get-url origin 2>/dev/null)" git -C "$dir" fetch -q --tags origin || {
+      echo "couldn't reach $name's origin (offline, or a private repo without a working token:"
+      echo "  stack credential list, or the dashboard's Credentials screen)"; return 1; }
     tag="$(latest_tag "$dir")"
     [[ -n "$tag" ]] && git -C "$dir" -c advice.detachedHead=false checkout -q "$tag"
   fi
@@ -901,11 +905,13 @@ def git(d, *args, timeout=10, url=""):
 
 def check(f):
     d, row = f["dir"], {"repo": f["repo"], "current": "", "latest": "", "newer": False,
-                        "checked": False, "reason": ""}
+                        "checked": False, "reason": "", "origin": ""}
     try:
         origin = git(d, "remote", "get-url", "origin")
         if origin.returncode != 0:
             row["reason"] = "no origin"; return row
+        # without a user name or token someone wrote into it: the dashboard shows this
+        row["origin"] = re.sub(r"^(https://)[^/@]+@", r"\1", origin.stdout.strip(), flags=re.I)
         row["current"] = git(d, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").stdout.strip()
         p = git(d, "ls-remote", "--tags", "origin", "v*", timeout=15, url=origin.stdout.strip())
     except subprocess.TimeoutExpired:

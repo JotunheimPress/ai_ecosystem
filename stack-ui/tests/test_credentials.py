@@ -91,3 +91,44 @@ def test_helper_answers_https_only_and_falls_back_to_the_old_token(tmp_path):
         "username=x-access-token\npassword=old_1\n"
     assert get({"protocol": "https", "host": "example.com"}, STACK_GIT_TOKEN="old_1") == ""
     assert get({"protocol": "http", "host": "github.com"}, STACK_GIT_URL="https://github.com/acme/x") == ""
+
+
+def test_used_dates_live_apart_from_the_tokens(tmp_path):
+    """The helper marks a prefix used (once a day) in credentials-used.json, never rewriting
+    the token file; listing shows it."""
+    store = tmp_path / "credentials.json"
+    c.save(store, "github.com/acme", "owner_token_2")
+    before = store.read_text()
+    out = c.helper_get({"protocol": "https", "host": "github.com"}, store,
+                       {"STACK_GIT_URL": "https://github.com/acme/x"})
+    assert "owner_token_2" in out
+    assert store.read_text() == before
+    assert c.used_path(store).name == "credentials-used.json"
+    assert oct(c.used_path(store).stat().st_mode & 0o777) == "0o600"
+    [row] = c.listing(store)
+    assert row["used"] and row["checked"] == "" and row["check_ok"] is None
+    # nothing matched, nothing marked; an unwritable directory is no error
+    c.helper_get({"protocol": "https", "host": "gitlab.com"}, store, {})
+    assert list(c.load_used(store)) == ["github.com/acme"]
+    c.mark_used(tmp_path / "missing-dir" / "x" / "credentials.json", "a")
+
+
+def test_annotate_records_a_test_but_never_touches_the_token(tmp_path):
+    store = tmp_path / "credentials.json"
+    c.save(store, "github.com/acme", "owner_token_2")
+    c.annotate(store, "github.com/acme", checked="2026-11-27", check_ok=False,
+               check_note="GitHub refuses it", expires="2026-12-01", token="evil_token_9")
+    [row] = c.listing(store)
+    assert (row["checked"], row["check_ok"], row["check_note"], row["expires"]) == (
+        "2026-11-27", False, "GitHub refuses it", "2026-12-01")
+    assert c.lookup("https://github.com/acme/x", store)[1] == "owner_token_2"
+    c.annotate(store, "github.com/gone", checked="x")          # no entry: nothing written
+    assert [r["prefix"] for r in c.listing(store)] == ["github.com/acme"]
+
+
+def test_best_prefix():
+    ps = ["github.com", "github.com/acme", "github.com/acme/special"]
+    assert c.best_prefix("https://github.com/acme/special.git", ps) == "github.com/acme/special"
+    assert c.best_prefix("https://github.com/acme-x/y", ps) == "github.com"
+    assert c.best_prefix("https://gitlab.com/acme/y", ps) is None
+    assert c.best_prefix("git@github.com:acme/y", ps) is None

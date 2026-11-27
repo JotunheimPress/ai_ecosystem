@@ -229,6 +229,23 @@ def save_credential(url: str, token: str) -> str:
         raise StackError(f"couldn't save the token: {exc.strerror or exc}") from None
 
 
+def remove_credential(prefix: str) -> None:
+    """Forget a saved token, from the Credentials screen. Local network only, like saving one;
+    the prefix must be one the store holds (the browser picks from the list, it can't name
+    anything else)."""
+    from services import credentials
+
+    if not REQUEST_LAN.get():
+        raise StackError("Removing a token works only from the local network; in a terminal: "
+                         "stack credential remove <prefix>")
+    if prefix not in credentials.load(CREDENTIALS):
+        raise StackError(f"no token saved for {prefix!r}")
+    try:
+        credentials.remove(CREDENTIALS, prefix)
+    except (credentials.CredentialError, OSError) as exc:
+        raise StackError(f"couldn't remove it: {exc}") from None
+
+
 def strip_ansi(s: str) -> str:
     return _ANSI.sub("", s)
 

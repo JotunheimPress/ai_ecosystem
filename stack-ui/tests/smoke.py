@@ -19,7 +19,7 @@ URL = os.environ.get("STACKUI_URL", "http://127.0.0.1:7863").rstrip("/")
 CHROME = os.path.expanduser(os.environ.get("CHROME", ""))
 SHOTS = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/shots")
 THEMES = ["bone", "ember", "moss", "dusk", "harbor", "daylight"]
-SCREENS = ["infrastructure", "frontends", "llms", "images", "vram", "logs", "nodes", "doctor", "about"]
+SCREENS = ["infrastructure", "frontends", "credentials", "llms", "images", "vram", "logs", "nodes", "doctor", "about"]
 
 
 def main() -> int:

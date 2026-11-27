@@ -473,3 +473,6 @@ td.su-warn { color: var(--su-warn); }
 .su-fe-manage { display: inline-flex; gap: 4px; margin-left: auto; }
 /* A note in place of cards spans the whole grid, not one column. */
 .su-grid > p { grid-column: 1 / -1; }
+/* A tag that is also a button (the Frontends card's "No access?" → Credentials). */
+.su-tag-btn { cursor: pointer; font-family: inherit; }
+.su-tag-btn:hover { filter: brightness(1.1); text-decoration: underline; }
