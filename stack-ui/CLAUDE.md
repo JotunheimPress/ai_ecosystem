@@ -156,7 +156,8 @@ appcode/               # pytincture modules_path
 appcode/services/
   stack_api.py         # BFF: overview, action, current_job, doctor, nodes, latest_release
   about.py             # project links + version comparison — BOTH sides (the page imports it)
-  release_check.py     # is a newer release out? GitHub's API, cached; GITHUB_TOKEN for the private repo
+  release_check.py     # is a newer release out? GitHub's API, cached; a saved token for a private repo
+  credentials.py       # tokens for private git repos by host/owner prefix; also stack's git helper
   models_api.py        # BFF: llms, images, select/delete, vram/plan/free, HF + Civitai, downloads
   backends.py          # what KoboldCPP / ComfyUI have loaded right now (see below)
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
@@ -261,6 +262,13 @@ Deliberate, not incidental:
   `stream()`'s second `resolve()` would refuse. With host networking and no proxy the client
   address is the real peer. **A reverse proxy on this machine in front of the dashboard would
   make every request look like the LAN**: don't, or drop this verb.
+- **A token only from the local network, and only for the URL's owner** (issue #28).
+  `StackApi.save_credential(url, token)` → `stackctl.save_credential` writes the credential store
+  (`stackctl.CREDENTIALS`, the file `stack` reads) directly, so the token is never in argv. Same
+  `REQUEST_LAN` gate as `frontend_add_url`, since it decides what this machine can clone; only an
+  https `GIT_URL`; the prefix is the URL's host/owner (`credentials.prefix_for`), never one the
+  browser names; the token must be one printable word (`credentials.TOKEN`). It is never sent
+  back to the browser (nothing lists tokens there yet).
 - **Release / restore are two fixed verbs**, `gpu_release_text` and `gpu_restore_text`
   (`stack gpu-release|gpu-restore koboldcpp`), with no target. The admin password they need
   never reaches the browser or this app: `stack` reads it inside the KoboldCPP container.
@@ -629,8 +637,18 @@ The Frontends screen drives `stack frontend available|add|update|remove` (`ai-st
   newer ones on the sidebar's *Installed apps* entry, and asks again with `force` after any
   `frontend_*` job. A card whose row has `newer` gets a green "vX.Y.Z available" tag and a
   labelled green Update button. Git in the container has no login of its own: a private
-  frontend repo on GitHub is reached with `GITHUB_TOKEN` (tokens.env, which `stack` offers git
-  as a credential helper, since 1.5.0); without one it reads as `unreachable` and shows nothing.
+  frontend repo is reached with a token from the credential store (or the old `GITHUB_TOKEN`),
+  which `stack` offers git as a credential helper; without one it reads as `unreachable` and
+  shows nothing.
+- **Token box** (issue #28): when a `frontend_add` or `frontend_add_url` job fails and its log has
+  `stack`'s `credential needed: <prefix> <url>` line, `stackui._credential_needed` keeps
+  `{verb, target, prefix, url}` as `app.credential_needed`, and the *From a git URL* section
+  (LAN mode only) shows a password box naming the prefix, with how to make a read-only token
+  (GitHub: fine-grained, that owner, *Contents: Read-only*; GitLab: `read_repository`). **Save and
+  retry** calls `StackApi.save_credential`, then runs the same action again without a second
+  confirm (it was just confirmed; the server checks it all again). Drawn only when what it asks
+  for changes (`_cred_key`), so typing survives polls; scrolled into view, since an official
+  Install is further up the screen.
 - `STACK_CATALOG` is passed through to `stack` (tests only; unset in the image).
 - Tests: `tests/test_frontend_actions.py` (what `resolve` accepts), and end to end with the dev
   server on a scratch `AI_ECOSYSTEM` and a test list: install, Official vs Custom, remove refused
@@ -649,7 +667,8 @@ About dialog and toolbar badge), adapted:
   `stack version` and the toolbar can't disagree. A cached answer is dropped when that version
   changes (after an update the old "newer" must not stick).
 - **A private repo or fork** (ai-stack itself was private until it went public): GitHub answers
-  404 for its releases without a token. `GITHUB_TOKEN` (tokens.env, passed in by `run-podman.sh` like `HF_TOKEN`) is sent as a
+  404 for its releases without a token. The credential store's token for `github.com/<owner>`, else
+  `GITHUB_TOKEN` (tokens.env, passed in by `run-podman.sh` like `HF_TOKEN`), is sent as a
   bearer header, only to api.github.com; read-only *Contents* on the repo is enough. Failures are
   told apart for the screen: `private` (404, no token), `token` (sent one, refused), `unreachable`.
   `stack version --check` exists so nobody *needs* a token: it uses git and the user's login.

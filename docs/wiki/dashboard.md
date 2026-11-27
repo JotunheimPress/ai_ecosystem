@@ -55,8 +55,8 @@ screen.
 - **Downloads** run one at a time in a strip at the top; cancelling keeps the partial file, and
   starting again resumes it.
 - **Update badge:** when a newer release is out, an **Update** button appears in the toolbar and
-  opens About. The check asks GitHub at most every 6 hours. A private fork needs a `GITHUB_TOKEN` with read
-  access in `stack-ui/tokens.env`; without one, About says so, and `stack version --check` in a
+  opens About. The check asks GitHub at most every 6 hours. A private fork needs a saved token with read
+  access (`stack credential add https://github.com/OWNER/REPO`); without one, About says so, and `stack version --check` in a
   terminal does the same check with your own git login.
   `STACK_UPDATE_CHECK=off` turns it off.
 - **Doctor from the dashboard:** two checks always fail from inside its container (the NVIDIA

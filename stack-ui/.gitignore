@@ -9,3 +9,6 @@ appcode/wapyt-*.whl
 tests/shots/
 # Download tokens, read by run-podman.sh. Never commit.
 tokens.env
+# Tokens for private frontend repos (services/credentials.py). Never commit.
+credentials.json
+.credentials-*

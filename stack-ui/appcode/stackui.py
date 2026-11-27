@@ -83,6 +83,27 @@ _INSTALL_NOTE = (
     "`stack doctor` in a terminal.")
 
 
+
+def _credential_needed(job: dict, ev: dict, text: str) -> dict | None:
+    """After an install: what `stack` asked a token for when the clone failed (its
+    "credential needed: <prefix> <url>" line), with the action to run again once one is saved:
+    {"verb", "target", "prefix", "url"}. None when it worked or asked for nothing."""
+    if ev.get("exit_code") == 0 or ev.get("error"):
+        return None
+    for line in str(text or "").splitlines():
+        if line.startswith("credential needed: "):
+            parts = line.split(": ", 1)[1].split()
+            if len(parts) == 2 and parts[1].startswith("https://"):
+                return {"verb": str(job.get("verb") or ""), "target": str(job.get("target") or ""),
+                        "prefix": parts[0], "url": parts[1]}
+    return None
+    for line in str(text or "").splitlines():
+        if line.startswith("credential needed: "):
+            prefix = line.split(": ", 1)[1].strip()
+            if prefix and " " not in prefix:
+                return {"url": str(job.get("target") or ""), "prefix": prefix}
+    return None
+
 class StackUI(MainWindow):
     layout_config = LayoutConfig(rows=[
         CellConfig(id="header", height="auto"),
@@ -105,6 +126,9 @@ class StackUI(MainWindow):
         self._dl_stream = None
         self._job_verb = ""
         self.frontend_updates: dict = {}    # repo -> {current, latest, newer, ...}
+        # An install whose clone failed and printed "credential needed: <prefix> <url>":
+        # {verb, target, prefix, url}, for the Frontends screen's token box. None otherwise.
+        self.credential_needed: dict | None = None
         self._dl_bar = None
         self._listeners = Listeners()
         self._poll_proxy = None
@@ -429,6 +453,8 @@ class StackUI(MainWindow):
                     out.textContent += f"\n!! {ev['error']}\n"
                 else:
                     out.textContent += f"\n[exit {ev.get('exit_code')}]\n"
+                if job.get("verb") in ("frontend_add", "frontend_add_url"):
+                    self.credential_needed = _credential_needed(job, ev, out.textContent)
                 if job.get("verb") == "install_comfyui" and ev.get("exit_code") != 0:
                     out.textContent += _INSTALL_NOTE + "\n"
                 self._action_stream.close()

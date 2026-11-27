@@ -12,7 +12,10 @@ a newer release (`stack frontend check`), Update and Remove, and the problems `s
 found in their frontend.json; then the official frontends not installed yet, with Install
 (`stack frontend available|add|update|remove`; the browser sends a name); then installing
 any frontend from its git URL, which only a browser on the local network may do
-(`url_install` from the server, which checks again: `stackctl.REQUEST_LAN`).
+(`url_install` from the server, which checks again: `stackctl.REQUEST_LAN`). When that clone
+(or an official one's) fails and `stack` prints "credential needed: <prefix> <url>", a token
+box in that section saves a read-only token for that host/owner (`StackApi.save_credential`)
+and installs again.
 
 Rendered as escaped HTML with one delegated click listener per view; every value that
 reaches the markup goes through ``esc``.
@@ -437,6 +440,7 @@ class FrontendsView(_Cards):
         self.ov: dict = {}
         self.catalog: dict | None = None     # StackApi.frontend_catalog(); None until it answers
         self._url_mode: bool | None = None   # the URL box as rendered: LAN or not; None = not yet
+        self._cred_key: str | None = None    # the token box as rendered (url + prefix; "" = none)
 
     def mount(self, root) -> None:
         self.root = root
@@ -472,11 +476,19 @@ class FrontendsView(_Cards):
     def unmount(self) -> None:
         self.listeners.clear()
         self._url_mode = None
+        self._cred_key = None
 
     def _on_click(self, ev) -> None:
         btn = closest(ev, "button")
         if btn and not btn.disabled and btn.id == "fe-url-go":
             self._install_url()
+            return
+        if btn and not btn.disabled and btn.id == "fe-cred-save":
+            spawn(self._save_credential(), "save token")
+            return
+        if btn and btn.id == "fe-cred-dismiss":
+            self.app.credential_needed = None
+            self._render_url()
             return
         super()._on_click(ev)
 
@@ -492,6 +504,54 @@ class FrontendsView(_Cards):
             "reviewed it: its build and start scripts run with control of this machine's "
             "containers. Only install a repo you trust. It is cloned next to ai-stack at its "
             "newest release, checked against the stack, and built; the log shows each step."))
+
+    async def _save_credential(self) -> None:
+        """Save the pasted token for the failed repo's host/owner, then run the same install
+        again (what was just confirmed; the server checks it all again)."""
+        need = self.app.credential_needed or {}
+        box = by_id("fe-cred-token")
+        token = str(box.value or "").strip() if box else ""
+        if not token or not need.get("url"):
+            toast("Paste the token first.", "warning")
+            return
+        r = await StackApi().save_credential_async(need["url"], token)
+        if failed(r, "save the token"):
+            return
+        if box:
+            box.value = ""
+        self.app.credential_needed = None
+        self._render_url()
+        toast(f"Saved a token for {r.get('prefix')}. Trying the install again.", "success")
+        self.app.act(need.get("verb") or "frontend_add_url", need.get("target") or need["url"])
+
+    def _cred_html(self, need: dict) -> str:
+        """The token box after a URL install failed with "credential needed"."""
+        prefix = str(need.get("prefix") or "")
+        host, _, owner = prefix.partition("/")
+        if host == "github.com":
+            how = ('GitHub: <a href="https://github.com/settings/personal-access-tokens/new" '
+                   'target="_blank" rel="noreferrer">create a fine-grained token</a>'
+                   + (f' with resource owner <b>{esc(owner)}</b>' if owner else '')
+                   + ', access to only this repository, and <i>Contents: Read-only</i>.')
+        elif host == "gitlab.com":
+            how = ('GitLab: <a href="https://gitlab.com/-/user_settings/personal_access_tokens" '
+                   'target="_blank" rel="noreferrer">create a personal access token</a> with '
+                   'the <i>read_repository</i> scope.')
+        else:
+            how = f'Create a token with read access to the repo on {esc(host)}.'
+        return (
+            '<div class="su-banner"><i class="mdi mdi-key-outline"></i><span>Couldn\'t clone '
+            f'<code>{esc(need.get("url"))}</code>. If it is private, paste a read-only token '
+            f'for <b>{esc(prefix)}</b>. It is saved on this machine '
+            '(<code>stack-ui/credentials.json</code>) and used for every repo under '
+            f'{esc(prefix)}, for installs, updates and update checks.</span></div>'
+            '<div class="su-searchbar su-url-bar">'
+            '<input type="password" id="fe-cred-token" spellcheck="false" autocomplete="off" '
+            'placeholder="token">'
+            '<button class="su-btn su-primary" id="fe-cred-save">'
+            '<i class="mdi mdi-key-plus"></i>Save and retry</button>'
+            '<button class="su-btn su-ghost" id="fe-cred-dismiss">Dismiss</button></div>'
+            f'<p class="su-dim">{how}</p>')
 
     def _render_url(self) -> None:
         """The URL box, drawn once per mode so polling never wipes what's being typed."""
@@ -510,10 +570,11 @@ class FrontendsView(_Cards):
                     '<i class="mdi mdi-download"></i>Install</button></div>'
                     '<p class="su-dim">Its newest release is installed next to ai-stack and built, '
                     'after you confirm. Nobody reviewed it, so only install a repo you trust. A '
-                    'private GitHub repo needs <code>GITHUB_TOKEN</code> with read access in '
-                    '<code>stack-ui/tokens.env</code>. Shown as Custom once installed.</p>')
+                    'private repo asks for a read-only token if the clone fails. Shown as Custom '
+                    'once installed.</p><div id="fe-cred"></div>')
                 self.listeners.on(by_id("fe-url-input"), "keydown",
                                   lambda e: self._install_url() if e.key == "Enter" else None)
+                self._cred_key = None     # a fresh, empty #fe-cred
             else:
                 box.innerHTML = (
                     '<p class="su-dim"><i class="mdi mdi-lock-outline"></i> Only from your local '
@@ -524,6 +585,21 @@ class FrontendsView(_Cards):
         go = by_id("fe-url-go")
         if go:
             go.disabled = bool(self.app.busy)
+        # The token box, drawn only when what it asks for changes, so typing survives polls.
+        cred = by_id("fe-cred")
+        need = self.app.credential_needed if local else None
+        key = f'{need.get("url")} {need.get("prefix")}' if need else ""
+        if cred and key != self._cred_key:
+            self._cred_key = key
+            cred.innerHTML = self._cred_html(need) if need else ""
+            if need:
+                cred.scrollIntoView()          # the URL section is last; an Install may be far up
+                self.listeners.on(by_id("fe-cred-token"), "keydown",
+                                  lambda e: spawn(self._save_credential(), "save token")
+                                  if e.key == "Enter" else None)
+        save = by_id("fe-cred-save")
+        if save:
+            save.disabled = bool(self.app.busy)
 
     def on_overview(self, ov: dict) -> None:
         self.ov = ov

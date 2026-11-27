@@ -16,6 +16,13 @@ releases*).
 
 ## Unreleased
 
+- Feature: private frontend repos no longer need a hand-edited `GITHUB_TOKEN`. When an install
+  fails to clone, the dashboard (from the local network) and a terminal ask for a read-only
+  token and try again. Tokens are saved per host or owner in `stack-ui/credentials.json`
+  (`stack credential add|list|remove`), so repos from two GitHub owners each use their own
+  fine-grained token, and GitLab or Gitea repos work too. A new token works at once, with no
+  dashboard restart. Updates, the update check and About's release check use the same tokens.
+  `GITHUB_TOKEN` in `tokens.env` still works for github.com when nothing saved matches.
 - Change: removing a frontend removes it completely: its container, its image and its folder,
   including the data it saved. It used to refuse whenever the folder held user data. What
   can't be brought back is listed first; a terminal asks, and the dashboard's confirm says so.

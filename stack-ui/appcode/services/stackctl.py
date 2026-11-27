@@ -50,6 +50,9 @@ def _checkout() -> Path:
 CHECKOUT = _checkout()
 ECO = Path(os.environ.get("AI_ECOSYSTEM") or CHECKOUT.parent)
 STACK = CHECKOUT / "stack"
+# The token store for private frontend repos (services/credentials.py): the file `stack` reads
+# as git's credential helper. STACK_CREDENTIALS points elsewhere (tests).
+CREDENTIALS = Path(os.environ.get("STACK_CREDENTIALS") or CHECKOUT / "stack-ui" / "credentials.json")
 
 # This app's own name in the registry. It is never a legal target: `down stackui` or
 # `restart stackui` issued through the UI would kill the server mid-request, leaving the
@@ -201,6 +204,31 @@ LAN_ONLY = ("Installing from a URL works only from the local network, with the d
             "terminal on the stack's machine: stack frontend add <url>")
 
 
+def save_credential(url: str, token: str) -> str:
+    """Save a token for a private frontend repo, after its install from ``url`` failed. Like
+    ``frontend_add_url``, only from the local network: it decides what this machine can
+    clone. Only an https git URL (a token can't help ssh), and the token is saved under the
+    URL's host and owner, never a prefix the browser names. Written straight to the store
+    `stack` reads (no command line, so the token is never in argv). Returns the prefix."""
+    from services import credentials
+
+    if not REQUEST_LAN.get():
+        raise StackError("Saving a token works only from the local network, like installing "
+                         "from a URL; in a terminal: stack credential add <url>")
+    url = (url or "").strip()
+    if len(url) > 300 or not GIT_URL.match(url) or not url.startswith("https://"):
+        raise StackError("a token is for an https git URL (https://host/owner/repo)")
+    prefix = credentials.prefix_for(url)
+    if prefix is None:
+        raise StackError(f"not a git URL: {url!r}")
+    try:
+        return credentials.save(CREDENTIALS, url, token or "")
+    except credentials.CredentialError as exc:
+        raise StackError(str(exc)) from None
+    except OSError as exc:
+        raise StackError(f"couldn't save the token: {exc.strerror or exc}") from None
+
+
 def strip_ansi(s: str) -> str:
     return _ANSI.sub("", s)
 
@@ -224,10 +252,11 @@ def available() -> bool:
 # STACK_GPU: the host's GPU, set by run-podman.sh. The start scripts can't detect it from
 # in here, and without it they launch the backends with no GPU (lib/host.sh).
 # STACK_CATALOG: another official-frontend list, for tests only (unset in the image).
-# GITHUB_TOKEN: private frontend repos on GitHub (`stack frontend add|update|check`; stack
-# would also find it in stack-ui/tokens.env, but this doesn't depend on the mount).
+# GITHUB_TOKEN: the old single token for private frontend repos on GitHub, still honoured when
+# the credential store has nothing for a repo (stack would also find it in tokens.env).
+# STACK_CREDENTIALS: another credential store, for tests only (unset in the image).
 _PASSTHROUGH = ("AI_ECOSYSTEM", "CONTAINER_HOST", "DBUS_SESSION_BUS_ADDRESS", "STACK_GPU",
-                "COMFYUI_PORT", "STACK_CATALOG", "GITHUB_TOKEN")
+                "COMFYUI_PORT", "STACK_CATALOG", "GITHUB_TOKEN", "STACK_CREDENTIALS")
 
 
 def _env() -> dict:
