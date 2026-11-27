@@ -160,16 +160,40 @@ def _caches(dest):
         (dest / d / "x").write_text("x")
 
 
-def test_remove_keeps_a_folder_with_user_data(env):
+def test_remove_lists_user_data_and_needs_yes_without_a_terminal(env):
     env["run"]("frontend", "add", "demo")
     dest = env["eco"] / "demo"
     (dest / "data").mkdir()
     (dest / "data" / "save.db").write_text("x")
     _caches(dest)
-    out = env["run"]("frontend", "remove", "demo", check=False)
-    assert out.returncode != 0 and "data/" in out.stdout
+    out = env["run"]("frontend", "remove", "demo", check=False)    # no terminal, no --yes
+    assert out.returncode != 0 and "data/" in out.stdout and "--yes" in out.stdout
     assert not any(c in out.stdout for c in ("__pycache__", ".venv", ".pytest_cache"))
     assert dest.exists() and "built.log" in out.stdout
+
+
+def test_remove_yes_deletes_everything_data_included(env):
+    env["run"]("frontend", "add", "demo")
+    dest = env["eco"] / "demo"
+    (dest / "data").mkdir()
+    (dest / "data" / "save.db").write_text("x")
+    (dest / "frontend.json").write_text((dest / "frontend.json").read_text() + "\n")  # a local change
+    out = env["run"]("frontend", "remove", "--yes", "demo").stdout        # the dashboard's order
+    assert "deleted too" in out and "removed demo" in out and not dest.exists()
+    log = env["log"].read_text()
+    assert "rm -f demo" in log and "rmi localhost/demo:latest" in log
+
+
+def test_remove_finds_the_image_of_a_frontend_that_never_ran(env):
+    # No container to ask: the image comes from the start script's IMAGE= line.
+    env["run"]("frontend", "add", "demo")
+    dest = env["eco"] / "demo"
+    (dest / "run.sh").write_text('IMAGE="localhost/demo-app:latest"\nexit 0\n')
+    bin_ = env["log"].parent / "bin"
+    (bin_ / "podman").write_text(f'#!/bin/bash\necho "$*" >> {env["log"]}\n'
+                                 'case "$1 $2" in "container inspect") exit 125;; esac\nexit 0\n')
+    out = env["run"]("frontend", "remove", "demo", "--yes").stdout
+    assert "removed image localhost/demo-app:latest" in out and not dest.exists()
 
 
 def test_remove_stops_it_and_deletes_a_clean_clone(env):

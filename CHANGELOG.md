@@ -16,6 +16,9 @@ releases*).
 
 ## Unreleased
 
+- Change: removing a frontend removes it completely: its container, its image and its folder,
+  including the data it saved. It used to refuse whenever the folder held user data. What
+  can't be brought back is listed first; a terminal asks, and the dashboard's confirm says so.
 - Fix: the dashboard starts again on NVIDIA hosts whose `ldconfig -p` lists `libnvidia-ml` early.
   `run-podman.sh` died silently there (a SIGPIPE under `pipefail`), after it had already removed
   the running dashboard, so `stack install stackui` left no dashboard at all. It also no longer

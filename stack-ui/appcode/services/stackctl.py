@@ -124,7 +124,8 @@ VERBS: dict[str, Verb] = {
     # plain git URL, and `stack` checks it all again. The confirm happened in the browser.
     "frontend_add_url": Verb(["frontend", "add", "--yes"], True, target="url", stream=True),
     "frontend_update": Verb(["frontend", "update"], True, target="frontend", stream=True),
-    "frontend_remove": Verb(["frontend", "remove"], True, target="frontend", stream=True),
+    # --yes: the page has already confirmed, in the danger style, that its data goes too.
+    "frontend_remove": Verb(["frontend", "remove", "--yes"], True, target="frontend", stream=True),
 }
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
