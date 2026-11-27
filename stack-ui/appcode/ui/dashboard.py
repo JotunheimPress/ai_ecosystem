@@ -486,6 +486,9 @@ class FrontendsView(_Cards):
         if btn and not btn.disabled and btn.id == "fe-cred-save":
             spawn(self._save_credential(), "save token")
             return
+        if btn and attr(btn, "data-cred-url"):
+            self.app.go("credentials", url=attr(btn, "data-cred-url"))
+            return
         if btn and btn.id == "fe-cred-dismiss":
             self.app.credential_needed = None
             self._render_url()
@@ -688,6 +691,14 @@ class FrontendsView(_Cards):
             now = f'; this is {upd["current"]}' if upd.get("current") else ""
             label += (f'<span class="su-tag su-newer" title="{esc(f"{latest} is out{now}. Update installs it.")}">'
                       f'<i class="mdi mdi-arrow-up-circle"></i>{esc(latest)} available</span> ')
+        # Its repo couldn't be asked (stack frontend check): offline, or private with no token
+        # that works. A link to Credentials with its URL filled in.
+        origin = str(upd.get("origin") or "")
+        if upd.get("reason") == "unreachable" and origin.startswith("https://"):
+            label += (f'<button class="su-tag su-custom su-tag-btn" data-cred-url="{esc(origin)}" '
+                      'title="Couldn\'t ask its repo for updates: offline, or a private repo '
+                      'without a working token. Opens Credentials.">'
+                      '<i class="mdi mdi-key-alert-outline"></i>No access?</button> ')
         manage = self._manage_buttons(a["name"], a.get("label") or a["name"], latest)
         return (f'<div class="su-card su-frontend {"up" if a.get("up") else "down"}">'
                 f'{self._head(a, sub, title_html=title)}'

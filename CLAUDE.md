@@ -214,6 +214,12 @@ since 1.5.2). Adding one is a PR that adds its entry
   clone's origin; `check` sets it per repo), or git's `path` with `credential.useHttpPath`.
   The old `GITHUB_TOKEN` (env, else `stack-ui/tokens.env`, parsed; `STACK_TOKENS` for tests)
   still answers for github.com when nothing saved matches, via `STACK_GIT_TOKEN`.
+  Git's helper also records the day it last *used* each prefix, in `credentials-used.json`
+  beside the store (at most one write a day per prefix, failures ignored): never in the token
+  file, which runs of parallel helpers must not rewrite. The dashboard's **Credentials** screen
+  lists, tests and removes entries (`stack-ui/CLAUDE.md` → *Credentials screen*). `frontend
+  check` rows carry `origin` (userinfo stripped) so a card can link to it; a failed `update`
+  points there too.
   **A failed https clone** in `add` prints `credential needed: <prefix> <url>` (the dashboard
   turns that line into a token box, `stack-ui/CLAUDE.md` → *Installing frontends*); in a
   terminal it also asks for a token (hidden, Enter skips), saves it and clones once more.

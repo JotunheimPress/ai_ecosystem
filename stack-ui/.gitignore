@@ -12,3 +12,4 @@ tokens.env
 # Tokens for private frontend repos (services/credentials.py). Never commit.
 credentials.json
 .credentials-*
+credentials-used.json

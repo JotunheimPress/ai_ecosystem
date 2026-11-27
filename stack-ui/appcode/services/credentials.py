@@ -7,6 +7,12 @@
         "github.com/JotunheimPress": {"token": "github_pat_…"},
         "gitlab.com":               {"token": "glpat-…", "username": "oauth2"}}}
 
+An entry may also carry what the dashboard's **Test** found: ``checked`` (a date), ``check_ok``,
+``check_note`` and ``expires`` (GitHub reports a token's expiry). When git last *used* each
+token is kept apart, in ``credentials-used.json`` beside it (``used_path``), written by the helper
+at most once a day per prefix: the helper runs inside git, often several at once (``stack
+frontend check``), and must never rewrite the file that holds the tokens.
+
 A prefix is a host, optionally followed by path segments (owner, repo). The longest one that
 matches a repo's URL wins, so a fine-grained GitHub token, which covers one owner, sits under
 that owner and two owners each get their own. Matching ignores case and a trailing ``.git``.
@@ -102,16 +108,19 @@ def load(store: Path) -> dict:
 
 
 def _write(store: Path, creds: dict) -> None:
+    _write_json(Path(store), {"version": VERSION, "credentials": dict(sorted(creds.items()))})
+
+
+def _write_json(path: Path, doc: dict) -> None:
     """Atomically, mode 600 from the first byte (never world-readable, even briefly)."""
-    store = Path(store)
-    store.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".credentials-", dir=store.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".credentials-", dir=path.parent)
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"version": VERSION, "credentials": dict(sorted(creds.items()))}, f, indent=2)
+            json.dump(doc, f, indent=2)
             f.write("\n")
-        os.replace(tmp, store)
+        os.replace(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -126,19 +135,29 @@ def default_username(host: str) -> str:
     return "oauth2" if host.split(":")[0].startswith("gitlab.") else "x-access-token"
 
 
-def lookup(url: str, store: Path) -> tuple[str, str] | None:
-    """(username, token) of the longest saved prefix matching ``url``, or None."""
+def best_prefix(url: str, prefixes) -> str | None:
+    """The longest of ``prefixes`` that ``url`` falls under (whole path segments), or None."""
     key = key_of(url)
     if key is None:
         return None
-    best = None
-    for prefix, entry in load(store).items():
-        if (key == prefix or key.startswith(prefix + "/")) and (best is None or len(prefix) > len(best[0])):
-            best = (prefix, entry)
-    if best is None:
+    hits = [p for p in prefixes if key == p or key.startswith(p + "/")]
+    return max(hits, key=len) if hits else None
+
+
+def match(url: str, store: Path) -> tuple[str, dict] | None:
+    """(prefix, entry) of the longest saved prefix matching ``url``, or None."""
+    creds = load(store)
+    prefix = best_prefix(url, creds)
+    return (prefix, creds[prefix]) if prefix else None
+
+
+def lookup(url: str, store: Path) -> tuple[str, str] | None:
+    """(username, token) of the longest saved prefix matching ``url``, or None."""
+    found = match(url, store)
+    if found is None:
         return None
-    host = best[0].split("/", 1)[0]
-    return str(best[1].get("username") or default_username(host)), best[1]["token"]
+    prefix, entry = found
+    return str(entry.get("username") or default_username(prefix.split("/", 1)[0])), entry["token"]
 
 
 def save(store: Path, where: str, token: str, username: str = "") -> str:
@@ -156,6 +175,45 @@ def save(store: Path, where: str, token: str, username: str = "") -> str:
     return prefix
 
 
+def annotate(store: Path, prefix: str, **fields) -> None:
+    """Record what a test found on an entry (``checked``, ``check_ok``, ``check_note``,
+    ``expires``); never the token. A prefix that has gone meanwhile is left gone."""
+    creds = load(store)
+    p = _clean_prefix(prefix)
+    if p not in creds:
+        return
+    allowed = {"checked", "check_ok", "check_note", "expires"}
+    creds[p].update({k: v for k, v in fields.items() if k in allowed})
+    _write(store, creds)
+
+
+def used_path(store: Path) -> Path:
+    return Path(store).with_name(Path(store).stem + "-used.json")
+
+
+def load_used(store: Path) -> dict:
+    try:
+        doc = json.loads(used_path(store).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in doc.items() if isinstance(k, str) and isinstance(v, str)} \
+        if isinstance(doc, dict) else {}
+
+
+def mark_used(store: Path, prefix: str) -> None:
+    """Remember that git used this prefix's token today. Best effort: at most one write a day
+    per prefix, and any failure (a read-only mount, a race with another git) is ignored."""
+    today = datetime.date.today().isoformat()
+    try:
+        used = load_used(store)
+        if used.get(prefix) == today:
+            return
+        used[prefix] = today
+        _write_json(used_path(store), used)
+    except OSError:
+        pass
+
+
 def remove(store: Path, prefix: str) -> bool:
     creds = load(store)
     p = _clean_prefix(prefix)
@@ -167,9 +225,14 @@ def remove(store: Path, prefix: str) -> bool:
 
 
 def listing(store: Path) -> list[dict]:
-    """What is saved, with the token reduced to its last four characters."""
+    """What is saved, with the token reduced to its last four characters, plus when git last
+    used it and what the last test found."""
+    used = load_used(store)
     return [{"prefix": p, "added": str(e.get("added") or ""),
-             "username": str(e.get("username") or ""), "hint": "…" + e["token"][-4:]}
+             "username": str(e.get("username") or ""), "hint": "…" + e["token"][-4:],
+             "used": used.get(p, ""), "checked": str(e.get("checked") or ""),
+             "check_ok": e.get("check_ok") if isinstance(e.get("check_ok"), bool) else None,
+             "check_note": str(e.get("check_note") or ""), "expires": str(e.get("expires") or "")}
             for p, e in sorted(load(store).items())]
 
 
@@ -187,7 +250,9 @@ def helper_get(fields: dict, store: Path, env: dict) -> str:
     if not fields.get("path") and hinted and hinted.split("/", 1)[0] == host:
         url = env["STACK_GIT_URL"]
     found = lookup(url, store)
-    if found is None and host == "github.com" and env.get("STACK_GIT_TOKEN", "").strip():
+    if found is not None:
+        mark_used(store, match(url, store)[0])
+    elif host == "github.com" and env.get("STACK_GIT_TOKEN", "").strip():
         found = ("x-access-token", env["STACK_GIT_TOKEN"].strip())
     if found is None:
         return ""
@@ -227,7 +292,8 @@ def main(argv: list[str]) -> int:
                 print(json.dumps({"credentials": rows}))
             else:
                 for r in rows:
-                    print(f"  {r['prefix']:<40} {r['hint']}  {r['added']}")
+                    used = f"used {r['used']}" if r["used"] else "not used yet"
+                    print(f"  {r['prefix']:<40} {r['hint']}  added {r['added']}, {used}")
                 if not rows:
                     print("  no tokens saved")
         elif cmd == "prefix" and len(args) == 1:

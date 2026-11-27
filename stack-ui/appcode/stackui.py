@@ -48,6 +48,7 @@ from services.stack_api import StackApi
 from ui.about import AboutView
 from ui.common import (Listeners, Stream, attr, by_id, closest, container_of, failed,
                        fmt_bytes, link, spawn, toast)
+from ui.credentials import CredentialsView
 from ui.dashboard import FrontendsView, InfrastructureView
 from ui.images import ImagesView
 from ui.llms import LlmsView
@@ -64,6 +65,7 @@ POLL_MS = 10_000
 SCREENS = {
     "infrastructure": InfrastructureView,
     "frontends": FrontendsView,
+    "credentials": CredentialsView,
     "llms": LlmsView,
     "images": ImagesView,
     "vram": VramView,
@@ -190,6 +192,8 @@ class StackUI(MainWindow):
                 SidebarItem(id="vram", label="VRAM planner", icon="mdi-memory"),
                 SidebarHeading(label="Frontends"),
                 SidebarItem(id="frontends", label="Installed apps", icon="mdi-apps"),
+                SidebarItem(id="credentials", label="Credentials", icon="mdi-key-chain-variant",
+                            tooltip="Read-only tokens for private frontend repos"),
                 SidebarHeading(label="System"),
                 SidebarItem(id="logs", label="Logs", icon="mdi-text-long"),
                 SidebarItem(id="nodes", label="Custom nodes", icon="mdi-puzzle-outline"),
@@ -291,7 +295,8 @@ class StackUI(MainWindow):
             self.screen.on_overview(self.overview)
         if self.sidebar.get_active() != screen_id:
             self.sidebar.set_active(screen_id)
-        self.toolbar.set_active("ws-front" if screen_id == "frontends" else "ws-infra", True)
+        self.toolbar.set_active("ws-front" if screen_id in ("frontends", "credentials")
+                                else "ws-infra", True)
 
     # --- polling ---------------------------------------------------------------
     def _tick(self, *_):

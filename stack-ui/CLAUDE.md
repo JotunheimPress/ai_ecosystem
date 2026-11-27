@@ -22,6 +22,8 @@ Start/Stop, the separate **Start at boot** toggle, and the **workspace switch**)
   them, an **Official / Custom** label, **Update** and **Remove**, the `frontend.json` problems
   `stack` found, and "Stop all frontends"; then **Available**: the official frontends not
   installed yet, each with **Install** (or why it can't be). See *Installing frontends* below.
+  Its second screen, **Credentials** (`#/credentials`), manages tokens for private repos
+  (*Credentials screen* below).
 
 **Themes** (since 2026-11-19, like Whimsy's): swatches under the sidebar pick one of Whimsy's five
 dark colourways (Bone, Ember, Moss, Dusk, Harbor, same palettes) or Daylight. `ui/themes.py` sets
@@ -150,6 +152,7 @@ appcode/               # pytincture modules_path
     vramview.py        #   VRAM planner
     system.py          #   Logs, Custom nodes, Doctor
     about.py           #   About: release, update check, how to update, project links
+    credentials.py     #   Credentials: saved repo tokens (hidden), Test, Remove, Add
   static/stackui.css   # served at /static (no-cache, so a rebuild's CSS shows on next load);
                        #   the palettes and wapyt's tokens mapped onto them
   wapyt-99.99.99-*.whl # the BROWSER's wapyt (git-ignored; dev_wheel.sh / the Containerfile)
@@ -158,6 +161,7 @@ appcode/services/
   about.py             # project links + version comparison — BOTH sides (the page imports it)
   release_check.py     # is a newer release out? GitHub's API, cached; a saved token for a private repo
   credentials.py       # tokens for private git repos by host/owner prefix; also stack's git helper
+  credential_check.py  # the Credentials screen: what each token covers, testing one
   models_api.py        # BFF: llms, images, select/delete, vram/plan/free, HF + Civitai, downloads
   backends.py          # what KoboldCPP / ComfyUI have loaded right now (see below)
   stackctl.py          # THE security boundary: verb allowlist, target validation, exec
@@ -267,8 +271,10 @@ Deliberate, not incidental:
   (`stackctl.CREDENTIALS`, the file `stack` reads) directly, so the token is never in argv. Same
   `REQUEST_LAN` gate as `frontend_add_url`, since it decides what this machine can clone; only an
   https `GIT_URL`; the prefix is the URL's host/owner (`credentials.prefix_for`), never one the
-  browser names; the token must be one printable word (`credentials.TOKEN`). It is never sent
-  back to the browser (nothing lists tokens there yet).
+  browser names; the token must be one printable word (`credentials.TOKEN`). **No token ever
+  goes back to the browser**: listings carry the last four characters. Removing
+  (`stackctl.remove_credential`) is LAN-only too and takes only a prefix the store holds.
+  Testing (`credential_test`) isn't gated: it only reads, and records the result.
 - **Release / restore are two fixed verbs**, `gpu_release_text` and `gpu_restore_text`
   (`stack gpu-release|gpu-restore koboldcpp`), with no target. The admin password they need
   never reaches the browser or this app: `stack` reads it inside the KoboldCPP container.
@@ -656,6 +662,35 @@ The Frontends screen drives `stack frontend available|add|update|remove` (`ai-st
 - **Remove is complete** (since 2026-11-26): `frontend_remove` runs `stack frontend remove --yes
   NAME`, so the container, the image and the folder go, data included. The confirm says so in
   the danger style; the log lists what git couldn't have brought back.
+
+## Credentials screen (issue #28 step 4)
+
+`#/credentials` (`ui/credentials.py`, sidebar *Frontends → Credentials*; the toolbar shows the
+Frontends workspace). The store and git's helper are `services/credentials.py`
+(`../CLAUDE.md` → *Private repos*); the screen's server side is `services/credential_check.py`
+behind `StackApi.credentials | credential_test | credential_remove | save_credential`.
+
+- **One card per saved prefix**: last four characters, added, username if not the default,
+  **Covers** (the installed frontends whose https origin best-matches it, as git's helper would
+  pick), **Used** (from `credentials-used.json`, which the helper writes), the last **Tested**
+  result and GitHub's **Expires** (red within 14 days). Installed https frontends with no token are
+  named under the cards (public, or reached with your own login).
+- **Test** (`credential_check.test`): `git ls-remote <origin> HEAD` on every frontend the prefix
+  covers, with *only* the stack's helper (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`,
+  so a host login can't answer instead and make a dead token pass), 15 s each, 4 at a time; plus,
+  for github.com, `GET api.github.com/rate_limit` with the token (every token may read it and it
+  costs no quota): 401 = expired or revoked, and the `github-authentication-token-expiration`
+  header is the expiry. Saved on the entry (`credentials.annotate`: `checked`, `check_ok`,
+  `check_note`, `expires`). The result says `passed` (True/False/None = couldn't tell), never
+  `ok`, which is the BFF's own success flag.
+- **Add a token** (LAN only, `lan` in `credentials()`): a repo's https URL + the token →
+  `save_credential`, saved under its host/owner, then tested. **Remove** asks in the danger style,
+  naming the frontends that lose it. After either, the frontend update check runs again.
+- **"No access?"** on a Frontends card: its update-check row has `reason: unreachable` and an
+  https `origin` (`stack frontend check` adds it, userinfo stripped); it opens this screen with
+  `go("credentials", url=origin)` and the Add form filled in.
+- Tests: `tests/test_credential_check.py` (git and GitHub faked), `tests/test_credentials.py`;
+  the smoke test visits the screen.
 
 ## About and the release check (since 2026-11-20)
 
